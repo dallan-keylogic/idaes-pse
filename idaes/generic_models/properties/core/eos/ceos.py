@@ -99,51 +99,79 @@ class Cubic(EoSBase):
 
         ctype = pobj._cubic_type
         cname = pobj.config.equation_of_state_options["type"].name
-
+        import pdb
+        #pdb.set_trace()
         if hasattr(b, cname+"_fw"):
             # Common components already constructed by previous phase
             return
-
+        
+        # try:
+        #     alpha_func = pobj.config.equation_of_state_options["alpha"]
+        # except (KeyError, TypeError):
+        #     if ctype == CubicType.PR:
+        #         alpha_func = alpha_func_default_PR
+        #     elif ctype == CubicType.SRK:
+        #         alpha_func = alpha_func_default_SRK
+        #     else:
+        #         raise BurntToast(
+        #                 "{} received unrecognized cubic type. This should "
+        #                 "never happen, so please contact the IDAES developers "
+        #                 "with this bug.".format(b.name))
+        
+        
         # Create expressions for coefficients
         def func_fw(m, j):
             cobj = m.params.get_component(j)
-            if ctype == CubicType.PR:
-                return 0.37464 + 1.54226*cobj.omega - \
-                       0.26992*cobj.omega**2
-            elif ctype == CubicType.SRK:
-                return 0.48 + 1.574*cobj.omega - \
-                       0.176*cobj.omega**2
-            else:
-                raise BurntToast(
-                        "{} received unrecognized cubic type. This should "
-                        "never happen, so please contact the IDAES developers "
-                        "with this bug.".format(b.name))
+            try:
+                return pobj.config.equation_of_state_options["fw"](cobj.omega)
+            except (KeyError, TypeError):
+                if ctype == CubicType.PR:
+                    return 0.37464 + 1.54226*cobj.omega - \
+                           0.26992*cobj.omega**2
+                elif ctype == CubicType.SRK:
+                    return 0.48 + 1.574*cobj.omega - \
+                           0.176*cobj.omega**2
+                else:
+                    raise BurntToast(
+                            "{} received unrecognized cubic type. This should "
+                            "never happen, so please contact the IDAES developers "
+                            "with this bug.".format(b.name))
 
         b.add_component(cname+'_fw',
                         Expression(b.component_list,
                                    rule=func_fw,
                                    doc='EoS S factor'))
-
-        def func_a(m, j):
+        
+        def rule_alpha(m,j):
+            alpha_func = get_alpha_func(pobj)
             cobj = m.params.get_component(j)
             fw = getattr(m, cname+"_fw")
-            return (EoS_param[ctype]['omegaA']*(
-                       (Cubic.gas_constant(b) *
-                        cobj.temperature_crit)**2/cobj.pressure_crit) *
-                    ((1+fw[j]*(1-sqrt(m.temperature /
-                                      cobj.temperature_crit)))**2))
+            return alpha_func(m.temperature,fw[j] , cobj)
+        
+        b.add_component(cname+'_alpha',
+                Expression(b.component_list,
+                           rule=rule_alpha,
+                           doc='Component alpha coefficient'))
+                
+        
+        def rule_a(m, j):
+            cobj = m.params.get_component(j)
+            alphaj = getattr(m, cname+"_alpha")[j]
+            return a_func(EoS_param[ctype]['omegaA'], Cubic.gas_constant(b), 
+                          alphaj, cobj)
+        
         b.add_component(cname+'_a',
                         Expression(b.component_list,
-                                   rule=func_a,
+                                   rule=rule_a,
                                    doc='Component a coefficient'))
 
-        def func_b(m, j):
+        def rule_b(m, j):
             cobj = m.params.get_component(j)
-            return (EoS_param[ctype]['coeff_b'] * Cubic.gas_constant(b) *
-                    cobj.temperature_crit/cobj.pressure_crit)
+            return b_func(EoS_param[ctype]['coeff_b'],
+                          Cubic.gas_constant(b), cobj)
         b.add_component(cname+'_b',
                         Expression(b.component_list,
-                                   rule=func_b,
+                                   rule=rule_b,
                                    doc='Component b coefficient'))
 
         def rule_am(m, p):
@@ -154,6 +182,7 @@ class Cubic(EoSBase):
                 rule = MixingRuleA.default
 
             a = getattr(m, cname+"_a")
+
             if rule == MixingRuleA.default:
                 return rule_am_default(m, cname, a, p)
             else:
@@ -209,25 +238,39 @@ class Cubic(EoSBase):
         b.add_component(cname+"_delta",
                         Expression(b.phase_component_set,
                                    rule=rule_delta))
-
+        
+        def rule_dalpha_dT(m,j):
+            fw = getattr(m, cname+"_fw")
+        
+        # TODO this also depends on the mixing rule
         def rule_dadT(m, p):
             # See pg. 102 in Properties of Gases and Liquids
+            alpha = getattr(m, cname+"_alpha")
             a = getattr(m, cname+"_a")
             fw = getattr(m, cname+"_fw")
             kappa = getattr(m.params, cname+"_kappa")
-            return -((Cubic.gas_constant(b)/2)*sqrt(EoS_param[ctype]['omegaA']) *
-                     sum(sum(m.mole_frac_phase_comp[p, i] *
-                             m.mole_frac_phase_comp[p, j] *
-                             (1-kappa[i, j]) *
-                             (fw[j]*sqrt(a[i] *
-                              m.params.get_component(j).temperature_crit /
-                              m.params.get_component(j).pressure_crit) +
-                              fw[i]*sqrt(a[j] *
-                              m.params.get_component(i).temperature_crit /
-                              m.params.get_component(i).pressure_crit))
-                             for j in m.components_in_phase(p))
-                         for i in m.components_in_phase(p)) /
-                     sqrt(m.temperature))
+            try:
+                dalpha_dT = pobj.config.equation_of_state_options["dalpha_dT"]
+            except (KeyError, TypeError):
+                dalpha_dT = dalpha_dT_default
+            # In case we support temperature dependence for kappa in the future
+            def dkappaijdT(i,j):
+                return 0
+            
+            def daijdT(i,j):
+                return (sqrt(a[i]*a[j])
+                        * (-dkappaijdT(i,j) + (1-kappa[i,j])/2
+                           * (1/alpha[i]*dalpha_dT(m.temperature,fw[i],
+                                    m.params.get_component(i))
+                              + 1/alpha[j]*dalpha_dT(m.temperature,fw[j],
+                                    m.params.get_component(j)))
+                           )
+                        )
+            return sum(sum(m.mole_frac_phase_comp[p, i] *
+                              m.mole_frac_phase_comp[p, j] * daijdT(i,j)
+                          for j in m.components_in_phase(p))
+                       for i in m.components_in_phase(p))
+        
         b.add_component(cname+"_dadT",
                         Expression(b.phase_list,
                                    rule=rule_dadT))
@@ -235,18 +278,28 @@ class Cubic(EoSBase):
         # Add components at equilibrium state if required
         if (b.params.config.phases_in_equilibrium is not None and
                 (not b.config.defined_state or b.always_flash)):
-            def func_a_eq(m, p1, p2, j):
+            def rule_alpha_eq(m, p1, p2, j):
+                alpha_func = get_alpha_func(pobj)
                 cobj = m.params.get_component(j)
                 fw = getattr(m, cname+"_fw")
-                return (EoS_param[ctype]['omegaA']*(
-                            (Cubic.gas_constant(b) *
-                             cobj.temperature_crit)**2/cobj.pressure_crit) *
-                        ((1+fw[j]*(1-sqrt(m._teq[p1, p2] /
-                                          cobj.temperature_crit)))**2))
+                return alpha_func(m._teq[p1, p2],fw[j],cobj)
+            
+            b.add_component('_'+cname+'_alpha_eq',
+                    Expression(b.params._pe_pairs,
+                               b.component_list,
+                               rule=rule_alpha_eq,
+                               doc='Component alpha coefficient at Teq'))
+            
+            def rule_a_eq(m, p1, p2, j):
+                cobj = m.params.get_component(j)
+                alphaj_eq = getattr(m, "_"+cname+"_alpha_eq")[p1,p2,j]
+                return a_func(EoS_param[ctype]['omegaA'], Cubic.gas_constant(b), 
+                              alphaj_eq, cobj)
+            
             b.add_component('_'+cname+'_a_eq',
                             Expression(b.params._pe_pairs,
                                        b.component_list,
-                                       rule=func_a_eq,
+                                       rule=rule_a_eq,
                                        doc='Component a coefficient at Teq'))
 
             def rule_am_eq(m, p1, p2, p3):
@@ -579,6 +632,8 @@ class Cubic(EoSBase):
     def fug_coeff_phase_comp_eq(blk, p, j, pp):
         return exp(_log_fug_coeff_phase_comp_eq(blk, p, j, pp))
 
+    #TODO all these bubble and dew point calculations hardcode mixing rules
+    #which is a landmine for whoever tries to implement the first option
     @staticmethod
     def log_fug_phase_comp_Tbub(blk, p, j, pp):
         pobj = blk.params.get_phase(p)
@@ -599,12 +654,11 @@ class Cubic(EoSBase):
 
         def a(k):
             cobj = blk.params.get_component(k)
-            fw = getattr(blk, cname+"_fw")[k]
-            return (EoS_param[ctype]['omegaA'] *
-                    ((Cubic.gas_constant(blk) * cobj.temperature_crit)**2 /
-                     cobj.pressure_crit) *
-                    ((1+fw*(1-sqrt(blk.temperature_bubble[pp] /
-                                   cobj.temperature_crit)))**2))
+            fw = getattr(m, cname+"_fw")
+            alpha_func = get_alpha_func(pobj)
+            alphak = alpha_func(blk.temperature_bubble[pp],fw[k],cobj)
+            return a_func(EoS_param[ctype]['omegaA'], Cubic.gas_constant(blk), 
+                          alphak, cobj)
 
         kappa = getattr(blk.params, cname+"_kappa")
         am = sum(sum(x[xidx, i]*x[xidx, j]*sqrt(a(i)*a(j))*(1-kappa[i, j])
@@ -658,12 +712,11 @@ class Cubic(EoSBase):
 
         def a(k):
             cobj = blk.params.get_component(k)
-            fw = getattr(blk, cname+"_fw")[k]
-            return (EoS_param[ctype]['omegaA'] *
-                    ((Cubic.gas_constant(blk) * cobj.temperature_crit)**2 /
-                     cobj.pressure_crit) *
-                    ((1+fw*(1-sqrt(blk.temperature_dew[pp] /
-                                   cobj.temperature_crit)))**2))
+            fw = getattr(m, cname+"_fw")
+            alpha_func = get_alpha_func(pobj)
+            alphak = alpha_func(blk.temperature_dw[pp],fw[k],cobj)
+            return a_func(EoS_param[ctype]['omegaA'], Cubic.gas_constant(blk), 
+                          alphak, cobj)
 
         kappa = getattr(blk.params, cname+"_kappa")
         am = sum(sum(x[xidx, i]*x[xidx, j]*sqrt(a(i)*a(j))*(1-kappa[i, j])
@@ -866,6 +919,21 @@ def _log_fug_coeff_method(A, b, bm, B, delta, Z, cubic_type):
 
 
 # -----------------------------------------------------------------------------
+def alpha_func_default(T, fw, cobj):
+    Tr = T /cobj.temperature_crit
+    return (1+fw*(1-sqrt(Tr)))**2
+
+def dalpha_dT_default(T,fw,cobj):
+                Tr = T /cobj.temperature_crit
+                return -fw/sqrt(T*cobj.temperature_crit)*(1+fw*(1-sqrt(Tr)))
+
+def a_func(omegaA, R, alphaj, cobj):
+    return (omegaA*((R * cobj.temperature_crit)**2/cobj.pressure_crit)
+                    * alphaj)
+
+def b_func(coeff_b, R, cobj):
+            return coeff_b * R * cobj.temperature_crit/cobj.pressure_crit
+
 # Mixing rules
 def rule_am_default(m, cname, a, p, pp=()):
     k = getattr(m.params, cname+"_kappa")
@@ -879,3 +947,11 @@ def rule_am_default(m, cname, a, p, pp=()):
 def rule_bm_default(m, b, p):
     return sum(m.mole_frac_phase_comp[p, i]*b[i]
                for i in m.components_in_phase(p))
+
+def get_alpha_func(pobj):
+    ctype = pobj._cubic_type
+    try:
+        alpha_func = pobj.config.equation_of_state_options["alpha"]
+    except (KeyError, TypeError):
+        alpha_func = alpha_func_default
+    return alpha_func

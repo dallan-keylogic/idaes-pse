@@ -207,6 +207,94 @@ def m_sol():
 
     return m
 
+# Expression for alpha from Stryjek and Vera 1986: "An Improved Peng-Robinson
+# Equation of State for Pure Compounds and Mixtures"
+def omega_func(omega):
+    return (0.378893 + 1.4897153*omega - 0.17131848*omega**2 
+              + 0.0196554*omega**3)
+def alpha_func(T, fw, cobj):
+    TR = T /cobj.temperature_crit
+    kappa1 = cobj.config.parameter_data["kappa1"]
+    kappa = fw + kappa1*(1 + sqrt(TR))*(0.7 - TR)
+    return (1 + kappa*(1-sqrt(TR)))**2
+
+def dalpha_dT_func(T,fw,cobj):
+    Tc = cobj.temperature_crit
+    Tr = T /Tc
+    kappa1 = cobj.config.parameter_data["kappa1"]
+    kappa = fw + kappa1*(1 + sqrt(Tr))*(0.7 - Tr)
+    dkappa_dT = kappa1*((0.7 - Tr)/(2*sqrt(T*Tc)) - (1 + sqrt(Tr))/Tc)
+    return 2*(1 + kappa*(1-sqrt(Tr)))*((1-sqrt(Tr))*dkappa_dT
+                                        - kappa/(2*sqrt(T*Tc)))
+@pytest.fixture()
+def m_alpha():
+    m = ConcreteModel()
+
+    # Dummy params block
+    m.params = DummyParameterBlock(default={
+                "components": {
+                    "a": {"phase_equilibrium_form": {("Vap", "Liq"): dummy_pe},
+                          "parameter_data": {
+                              "omega": 0.1,
+                              "pressure_crit": 1e5,
+                              "temperature_crit": 100,
+                              "kappa1" : 0}},
+                    "b": {"phase_equilibrium_form": {("Vap", "Liq"): dummy_pe},
+                          "parameter_data": {
+                              "omega": 0.2,
+                              "pressure_crit": 2e5,
+                              "temperature_crit": 200,
+                              "kappa1" : 0.07019}},
+                    "c": {"phase_equilibrium_form": {("Vap", "Liq"): dummy_pe},
+                          "parameter_data": {
+                              "omega": 0.3,
+                              "pressure_crit": 3e5,
+                              "temperature_crit": 300,
+                              "kappa1" : -0.06635}}},
+                "phases": {
+                    "Vap": {"type": VaporPhase,
+                            "equation_of_state": Cubic,
+                            "equation_of_state_options": {
+                                "type": CubicType.PR,
+                                "fw" : omega_func,
+                                "alpha": alpha_func,
+                                "dalpha_dT" : dalpha_dT_func}},
+                    "Liq": {"type": LiquidPhase,
+                            "equation_of_state": Cubic,
+                            "equation_of_state_options": {
+                                "type": CubicType.PR,
+                                "fw" : omega_func,
+                                "alpha": alpha_func,
+                                "dalpha_dT" : dalpha_dT_func}}},
+                "base_units": {"time": pyunits.s,
+                               "length": pyunits.m,
+                               "mass": pyunits.kg,
+                               "amount": pyunits.mol,
+                               "temperature": pyunits.K},
+                "state_definition": modules[__name__],
+                "pressure_ref": 1e5,
+                "temperature_ref": 300,
+                "phases_in_equilibrium": [("Vap", "Liq")],
+                "phase_equilibrium_state": {("Vap", "Liq"): modules[__name__]},
+                "parameter_data": {"PR_kappa": {("a", "a"): 0.000,
+                                                ("a", "b"): 0.000,
+                                                ("a", "c"): 0.000,
+                                                ("b", "a"): 0.000,
+                                                ("b", "b"): 0.000,
+                                                ("b", "c"): 0.000,
+                                                ("c", "a"): 0.000,
+                                                ("c", "b"): 0.000,
+                                                ("c", "c"): 0.000}}})
+
+    m.props = m.params.state_block_class(
+        [1], default={"defined_state": False,
+                      "parameters": m.params,
+                      "has_phase_equilibrium": True})
+
+    # Set a distinct value for _teq so it can be distinguished from temperature
+    m.props[1]._teq[("Vap", "Liq")].value = 100
+
+    return m
 
 # Expected values for A and B
 Al = 0.0419062
@@ -692,3 +780,17 @@ def test_vol_mol_phase(m):
 def test_vol_mol_phase_invalid_phase(m_sol):
     with pytest.raises(PropertyNotSupportedError):
         Cubic.vol_mol_phase(m_sol.props[1], "Sol")
+
+@pytest.mark.unit
+def test_alpha(m_alpha):
+    #import pdb; pdb.set_trace()
+    #m.props[1].temperature
+    assert isinstance(m_alpha.props[1].PR_alpha, Expression)
+    assert len(m_alpha.props[1].PR_alpha) == len(m_alpha.params.component_list)
+    for i in m_alpha.params.component_list:
+        cobj = m_alpha.params.get_component(i)
+        assert value(m_alpha.props[1].PR_fw[i]) == omega_func(value(cobj.omega))
+        assert value(m_alpha.props[1].PR_alpha[i]) == value(
+            alpha_func(m_alpha.props[1].temperature,m_alpha.props[1].PR_fw[i],cobj))
+    
+    #Need tests to actually make sure we're not just using the default dalpha_dT

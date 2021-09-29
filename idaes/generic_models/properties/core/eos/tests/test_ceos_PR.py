@@ -21,8 +21,11 @@ import os
 
 from pyomo.environ import (ConcreteModel,
                            Expression,
+                           Constraint,
                            ExternalFunction,
                            Param,
+                           SolverFactory,
+                           TerminationCondition,
                            sqrt,
                            value,
                            Var,
@@ -37,6 +40,12 @@ from idaes.generic_models.properties.core.generic.generic_property import (
 from idaes.core.util.exceptions import PropertyNotSupportedError
 from idaes.core.util.constants import Constants as const
 from idaes import bin_directory
+
+from idaes.generic_models.properties.core.phase_equil.forms import log_fugacity
+from idaes.generic_models.properties.core.phase_equil import SmoothVLE
+from idaes.generic_models.properties.core.pure import NIST
+from idaes.generic_models.properties.core.state_definitions import FTPx
+import numpy as np
 
 
 # Dummy method for property method calls
@@ -76,7 +85,10 @@ def define_state(b):
     b.mole_frac_phase_comp = Var(b.params.phase_list,
                                  b.params.component_list,
                                  initialize=0.5)
-
+    if "H2O" in b.params.component_list:
+        b.mole_frac_phase_comp["Vap","H2O"].fix(1)
+        b.mole_frac_phase_comp["Liq","H2O"].fix(1)
+        return
     # Set mole fractions for each phase so they can be distinguished
     if "Sol" not in b.params.phase_list:
         b.mole_frac_phase_comp["Vap", "a"].value = 0.1
@@ -88,9 +100,9 @@ def define_state(b):
 
 
 @pytest.fixture()
-def m():
+def model():
     m = ConcreteModel()
-
+    
     # Dummy params block
     m.params = DummyParameterBlock(default={
                 "components": {
@@ -150,7 +162,7 @@ def m():
 
 
 @pytest.fixture()
-def m_sol():
+def model_sol():
     m = ConcreteModel()
 
     # Dummy params block
@@ -227,7 +239,7 @@ def dalpha_dT_func(T,fw,cobj):
     return 2*(1 + kappa*(1-sqrt(Tr)))*((1-sqrt(Tr))*dkappa_dT
                                         - kappa/(2*sqrt(T*Tc)))
 @pytest.fixture()
-def m_alpha():
+def model_alpha():
     m = ConcreteModel()
 
     # Dummy params block
@@ -296,6 +308,80 @@ def m_alpha():
 
     return m
 
+class test():
+    def return_expression(b, *args):
+        # Return a dummy expression for the constraint
+        return b.temperature == 100
+
+@pytest.fixture()
+def model_H2O():
+    m = ConcreteModel()
+
+    # Dummy params block
+    m.params = DummyParameterBlock(default={
+                "components": {
+                        'H2O': {
+                            #'type': Component,
+                            #'valid_phase_types': [PhaseType.vaporPhase, PhaseType.liquidPhase],
+                            "phase_equilibrium_form": {("Vap", "Liq"): log_fugacity},
+                            #'elemental_composition': {'H': 2, 'O': 1},
+                            #'enth_mol_ig_comp': NIST,
+                            #'entr_mol_ig_comp': NIST,
+                            'parameter_data': {
+                                #'mw': (0.01801528, pyunits.kg/pyunits.mol),
+                                'pressure_crit': (221.2e5),# pyunits.Pa),
+                                'temperature_crit': (647.3),# pyunits.K),
+                                'omega': 0.344,
+                                'kappa1': -0.0665}, # p. 312 of (Sandler, 2006)
+                                # 'cp_mol_ig_comp_coeff': {
+                                #     'A': 30.092,
+                                #     'B': 6.832514,
+                                #     'C': 6.793435,
+                                #     'D': -2.53448,
+                                #     'E': 0.082139,
+                                #     'F': -250.881,
+                                #     'G': 223.3967,
+                                #     'H': -241.8264},
+                                # 'pressure_sat_comp_coeff': { # NIST <- Stull 1947
+                                #     'A': 4.6543,
+                                #     'B': 1435.264,
+                                #     'C': -64.848},
+                                }
+                            },
+                "phases": {
+                    "Vap": {"type": VaporPhase,
+                            "equation_of_state": Cubic,
+                            "equation_of_state_options": {
+                                "type": CubicType.PR,
+                                "fw" : omega_func,
+                                "alpha": alpha_func,
+                                "dalpha_dT" : dalpha_dT_func}},
+                    "Liq": {"type": LiquidPhase,
+                            "equation_of_state": Cubic,
+                            "equation_of_state_options": {
+                                "type": CubicType.PR,
+                                "fw" : omega_func,
+                                "alpha": alpha_func,
+                                "dalpha_dT" : dalpha_dT_func}}},
+                "base_units": {"time": pyunits.s,
+                                "length": pyunits.m,
+                                "mass": pyunits.kg,
+                                "amount": pyunits.mol,
+                                "temperature": pyunits.K},
+                "state_definition": modules[__name__],
+                "pressure_ref": 101325,
+                "temperature_ref": 298.15,
+                "phases_in_equilibrium": [("Vap", "Liq")],
+                "phase_equilibrium_state": {("Vap", "Liq"): modules[__name__]},
+                "parameter_data": {"PR_kappa": {("H2O", "H2O"): 0.000}}})
+
+    m.props = m.params.state_block_class(
+        [1], default={"defined_state": False,
+                      "parameters": m.params,
+                      "has_phase_equilibrium": True})
+
+    return m
+
 # Expected values for A and B
 Al = 0.0419062
 Bl = 0.0262770
@@ -321,7 +407,8 @@ f_Zv = ExternalFunction(library=_so, function="ceos_z_vap")
 
 
 @pytest.mark.unit
-def test_common(m):
+def test_common(model):
+    m = model
     # Test cubic components
     assert isinstance(m.props[1].PR_fw, Expression)
     assert len(m.props[1].PR_fw) == len(m.params.component_list)
@@ -496,7 +583,8 @@ def test_common(m):
 
 
 @pytest.mark.unit
-def test_compress_fact_phase_Liq(m):
+def test_compress_fact_phase_Liq(model):
+    m = model
     assert isinstance(Cubic.compress_fact_phase(m.props[1], "Liq"),
                       ExternalFunctionExpression)
     assert pytest.approx(value(f_Zl(0, Al, Bl)), rel=1e-5) == value(
@@ -506,7 +594,8 @@ def test_compress_fact_phase_Liq(m):
 
 
 @pytest.mark.unit
-def test_compress_fact_phase_Vap(m):
+def test_compress_fact_phase_Vap(model):
+    m = model
     assert isinstance(Cubic.compress_fact_phase(m.props[1], "Vap"),
                       ExternalFunctionExpression)
     assert pytest.approx(value(f_Zv(0, Av, Bv)), rel=1e-5) == value(
@@ -516,13 +605,14 @@ def test_compress_fact_phase_Vap(m):
 
 
 @pytest.mark.unit
-def test_compress_fact_phase_invalid_phase(m_sol):
+def test_compress_fact_phase_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.compress_fact_phase(m_sol.props[1], "Sol")
+        Cubic.compress_fact_phase(model_sol.props[1], "Sol")
 
 
 @pytest.mark.unit
-def test_dens_mass_phase(m):
+def test_dens_mass_phase(model):
+    m = model
     m.props[1].dens_mol_phase = Var(m.params.phase_list)
     m.props[1].mw_phase = Var(m.params.phase_list)
 
@@ -532,7 +622,8 @@ def test_dens_mass_phase(m):
 
 
 @pytest.mark.unit
-def test_dens_mol_phase(m):
+def test_dens_mol_phase(model):
+    m = model
     assert value(Cubic.dens_mol_phase(m.props[1], "Vap")) == pytest.approx(
             44.800, rel=1e-3)
     assert value(Cubic.dens_mol_phase(m.props[1], "Liq")) == pytest.approx(
@@ -540,13 +631,14 @@ def test_dens_mol_phase(m):
 
 
 @pytest.mark.unit
-def test_dens_mol_phase_invalid_phase(m_sol):
+def test_dens_mol_phase_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.dens_mol_phase(m_sol.props[1], "Sol")
+        Cubic.dens_mol_phase(model_sol.props[1], "Sol")
 
 
 @pytest.mark.unit
-def test_energy_internal_mol_phase(m):
+def test_energy_internal_mol_phase(model):
+    m = model
     for j in m.params.component_list:
         m.params.config.include_enthalpy_of_formation = False
         m.params.get_component(j).config.enth_mol_liq_comp = dummy_call
@@ -562,7 +654,8 @@ def test_energy_internal_mol_phase(m):
 
 
 @pytest.mark.unit
-def test_energy_internal_mol_phase_comp(m):
+def test_energy_internal_mol_phase_comp(model):
+    m = model
     for j in m.params.component_list:
         m.params.config.include_enthalpy_of_formation = False
         m.params.get_component(j).config.enth_mol_liq_comp = dummy_call
@@ -575,13 +668,14 @@ def test_energy_internal_mol_phase_comp(m):
 
 
 @pytest.mark.unit
-def test_energy_internal_mol_phase_invalid_phase(m_sol):
+def test_energy_internal_mol_phase_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.energy_internal_mol_phase_comp(m_sol.props[1], "Sol", "foo")
+        Cubic.energy_internal_mol_phase_comp(model_sol.props[1], "Sol", "foo")
 
 
 @pytest.mark.unit
-def test_enth_mol_phase(m):
+def test_enth_mol_phase(model):
+    m = model
     for j in m.params.component_list:
         m.params.get_component(j).config.enth_mol_liq_comp = dummy_call
         m.params.get_component(j).config.enth_mol_ig_comp = dummy_call
@@ -597,7 +691,8 @@ def test_enth_mol_phase(m):
 
 
 @pytest.mark.unit
-def test_enth_mol_phase_comp(m):
+def test_enth_mol_phase_comp(model):
+    m = model
     for j in m.params.component_list:
         m.params.get_component(j).config.enth_mol_liq_comp = dummy_call
         m.params.get_component(j).config.enth_mol_ig_comp = dummy_call
@@ -609,13 +704,14 @@ def test_enth_mol_phase_comp(m):
 
 
 @pytest.mark.unit
-def test_enth_mol_phase_invalid_phase(m_sol):
+def test_enth_mol_phase_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.enth_mol_phase_comp(m_sol.props[1], "Sol", "foo")
+        Cubic.enth_mol_phase_comp(model_sol.props[1], "Sol", "foo")
 
 
 @pytest.mark.unit
-def test_entr_mol_phase(m):
+def test_entr_mol_phase(model):
+    m = model
     for j in m.params.component_list:
         m.params.get_component(j).config.entr_mol_liq_comp = dummy_call
         m.params.get_component(j).config.entr_mol_ig_comp = dummy_call
@@ -631,7 +727,8 @@ def test_entr_mol_phase(m):
 
 
 @pytest.mark.unit
-def test_entr_mol_phase_comp(m):
+def test_entr_mol_phase_comp(model):
+    m = model
     entr = {("Liq", "a"): 45.4093,
             ("Vap", "a"): 59.0666,
             ("Liq", "b"): 51.1725,
@@ -649,13 +746,14 @@ def test_entr_mol_phase_comp(m):
 
 
 @pytest.mark.unit
-def test_entr_mol_phase_invalid_phase(m_sol):
+def test_entr_mol_phase_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.entr_mol_phase_comp(m_sol.props[1], "Sol", "foo")
+        Cubic.entr_mol_phase_comp(model_sol.props[1], "Sol", "foo")
 
 
 @pytest.mark.component
-def test_fug_phase_comp(m):
+def test_fug_phase_comp(model):
+    m = model
     for p in m.params.phase_list:
         for j in m.params.component_list:
             assert str(Cubic.fug_phase_comp(
@@ -666,13 +764,14 @@ def test_fug_phase_comp(m):
 
 
 @pytest.mark.unit
-def test_fug_phase_comp_invalid_phase(m_sol):
+def test_fug_phase_comp_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.fug_phase_comp(m_sol.props[1], "Sol", "foo")
+        Cubic.fug_phase_comp(model_sol.props[1], "Sol", "foo")
 
 
 @pytest.mark.component
-def test_fug_phase_comp_eq(m):
+def test_fug_phase_comp_eq(model):
+    m = model
     for p in m.params.phase_list:
         for j in m.params.component_list:
             assert str(Cubic.fug_phase_comp_eq(
@@ -684,13 +783,14 @@ def test_fug_phase_comp_eq(m):
 
 
 @pytest.mark.unit
-def test_fug_phase_comp_eq_invalid_phase(m_sol):
+def test_fug_phase_comp_eq_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.fug_phase_comp_eq(m_sol.props[1], "Sol", "foo", ("Vap", "Liq"))
+        Cubic.fug_phase_comp_eq(model_sol.props[1], "Sol", "foo", ("Vap", "Liq"))
 
 
 @pytest.mark.unit
-def test_fug_coeff_phase_comp_Liq(m):
+def test_fug_coeff_phase_comp_Liq(model):
+    m = model
     assert pytest.approx(1.01213, rel=1e-5) == value(
         Cubic.fug_coeff_phase_comp(m.props[1], "Liq", "a"))
     assert pytest.approx(0.95919, rel=1e-5) == value(
@@ -700,7 +800,8 @@ def test_fug_coeff_phase_comp_Liq(m):
 
 
 @pytest.mark.unit
-def test_fug_coeff_phase_comp_Vap(m):
+def test_fug_coeff_phase_comp_Vap(model):
+    m = model
     assert pytest.approx(1.05952, rel=1e-5) == value(
             Cubic.fug_coeff_phase_comp(m.props[1], "Vap", "a"))
     assert pytest.approx(0.96070, rel=1e-5) == value(
@@ -710,13 +811,14 @@ def test_fug_coeff_phase_comp_Vap(m):
 
 
 @pytest.mark.unit
-def test_fug_coeff_phase_comp_invalid_phase(m_sol):
+def test_fug_coeff_phase_comp_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.fug_coeff_phase_comp(m_sol.props[1], "Sol", "foo")
+        Cubic.fug_coeff_phase_comp(model_sol.props[1], "Sol", "foo")
 
 
 @pytest.mark.unit
-def test_fug_coeff_phase_comp_eq_Liq(m):
+def test_fug_coeff_phase_comp_eq_Liq(model):
+    m = model
     assert pytest.approx(1.22431, rel=1e-5) == value(
         Cubic.fug_coeff_phase_comp_eq(m.props[1], "Liq", "a", ("Vap", "Liq")))
     assert pytest.approx(0.0049604, rel=1e-5) == value(
@@ -726,7 +828,8 @@ def test_fug_coeff_phase_comp_eq_Liq(m):
 
 
 @pytest.mark.unit
-def test_fug_coeff_phase_comp_eq_Vap(m):
+def test_fug_coeff_phase_comp_eq_Vap(model):
+    m = model
     assert pytest.approx(86.9140, rel=1e-5) == value(
         Cubic.fug_coeff_phase_comp_eq(m.props[1], "Vap", "a", ("Vap", "Liq")))
     assert pytest.approx(0.0049878, rel=1e-5) == value(
@@ -736,14 +839,15 @@ def test_fug_coeff_phase_comp_eq_Vap(m):
 
 
 @pytest.mark.unit
-def test_fug_coeff_phase_comp_eq_invalid_phase(m_sol):
+def test_fug_coeff_phase_comp_eq_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
         Cubic.fug_coeff_phase_comp_eq(
-            m_sol.props[1], "Sol", "foo", ("Vap", "Liq"))
+            model_sol.props[1], "Sol", "foo", ("Vap", "Liq"))
 
 
 @pytest.mark.unit
-def test_gibbs_mol_phase(m):
+def test_gibbs_mol_phase(model):
+    m = model
     m.props[1].enth_mol_phase = Var(m.params.phase_list)
     m.props[1].entr_mol_phase = Var(m.params.phase_list)
 
@@ -754,7 +858,8 @@ def test_gibbs_mol_phase(m):
 
 
 @pytest.mark.unit
-def test_gibbs_mol_phase_comp(m):
+def test_gibbs_mol_phase_comp(model):
+    m = model
     m.props[1].enth_mol_phase_comp = Var(m.params.phase_list,
                                          m.params.component_list)
     m.props[1].entr_mol_phase_comp = Var(m.params.phase_list,
@@ -769,7 +874,8 @@ def test_gibbs_mol_phase_comp(m):
 
 
 @pytest.mark.unit
-def test_vol_mol_phase(m):
+def test_vol_mol_phase(model):
+    m = model
     assert value(Cubic.vol_mol_phase(m.props[1], "Vap")) == pytest.approx(
             1/44.800, rel=1e-3)
     assert value(Cubic.vol_mol_phase(m.props[1], "Liq")) == pytest.approx(
@@ -777,20 +883,82 @@ def test_vol_mol_phase(m):
 
 
 @pytest.mark.unit
-def test_vol_mol_phase_invalid_phase(m_sol):
+def test_vol_mol_phase_invalid_phase(model_sol):
     with pytest.raises(PropertyNotSupportedError):
-        Cubic.vol_mol_phase(m_sol.props[1], "Sol")
+        Cubic.vol_mol_phase(model_sol.props[1], "Sol")
 
 @pytest.mark.unit
-def test_alpha(m_alpha):
-    #import pdb; pdb.set_trace()
-    #m.props[1].temperature
-    assert isinstance(m_alpha.props[1].PR_alpha, Expression)
-    assert len(m_alpha.props[1].PR_alpha) == len(m_alpha.params.component_list)
-    for i in m_alpha.params.component_list:
-        cobj = m_alpha.params.get_component(i)
-        assert value(m_alpha.props[1].PR_fw[i]) == omega_func(value(cobj.omega))
-        assert value(m_alpha.props[1].PR_alpha[i]) == value(
-            alpha_func(m_alpha.props[1].temperature,m_alpha.props[1].PR_fw[i],cobj))
+def test_alpha(model_alpha):
+    m = model_alpha
+    props = m.props[1]
+    alpha = getattr(props, "PR_alpha")
+    a = getattr(props, "PR_a")
+    fw = getattr(props, "PR_fw")
+    kappa = getattr(m.params, "PR_kappa")
+    T = props.temperature
     
-    #Need tests to actually make sure we're not just using the default dalpha_dT
+    assert isinstance(alpha, Expression)
+    assert len(alpha) == len(m.params.component_list)
+    for i in m.params.component_list:
+        cobj = m.params.get_component(i)
+        assert pytest.approx(value(fw[i]), rel=1E-5) == omega_func(value(cobj.omega))
+        assert pytest.approx(value(alpha[i]), rel=1E-5) == value(
+            alpha_func(T,fw[i],cobj))
+    
+    def daijdT(i,j):
+        return (sqrt(a[i]*a[j])
+                * ((1-kappa[i,j])/2
+                   * (1/alpha[i]*dalpha_dT_func(T,fw[i],
+                            m.params.get_component(i))
+                      + 1/alpha[j]*dalpha_dT_func(T,fw[j],
+                            m.params.get_component(j)))
+                   )
+                )
+    
+    for p in m.params.phase_list:
+        da_dT = sum(sum(props.mole_frac_phase_comp[p, i] *
+                              props.mole_frac_phase_comp[p, j] * daijdT(i,j)
+                          for j in props.components_in_phase(p))
+                       for i in props.components_in_phase(p))
+        assert pytest.approx(value(props.PR_dadT[p]), rel=1E-5) == value(da_dT)
+
+@pytest.mark.component
+def test_H2O_Psat(model_H2O):
+    # Recreate the table from Illustration 7.5-3 from Sandler (2006)
+    # Note that he uses a fairly lenient convergence criterion, so the values
+    # generated here differ slightly from those he generates
+    m = model_H2O
+    b = m.props[1]
+    
+    Tf = 273.15
+    Tcalc = Tf + np.array([0.01,10,20,30,50,70,100,120,150,175,201,250,300,350,370])
+    ncalc = Tcalc.size
+
+    solver = SolverFactory('ipopt')
+    
+    b.pressure.setlb(500)
+    b.pressure.value = 600
+    
+    Psat_ref = np.array([6.11597832e+02, 1.22776464e+03, 2.33809511e+03, 
+                         4.24441469e+03, 1.23449179e+04,  3.11881976e+04, 
+                         1.01400081e+05, 1.98652109e+05, 4.76104396e+05,
+                         8.92511256e+05, 1.58796442e+06, 3.98353664e+06,
+                         8.63222707e+06, 1.66320590e+07, 2.10898105e+07])
+    
+    for k in range(ncalc):
+        b.temperature.fix(Tcalc[k])
+        b._teq["Vap","Liq"].fix(Tcalc[k])
+        # For temperatures close to Tcrit, a very good guess for the pressure
+        # is necessary to ensure there are three roots for Z
+        if k - ncalc == -2:
+            b.pressure.value = 16e6
+        if k - ncalc == -1:
+            b.pressure.value = 21e6
+
+        status = solver.solve(m)
+        assert status.solver.termination_condition == TerminationCondition.optimal
+        assert pytest.approx(Psat_ref[k],1e-5) == value(b.pressure)
+    
+if __name__ == "__main__":
+    m = model_H2O()
+    H2O_Psat(m)

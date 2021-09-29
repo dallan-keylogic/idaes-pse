@@ -105,20 +105,6 @@ class Cubic(EoSBase):
             # Common components already constructed by previous phase
             return
         
-        # try:
-        #     alpha_func = pobj.config.equation_of_state_options["alpha"]
-        # except (KeyError, TypeError):
-        #     if ctype == CubicType.PR:
-        #         alpha_func = alpha_func_default_PR
-        #     elif ctype == CubicType.SRK:
-        #         alpha_func = alpha_func_default_SRK
-        #     else:
-        #         raise BurntToast(
-        #                 "{} received unrecognized cubic type. This should "
-        #                 "never happen, so please contact the IDAES developers "
-        #                 "with this bug.".format(b.name))
-        
-        
         # Create expressions for coefficients
         def func_fw(m, j):
             cobj = m.params.get_component(j)
@@ -238,10 +224,7 @@ class Cubic(EoSBase):
         b.add_component(cname+"_delta",
                         Expression(b.phase_component_set,
                                    rule=rule_delta))
-        
-        def rule_dalpha_dT(m,j):
-            fw = getattr(m, cname+"_fw")
-        
+               
         # TODO this also depends on the mixing rule
         def rule_dadT(m, p):
             # See pg. 102 in Properties of Gases and Liquids
@@ -440,7 +423,7 @@ class Cubic(EoSBase):
         # Departure function for U is similar to H minus the RT(Z-1) term
         return (((blk.temperature*dadT - am) *
                  safe_log((2*Z + B*(EoS_u+EoS_p)) / (2*Z + B*(EoS_u-EoS_p)),
-                          eps=1e-6)) / (bm*EoS_p) +
+                          eps=1e-8)) / (bm*EoS_p) +
                 sum(blk.mole_frac_phase_comp[p, j] *
                     EoSBase.energy_internal_mol_ig_comp_pure(blk, j)
                     for j in blk.components_in_phase(p)))
@@ -466,7 +449,7 @@ class Cubic(EoSBase):
         # Departure function for U is similar to H minus the RT(Z-1) term
         return (((blk.temperature*dadT - am) *
                  safe_log((2*Z + B*(EoS_u+EoS_p)) / (2*Z + B*(EoS_u-EoS_p)),
-                          eps=1e-6)) / (bm*EoS_p) +
+                          eps=1e-8)) / (bm*EoS_p) +
                 EoSBase.energy_internal_mol_ig_comp_pure(blk, j))
 
     @staticmethod
@@ -489,7 +472,7 @@ class Cubic(EoSBase):
         # Derived from equation on pg. 120 in Properties of Gases and Liquids
         return (((blk.temperature*dadT - am) *
                  safe_log((2*Z + B*(EoS_u+EoS_p)) / (2*Z + B*(EoS_u-EoS_p)),
-                          eps=1e-6) +
+                          eps=1e-8) +
                  Cubic.gas_constant(blk)*blk.temperature*(Z-1)*bm*EoS_p) /
                 (bm*EoS_p) + sum(blk.mole_frac_phase_comp[p, j] *
                                  get_method(blk, "enth_mol_ig_comp", j)(
@@ -516,7 +499,7 @@ class Cubic(EoSBase):
         # Derived from equation on pg. 120 in Properties of Gases and Liquids
         return (((blk.temperature*dadT - am) *
                  safe_log((2*Z + B*(EoS_u+EoS_p)) / (2*Z + B*(EoS_u-EoS_p)),
-                          eps=1e-6) +
+                          eps=1e-8) +
                  Cubic.gas_constant(blk)*blk.temperature*(Z-1)*bm*EoS_p) /
                 (bm*EoS_p) + get_method(blk, "enth_mol_ig_comp", j)(
                                         blk, cobj(blk, j), blk.temperature))
@@ -538,13 +521,13 @@ class Cubic(EoSBase):
         EoS_p = sqrt(EoS_u**2 - 4*EoS_w)
 
         # See pg. 102 in Properties of Gases and Liquids
-        return ((Cubic.gas_constant(blk)*safe_log((Z-B)/Z, eps=1e-6)*bm*EoS_p +
+        return ((Cubic.gas_constant(blk)*safe_log((Z-B)/Z, eps=1e-8)*bm*EoS_p +
                  Cubic.gas_constant(blk) *
-                 safe_log(Z*blk.params.pressure_ref/blk.pressure, eps=1e-6) *
+                 safe_log(Z*blk.params.pressure_ref/blk.pressure, eps=1e-8) *
                  bm*EoS_p +
                  dadT*safe_log((2*Z + B*(EoS_u + EoS_p)) /
                                (2*Z + B*(EoS_u - EoS_p)),
-                               eps=1e-6)) /
+                               eps=1e-8)) /
                 (bm*EoS_p) + sum(blk.mole_frac_phase_comp[p, j] *
                                  get_method(blk, "entr_mol_ig_comp", j)(
                                      blk, cobj(blk, j), blk.temperature)
@@ -567,16 +550,16 @@ class Cubic(EoSBase):
         EoS_p = sqrt(EoS_u**2 - 4*EoS_w)
 
         # See pg. 102 in Properties of Gases and Liquids
-        return (((Cubic.gas_constant(blk)*safe_log((Z-B)/Z, eps=1e-6) *
+        return (((Cubic.gas_constant(blk)*safe_log((Z-B)/Z, eps=1e-8) *
                   bm*EoS_p +
                   Cubic.gas_constant(blk) *
                   safe_log(Z*blk.params.pressure_ref /
                            (blk.mole_frac_phase_comp[p, j]*blk.pressure),
-                           eps=1e-6) *
+                           eps=1e-8) *
                   bm*EoS_p +
                   dadT*safe_log((2*Z + B*(EoS_u + EoS_p)) /
                                 (2*Z + B*(EoS_u - EoS_p)),
-                                eps=1e-6)) /
+                                eps=1e-8)) /
                 (bm*EoS_p)) + get_method(blk, "entr_mol_ig_comp", j)(
                                       blk, cobj(blk, j), blk.temperature))
 
@@ -912,9 +895,9 @@ def _log_fug_coeff_method(A, b, bm, B, delta, Z, cubic_type):
     w = EoS_param[cubic_type]['w']
     p = sqrt(u**2 - 4*w)
 
-    return ((b/bm*(Z-1)*(B*p) - safe_log(Z-B, eps=1e-6)*(B*p) +
+    return ((b/bm*(Z-1)*(B*p) - safe_log(Z-B, eps=1e-8)*(B*p) +
              A*(b/bm - delta)*safe_log((2*Z + B*(u + p))/(2*Z + B*(u - p)),
-                                       eps=1e-6)) /
+                                       eps=1e-8)) /
             (B*p))
 
 
@@ -924,8 +907,8 @@ def alpha_func_default(T, fw, cobj):
     return (1+fw*(1-sqrt(Tr)))**2
 
 def dalpha_dT_default(T,fw,cobj):
-                Tr = T /cobj.temperature_crit
-                return -fw/sqrt(T*cobj.temperature_crit)*(1+fw*(1-sqrt(Tr)))
+    Tr = T /cobj.temperature_crit
+    return -fw/sqrt(T*cobj.temperature_crit)*(1+fw*(1-sqrt(Tr)))
 
 def a_func(omegaA, R, alphaj, cobj):
     return (omegaA*((R * cobj.temperature_crit)**2/cobj.pressure_crit)

@@ -408,7 +408,7 @@ def test_common(m):
             sum(sum(m.props[1].mole_frac_phase_comp[p, i] *
                     m.props[1].mole_frac_phase_comp[p, j] *
                     sqrt(m.props[1].PR_a[i]*m.props[1].PR_a[j]) *
-                    (1-m.params.PR_kappa[i, j])
+                    (1-m.props[1].PR_k[i, j])
                     for j in m.params.component_list)
                 for i in m.params.component_list))
 
@@ -450,7 +450,7 @@ def test_common(m):
                 2*sqrt(m.props[1].PR_a[i])/m.props[1].PR_am[p] *
                 sum(m.props[1].mole_frac_phase_comp[p, j] *
                     sqrt(m.props[1].PR_a[j]) *
-                    (1-m.params.PR_kappa[i, j])
+                    (1-m.props[1].PR_k[i, j])
                     for j in m.params.component_list))
 
     assert isinstance(m.props[1].PR_daij_dT,Expression)
@@ -458,7 +458,7 @@ def test_common(m):
     for i in m.params.component_list:
         for j in m.params.component_list:
             assert pytest.approx(value(m.props[1].PR_daij_dT[i,j])
-                                 == (1-m.params.PR_kappa[i, j])
+                                 == (1-m.props[1].PR_k[i, j])
                                  * (m.props[1].PR_fw[j] 
                                  * sqrt(m.props[1].PR_a[i]
                                      *  m.params.get_component(j).temperature_crit
@@ -476,7 +476,7 @@ def test_common(m):
             -((const.gas_constant/2)*sqrt(0.45724) *
               sum(sum(m.props[1].mole_frac_phase_comp[p, i] *
                       m.props[1].mole_frac_phase_comp[p, j] *
-                      (1-m.params.PR_kappa[i, j]) *
+                      (1-m.props[1].PR_k[i, j]) *
                       (m.props[1].PR_fw[j] *
                        sqrt(m.props[1].PR_a[i] *
                             m.params.get_component(j).temperature_crit /
@@ -499,7 +499,7 @@ def test_common(m):
             *sum(
                 sum(m.props[1].mole_frac_phase_comp[p, i]
                     * m.props[1].mole_frac_phase_comp[p, j]
-                    * (1 - m.params.PR_kappa[i, j])
+                    * (1 - m.props[1].PR_k[i, j])
                     * m.props[1].PR_fw[i]*m.props[1].PR_fw[j]
                         * sqrt((m.params.get_component(i).temperature_crit
                                 * m.params.get_component(j).temperature_crit)
@@ -532,7 +532,7 @@ def test_common(m):
                     m.props[1].mole_frac_phase_comp[idx[2], j] *
                     sqrt(m.props[1]._PR_a_eq[idx[0], idx[1], i] *
                          m.props[1]._PR_a_eq[idx[0], idx[1], j]) *
-                    (1-m.params.PR_kappa[i, j])
+                    (1-m.props[1]._PR_k_eq[idx[0], idx[1], i, j])
                     for j in m.params.component_list)
                 for i in m.params.component_list))
 
@@ -573,7 +573,7 @@ def test_common(m):
             m.props[1]._PR_am_eq[idx[0], idx[1], idx[2]] *
             sum(m.props[1].mole_frac_phase_comp[idx[2], j] *
                 sqrt(m.props[1]._PR_a_eq[idx[0], idx[1], j]) *
-                (1-m.params.PR_kappa[idx[3], j])
+                (1-m.props[1]._PR_k_eq[idx[0],idx[1],idx[3], j])
                 for j in m.params.component_list))
 
     # Check for external function components

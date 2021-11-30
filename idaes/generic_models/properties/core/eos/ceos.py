@@ -26,6 +26,7 @@ from pyomo.environ import (exp,
                            Param,
                            Reals,
                            sqrt,
+                           units,
                            Var)
 from pyomo.common.config import ConfigBlock, ConfigValue, In
 from idaes.core.phases import LiquidPhase, VaporPhase
@@ -205,8 +206,43 @@ class Cubic(EoSBase):
                         Expression(b.component_list,
                                    rule=func_b,
                                    doc='Component b coefficient'))
+        def rule_k(m, i, j):
+            k_func = getattr(m.params,cname+"_func_k")
+            return k_func(cname, m.params.config.parameter_data,
+                          i, j, m.temperature)
+        
+        b.add_component(cname+'_k',
+                        Expression(b.component_list,
+                                   b.component_list,
+                                   rule=rule_k,
+                                   doc='Cubic pairwise interaction term'))
+        
+        def rule_dk_dT(m, i, j):
+            dk_dT_func = getattr(m.params,cname+"_func_dk_dT")
+            return dk_dT_func(cname, m.params.config.parameter_data,
+                          i, j, m.temperature)
+        
+        b.add_component(cname+'_dk_dT',
+                        Expression(b.component_list,
+                                   b.component_list,
+                                   rule=rule_dk_dT,
+                                   doc='Temperature derivative of '
+                                   'cubic pairwise interaction term'))
+        
+        def rule_d2k_dT2(m, i, j):
+            d2k_dT2_func = getattr(m.params,cname+"_func_d2k_dT2")
+            return d2k_dT2_func(cname, m.params.config.parameter_data,
+                          i, j, m.temperature)
+        
+        b.add_component(cname+'_d2k_dT2',
+                        Expression(b.component_list,
+                                   b.component_list,
+                                   rule=rule_d2k_dT2,
+                                   doc='Temperature derivative of '
+                                   'cubic pairwise interaction term'))
 
         if mixing_rule_a == MixingRuleA.default:
+            
             def rule_am(m, p):
                 a = getattr(m, cname+"_a")
                 return rule_am_default(m, cname, a, p)
@@ -216,12 +252,12 @@ class Cubic(EoSBase):
             def rule_daij_dT(m, i, j):
                 a = getattr(m, cname+"_a")
                 da_dT = getattr(m, cname+"_da_dT")
-                k = getattr(m.params, cname+"_kappa")
+                k = getattr(m, cname+"_k")
                 
                 # Include temperature derivative of k for future extension
-                dk_ij_dT = 0
+                dk_ij_dT = getattr(m,cname+'_dk_dT')
                 
-                return sqrt(a[i]*a[j])*(-dk_ij_dT
+                return sqrt(a[i]*a[j])*(-dk_ij_dT[i,j]
                                         + (1-k[i,j])/2
                                         *(da_dT[i]/a[i]+da_dT[j]/a[j])
                                         )
@@ -244,13 +280,13 @@ class Cubic(EoSBase):
             
             
             def rule_d2am_dT2(m,p):
-                 k = getattr(m.params, cname+"_kappa")
+                 k = getattr(m, cname+"_k")
                  a = getattr(m, cname+"_a")        
                  da_dT = getattr(m, cname+"_da_dT")
                  d2a_dT2 = getattr(m, cname+"_d2a_dT2")
-                # Placeholders for if temperature dependent k is needed
-                 dk_dT = 0
-                 d2k_dT2 = 0
+                 
+                 dk_dT = getattr(m,cname+'_dk_dT')
+                 d2k_dT2 = getattr(m,cname+'_d2k_dT2')
                  
                  # Initialize loop variable
                  d2am_dT2 = 0
@@ -259,7 +295,7 @@ class Cubic(EoSBase):
                      for j in m.components_in_phase(p):
                          d2aij_dT2 = (
                              sqrt(a[i]*a[j])
-                             * (-d2k_dT2- dk_dT*(da_dT[i]/a[i] + da_dT[j]/a[j])
+                             * (-d2k_dT2[i,j]- dk_dT[i,j]*(da_dT[i]/a[i] + da_dT[j]/a[j])
                                 + (1-k[i,j])/2
                                 * (d2a_dT2[i]/a[i] + d2a_dT2[j]/a[j]
                                    - 1/2*(da_dT[i]/a[i]-da_dT[j]/a[j])**2
@@ -279,10 +315,10 @@ class Cubic(EoSBase):
                 # See pg. 145 in Properties of Gases and Liquids
                 a = getattr(m, cname+"_a")
                 am = getattr(m, cname+"_am")
-                kappa = getattr(m.params, cname+"_kappa")
+                k = getattr(m, cname+"_k")
                 return (2*sqrt(a[i])/am[p] *
                         sum(m.mole_frac_phase_comp[p, j]*sqrt(a[j]) *
-                            (1-kappa[i, j])
+                            (1-k[i, j])
                             for j in b.components_in_phase(p)))
             b.add_component(cname+"_delta",
                             Expression(b.phase_component_set,
@@ -326,6 +362,19 @@ class Cubic(EoSBase):
         # Add components at equilibrium state if required
         if (b.params.config.phases_in_equilibrium is not None and
                 (not b.config.defined_state or b.always_flash)):
+            
+            def rule_k_eq(m, p1, p2, i, j):
+                k_func = getattr(m.params,cname+"_func_k")
+                return k_func(cname, m.params.config.parameter_data,
+                              i, j, m._teq[p1,p2])
+            
+            b.add_component('_'+cname+'_k_eq',
+                    Expression(b.params._pe_pairs,
+                               b.component_list,
+                               b.component_list,
+                               rule=rule_k_eq,
+                               doc='Cubic pairwise interaction term at Teq'))
+            
             def func_a_eq(m, p1, p2, j):
                 cobj = m.params.get_component(j)
                 fw = getattr(m, cname+"_fw")[j]
@@ -382,10 +431,10 @@ class Cubic(EoSBase):
                 # See pg. 145 in Properties of Gases and Liquids
                 a = getattr(m, "_"+cname+"_a_eq")
                 am = getattr(m, "_"+cname+"_am_eq")
-                kappa = getattr(m.params, cname+"_kappa")
+                k = getattr(m, "_"+cname+"_k_eq")
                 return (2*sqrt(a[p1, p2, i])/am[p1, p2, p3] *
                         sum(m.mole_frac_phase_comp[p3, j]*sqrt(a[p1, p2, j]) *
-                            (1-kappa[i, j])
+                            (1-k[p1, p2, i, j])
                             for j in m.components_in_phase(p3)))
             b.add_component("_"+cname+"_delta_eq",
                             Expression(b.params._pe_pairs,
@@ -450,15 +499,15 @@ class Cubic(EoSBase):
         b._mixing_rule_a = mixing_rule_a
         b._mixing_rule_b = mixing_rule_b
         
-        kappa_data = param_block.config.parameter_data[cname+"_kappa"]
-        param_block.add_component(
-            cname+'_kappa',
-            Var(param_block.component_list,
-                param_block.component_list,
-                within=Reals,
-                initialize=kappa_data,
-                doc=cname+' binary interaction parameters',
-                units=None))
+        # kappa_data = param_block.config.parameter_data[cname+"_kappa"]
+        # param_block.add_component(
+        #     cname+'_kappa',
+        #     Var(param_block.component_list,
+        #         param_block.component_list,
+        #         within=Reals,
+        #         initialize=kappa_data,
+        #         doc=cname+' binary interaction parameters',
+        #         units=None))
         
         if b._cubic_type == CubicType.PR:
             func_fw = func_fw_PR
@@ -473,7 +522,9 @@ class Cubic(EoSBase):
         setattr(param_block, cname+"_func_alpha", func_alpha_soave)
         setattr(param_block, cname+"_func_dalpha_dT", func_dalpha_dT_soave)
         setattr(param_block, cname+"_func_d2alpha_dT2", func_d2alpha_dT2_soave)
-            
+        setattr(param_block, cname+"_func_k",func_k)
+        setattr(param_block, cname+"_func_dk_dT",func_dk_dT)
+        setattr(param_block, cname+"_func_d2k_dT2",func_d2k_dT2)
 
 
     @staticmethod
@@ -867,7 +918,7 @@ def _N_dZ_dNj(blk,p,j):
 
     a = getattr(blk, cname+"_a")
     b = getattr(blk, cname+"_b")
-    k = getattr(blk.params, cname+"_kappa")
+    k = getattr(blk, cname+"_k")
     am = getattr(blk, cname+"_am")[p]
     bm = getattr(blk, cname+"_bm")[p]
     A = getattr(blk, cname+"_A")[p]
@@ -1011,7 +1062,7 @@ def _bubble_dew_log_fug_coeff_method(blk, p, j, pp, pt_var):
     
     # Ditch the m.fs.unit.control_volume...
     short_name = pt_var.name.split(".")[-1]
-    #import pdb; pdb.set_trace()
+    
     if short_name.startswith("temperature"):
         abbrv = "t"
         T =  pt_var[pp]
@@ -1062,11 +1113,13 @@ def _bubble_dew_log_fug_coeff_method(blk, p, j, pp, pt_var):
         func_alpha = getattr(blk.params,cname+"_func_alpha")
         
         return  ac*func_alpha(T,fw,cobj)
-
-    kappa = getattr(blk.params, cname+"_kappa")
-    am = sum(sum(x[xidx, i]*x[xidx, j]*sqrt(a(i)*a(j))*(1-kappa[i, j])
-                 for j in blk.component_list)
-             for i in blk.component_list)
+    def k(l,m):
+        k_func = getattr(blk.params,cname+"_func_k")
+        return k_func(cname, blk.params.config.parameter_data,l, m, T)
+    
+    am = sum(sum(x[xidx, l]*x[xidx, m]*sqrt(a(l)*a(m))*(1-k(l,m))
+                 for l in blk.component_list)
+             for m in blk.component_list)
 
     b = getattr(blk, cname+"_b")
     bm = sum(x[xidx, i]*b[i] for i in blk.component_list)
@@ -1075,7 +1128,7 @@ def _bubble_dew_log_fug_coeff_method(blk, p, j, pp, pt_var):
     A = am*P/(R*T)**2
     B = bm*P/(R*T)
 
-    delta = (2*sqrt(a(j))/am * sum(x[xidx, i]*sqrt(a(i))*(1-kappa[j, i])
+    delta = (2*sqrt(a(j))/am * sum(x[xidx, i]*sqrt(a(i))*(1-k(j, i))
                                    for i in blk.component_list))
 
     f = getattr(blk, "_"+cname+"_ext_func_param")
@@ -1113,14 +1166,26 @@ def func_d2alpha_dT2_soave(T,fw,cobj):
     Tr = T/Tc
     return 1/Tc**2*((fw**2+fw)/(2*Tr*sqrt(Tr)))
     
+def func_k(cname,param_data,i,j,T):
+    return param_data[cname+"_kappa"][i,j]
+    
+def func_dk_dT(cname,param_data,i,j,T):
+    # Need to make the pyomo units match
+    return 1E-15/units.get_units(T)
+
+def func_d2k_dT2(cname,param_data,i,j,T):
+    return 1E-15/units.get_units(T)**2
 
 # -----------------------------------------------------------------------------
 # Mixing rules
 def rule_am_default(m, cname, a, p, pp=()):
-    k = getattr(m.params, cname+"_kappa")
+    if pp == ():
+        k = getattr(m, cname+"_k")
+    else:
+        k = getattr(m,"_"+cname+"_k_eq")
     return sum(sum(
         m.mole_frac_phase_comp[p, i]*m.mole_frac_phase_comp[p, j] *
-        sqrt(a[pp, i]*a[pp, j])*(1-k[i, j])
+        sqrt(a[pp, i]*a[pp, j])*(1-k[pp, i, j])
         for j in m.components_in_phase(p))
         for i in m.components_in_phase(p))
 

@@ -20,7 +20,7 @@ import pytest
 from sys import modules
 
 from pyomo.environ import (
-    ConcreteModel, Constraint, Expression, Var, units as pyunits)
+    ConcreteModel, Constraint, Expression, Var, Set, units as pyunits)
 from pyomo.util.check_units import (
     check_units_equivalent, assert_units_consistent)
 
@@ -34,8 +34,18 @@ from idaes.core import (MaterialFlowBasis,
 from idaes.generic_models.properties.core.generic.generic_property import (
         GenericParameterData)
 from idaes.generic_models.properties.core.generic.tests.dummy_eos import DummyEoS
-from idaes.core.util.exceptions import ConfigurationError
+from idaes.core.util.exceptions import ConfigurationError, UserModelError
+from idaes.generic_models.properties.core.phase_equil.henry import \
+    ConstantH, HenryType
 import idaes.logger as idaeslog
+
+from idaes.generic_models.properties.core.generic.generic_property import \
+    GenericParameterBlock
+    
+from idaes.generic_models.properties.core.phase_equil.forms import \
+    fugacity
+
+from idaes.core import VaporPhase, LiquidPhase, Component
 
 
 @declare_process_block_class("DummyParameterBlock")
@@ -1101,3 +1111,100 @@ class TestCommon(object):
         assert len(frame.props[1].conc_mol_comp) == 3
         assert isinstance(frame.props[1].conc_mol_phase_comp, Expression)
         assert len(frame.props[1].conc_mol_phase_comp) == 6
+        
+    @pytest.mark.unit
+    def test_unphysical_mol_fraction_fail(self,frame):
+        frame.props[1].mole_frac_comp["c1"].value = -0.1
+        with pytest.raises(ValueError,
+                           match = "Component c1 has a negative mole fraction "
+                           "in block props\[1\]. Check your initialization."):
+            frame.props[1].params.\
+                config.state_definition.state_initialization(frame.props[1])
+        
+# This test can be resurrected when the API for Henry's law stabilizes        
+# @pytest.mark.unit
+# def test_henry_fail():
+#     m = ConcreteModel()
+
+#     # Add a dummy var for use in constructing expressions
+#     m.x = Var(["Vap", "Liq"], ["H2O"], initialize=1)
+
+#     m.mole_frac_phase_comp = Var(["Vap", "Liq"], ["H2O"], initialize=1)
+
+#     # Create a dummy parameter block
+#     m.params = GenericParameterBlock(default={
+#         "components": {"H2O": {"parameter_data": {"temperature_crit": 647.3,
+#                                                   "henry_ref": {
+#                                                       "Liq": 86}},
+#                                 "henry_component": {
+#                                     "Liq": {"method": ConstantH,
+#                                             "type": HenryType.Kpx}},
+#                                 "phase_equilibrium_form": {
+#                                     ("Vap", "Liq"): fugacity}}},
+#         "phases": {"Liq": {"equation_of_state": DummyEoS},
+#                     "Vap": {"equation_of_state": DummyEoS}},
+#         "state_definition": FTPx,
+#         "pressure_ref": 1e5,
+#         "temperature_ref": 300,
+#         "base_units": {"time": pyunits.s,
+#                         "length": pyunits.m,
+#                         "mass": pyunits.kg,
+#                         "amount": pyunits.mol,
+#                         "temperature": pyunits.K}})
+
+#     m.state = m.params.build_state_block([0])
+    
+#     m.state[0].params._pe_pairs = Set(initialize=(("Liq","Vap"),),
+#                                   ordered=True)
+#     with pytest.raises(UserModelError,
+#                 match="Component H2O has a negative Henry's Law term in "
+#                     "block state\[0\]. Check your implementation and "
+#                     "parameters."):
+#         #import pdb; pdb.set_trace()
+#         m.state[0].params.config.state_definition.state_initialization(m.state[0])
+
+# -----------------------------------------------------------------------------
+# Dummy class to test Psat checking
+class pressure_sat_comp():
+    @staticmethod
+    def return_expression(b, cobj, T, dT=False):
+        return -1
+
+class Psat_fail(object):
+    pressure_sat_comp = pressure_sat_comp
+
+@pytest.mark.unit
+def test_Psat_fail():
+    m = ConcreteModel()
+
+    # Add a dummy var for use in constructing expressions
+    m.x = Var(["Vap", "Liq"], ["H2O"], initialize=1)
+
+    m.mole_frac_phase_comp = Var(["Vap", "Liq"], ["H2O"], initialize=1)
+
+    # Create a dummy parameter block
+    m.params = GenericParameterBlock(default={
+        "components": {"H2O": {"type": Component,
+                                "pressure_sat_comp": Psat_fail,
+                               "phase_equilibrium_form": {
+                                   ("Vap", "Liq"): fugacity}}},
+        "phases": {"Liq": {"type": LiquidPhase,
+                           "equation_of_state": DummyEoS},
+                   "Vap": {"type": VaporPhase,
+                           "equation_of_state": DummyEoS}},
+        "state_definition": FTPx,
+        "pressure_ref": 1e5,
+        "temperature_ref": 300,
+        "base_units": {"time": pyunits.s,
+                       "length": pyunits.m,
+                       "mass": pyunits.kg,
+                       "amount": pyunits.mol,
+                       "temperature": pyunits.K}})
+
+    m.state = m.params.build_state_block([0])
+    m.state[0].params._pe_pairs = Set(initialize=(("Liq","Vap"),),
+                                 ordered=True)
+    with pytest.raises(UserModelError,
+                match="Component H2O has a negative saturation pressure in "
+                "block state\[0\]. Check your implementation and parameters."):
+        m.state[0].params.config.state_definition.state_initialization(m.state[0])

@@ -396,9 +396,7 @@ class CompressorMultistageData(UnitModelBlockData):
                 cold_gas_temp_expr = {t:prop_in[t].temperature
                                       for t in self.flowsheet().time}
                 prop_in.initialize()
-            for t in self.flowsheet().time:
-                self.cold_gas_temperature[t].fix(
-                    pyo.value(cold_gas_temp_expr[t]))
+            cold_gas_temp = {t:pyo.value(cold_gas_temp_expr[t])}
         else: 
             raise RuntimeError(f"In initialization of block {self.name}, "
                                "equal_cold_gas_temperature is false, but "
@@ -459,11 +457,17 @@ class CompressorMultistageData(UnitModelBlockData):
                 propagate_state(arc=self.hot_gas[i], direction="forward")
                 self.coolers[i].activate()
                 
-                for t in self.flowsheet().time:
-                    if self.config.equal_cold_gas_temperature:
-                        self.cold_gas_temperature_eqn[t,i].activate()
-                    else:
-                        raise NotImplementedError("blag")
+                if self.config.equal_cold_gas_temperature:
+                    def tmp_rule(b, t):
+                        return (b.control_volume.properties_out[t].temperature
+                                == cold_gas_temp[t])
+                    self.coolers[i].tmp_init_constraint = pyo.Constraint(
+                        self.flowsheet().time, rule=tmp_rule)
+                else:
+                    raise NotImplementedError("blag")
+
+                       
+               
                 self.coolers[i].initialize(outlvl=outlvl,
                                            optarg=optarg, solver=solver)
                 
@@ -471,16 +475,12 @@ class CompressorMultistageData(UnitModelBlockData):
                 # temperature constraint into account
                 # TODO: Is it better to write a temporary constraint to the
                 # heat exchanger?
-                flags = fix_state_vars(self.coolers[i].control_volume.properties_in)
-                with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-                    res = opt.solve(self, tee=slc.tee)
-                revert_state_vars(self.coolers[i].control_volume.properties_in,
-                                   flags)
-                for t in self.flowsheet().time:
-                    if self.config.equal_cold_gas_temperature:
-                        self.cold_gas_temperature_eqn[t,i].deactivate()
-                    else:
-                        raise NotImplementedError("blag")
+                # flags = fix_state_vars(self.coolers[i].control_volume.properties_in)
+                # with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+                #     res = opt.solve(self, tee=slc.tee)
+                # revert_state_vars(self.coolers[i].control_volume.properties_in,
+                #                    flags)
+                self.coolers[i].del_component(self.coolers[i].tmp_init_constraint)
                 self.coolers[i].deactivate()
                 
             if i!=n_comp:

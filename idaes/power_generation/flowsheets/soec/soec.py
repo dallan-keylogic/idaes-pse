@@ -136,6 +136,8 @@ def add_properties(m):
     )
     m.fs.h2_compress_prop.set_default_scaling("mole_frac_comp", 1)
     m.fs.h2_compress_prop.set_default_scaling("mole_frac_phase_comp", 1)
+    # Does not appear to work
+    #m.fs.h2_compress_prop.set_default_scaling("enth_mol_phase[Vap]", 1E-6)
 
 
 def add_preheater(m):
@@ -502,14 +504,6 @@ def add_h2_compressor(m):
     m.fs.h2cmp02.efficiency_isentropic.fix(0.79)
     m.fs.h2cmp02.cold_gas_temperature.fix(273.15+40)
     
-    m.fs.hcmp_ic01 = gum.Heater(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.hcmp01 = gum.Compressor(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.hcmp_ic02 = gum.Heater(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.hcmp02 = gum.Compressor(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.hcmp_ic03 = gum.Heater(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.hcmp03 = gum.Compressor(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.hcmp_ic04 = gum.Heater(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.hcmp04 = gum.Compressor(default={"property_package": m.fs.h2_compress_prop})
     m.fs.h04a = Arc(
         source=m.fs.hxh2.shell_outlet, 
         destination=m.fs.h2flash_translator.inlet
@@ -533,14 +527,6 @@ def add_h2_compressor(m):
     m.fs.h08 = Arc(
         source=m.fs.h2cmp01.outlet,
         destination=m.fs.h2cmp02.inlet) 
-    
-    # m.fs.h05 = Arc(source=m.fs.hcmp_ic01.outlet, destination=m.fs.hcmp01.inlet)
-    # m.fs.h06 = Arc(source=m.fs.hcmp01.outlet, destination=m.fs.hcmp_ic02.inlet)
-    # m.fs.h07 = Arc(source=m.fs.hcmp_ic02.outlet, destination=m.fs.hcmp02.inlet)
-    # m.fs.h08 = Arc(source=m.fs.hcmp02.outlet, destination=m.fs.hcmp_ic03.inlet)
-    # m.fs.h09 = Arc(source=m.fs.hcmp_ic03.outlet, destination=m.fs.hcmp03.inlet)
-    # m.fs.h10 = Arc(source=m.fs.hcmp03.outlet, destination=m.fs.hcmp_ic04.inlet)
-    # m.fs.h11 = Arc(source=m.fs.hcmp_ic04.outlet, destination=m.fs.hcmp04.inlet)
 
 
 def add_constraints(m):
@@ -591,10 +577,8 @@ def add_constraints(m):
     @m.fs.Expression(m.fs.time)
     def h2_compressor_power(b, t):
         return (
-            m.fs.hcmp01.control_volume.work[t]
-            + m.fs.hcmp02.control_volume.work[t]
-            + m.fs.hcmp03.control_volume.work[t]
-            + m.fs.hcmp04.control_volume.work[t]
+            m.fs.h2cmp01.work_mechanical[t]
+            + m.fs.h2cmp02.work_mechanical[t]
         )
 
     @m.fs.Expression(m.fs.time)
@@ -723,21 +707,21 @@ def set_inputs(m):
     m.fs.soec.ac.mole_frac_comp[:, 0, "O2"].fix(0.1)
     m.fs.soec.ac.mole_frac_comp[:, 0, "H2O"].fix(0.9)
 
-    m.fs.hcmp_ic01.outlet.temperature.fix(340)
-    m.fs.hcmp01.outlet.pressure.fix(40e5)
-    m.fs.hcmp01.efficiency_isentropic.fix(0.9)
+    # m.fs.hcmp_ic01.outlet.temperature.fix(340)
+    # m.fs.hcmp01.outlet.pressure.fix(40e5)
+    # m.fs.hcmp01.efficiency_isentropic.fix(0.9)
 
-    m.fs.hcmp_ic02.outlet.temperature.fix(340)
-    m.fs.hcmp02.outlet.pressure.fix(80e5)
-    m.fs.hcmp02.efficiency_isentropic.fix(0.9)
+    # m.fs.hcmp_ic02.outlet.temperature.fix(340)
+    # m.fs.hcmp02.outlet.pressure.fix(80e5)
+    # m.fs.hcmp02.efficiency_isentropic.fix(0.9)
 
-    m.fs.hcmp_ic03.outlet.temperature.fix(340)
-    m.fs.hcmp03.outlet.pressure.fix(160e5)
-    m.fs.hcmp03.efficiency_isentropic.fix(0.9)
+    # m.fs.hcmp_ic03.outlet.temperature.fix(340)
+    # m.fs.hcmp03.outlet.pressure.fix(160e5)
+    # m.fs.hcmp03.efficiency_isentropic.fix(0.9)
 
-    m.fs.hcmp_ic04.outlet.temperature.fix(340)
-    m.fs.hcmp04.outlet.pressure.fix(320e5)
-    m.fs.hcmp04.efficiency_isentropic.fix(0.9)
+    # m.fs.hcmp_ic04.outlet.temperature.fix(340)
+    # m.fs.hcmp04.outlet.pressure.fix(320e5)
+    # m.fs.hcmp04.efficiency_isentropic.fix(0.9)
 
 
 def do_scaling(m):
@@ -879,8 +863,32 @@ def do_scaling(m):
     iscale.set_scaling_factor(m.fs.mxa1.water_state[0.0].enth_mol_phase["Vap"], 1e-4)
     iscale.set_scaling_factor(m.fs.mxa1.recycle_state[0.0].enth_mol_phase["Vap"], 1e-4)
     iscale.set_scaling_factor(m.fs.mxa1.mixed_state[0.0].enth_mol_phase["Vap"], 1e-4)
-
-    #iscale.set_scaling_factor()
+    
+    for unit in [m.fs.h2precool, m.fs.h2flash01]:
+        iscale.set_scaling_factor(unit.control_volume.heat,1E-6)
+        for blk in [unit.control_volume.properties_in[0],
+                    unit.control_volume.properties_out[0]]:
+            iscale.set_scaling_factor(blk.enth_mol_phase["Vap"],1E-6)
+            iscale.set_scaling_factor(blk.enth_mol_phase["Liq"],1E-6)
+        
+    
+    for comp in [m.fs.h2cmp01,m.fs.h2cmp02]:
+        for i in range(1,7):
+            iscale.set_scaling_factor(comp.compressors[i].control_volume\
+                                      .properties_in[0].enth_mol_phase["Vap"],1e-6)
+            iscale.set_scaling_factor(comp.compressors[i].control_volume\
+                                      .properties_out[0].enth_mol_phase["Vap"],1e-6)
+            iscale.set_scaling_factor(comp.compressors[i].control_volume\
+                                      .work,1e-6)
+            iscale.set_scaling_factor(comp.compressors[i]\
+                                      .properties_isentropic[0].enth_mol_phase["Vap"],1e-6)
+            iscale.set_scaling_factor(comp.coolers[i].control_volume\
+                                      .properties_in[0].enth_mol_phase["Vap"],1e-6)
+            iscale.set_scaling_factor(comp.coolers[i].control_volume\
+                                      .properties_out[0].enth_mol_phase["Vap"],1e-6)
+            iscale.set_scaling_factor(comp.coolers[i].control_volume\
+                                      .heat,1e-6)
+                
 
     iscale.calculate_scaling_factors(m)
 
@@ -1189,7 +1197,7 @@ def tag_for_pfd_and_tables(m):
         display_units=pyo.units.MW,
     )
     tag_group["h2_compressor_pressure"] = iutil.ModelTag(
-        expr=m.fs.hcmp04.outlet.pressure[0],
+        expr=m.fs.h2cmp02.outlet.pressure[0],
         format_string="{:.3f}",
         display_units=pyo.units.bar,
     )

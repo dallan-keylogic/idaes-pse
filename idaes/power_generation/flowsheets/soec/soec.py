@@ -39,6 +39,7 @@ from idaes.power_generation.unit_models.helm import (
 )
 import idaes.generic_models.unit_models as gum  # generic unit models
 import idaes.power_generation.unit_models as pum  # power unit models
+from idaes.power_generation.unit_models.compressor_multistage import CompressorMultistage
 import idaes.core.util as iutil
 import idaes.core.util.tables as tables
 import idaes.core.util.scaling as iscale
@@ -49,7 +50,7 @@ from idaes.power_generation.properties.natural_gas_PR import get_prop, get_rxn, 
 from idaes.core.solvers import use_idaes_solver_configuration_defaults
 from idaes.power_generation.properties import FlueGasParameterBlock
 from idaes.generic_models.properties import iapws95
-from idaes.power_generation.flowsheets.soec import soec_costing as soec_cost
+#from idaes.power_generation.flowsheets.soec import soec_costing as soec_cost
 
 from idaes.generic_models.unit_models.heat_exchanger import (
     delta_temperature_underwood_callback,
@@ -118,6 +119,13 @@ def add_properties(m):
     )
     m.fs.h2_prop.set_default_scaling("mole_frac_comp", 10)
     m.fs.h2_prop.set_default_scaling("mole_frac_phase_comp", 10)
+    m.fs.h2_flash_prop = GenericParameterBlock(
+        default=get_prop(components={"H2", "H2O"}, phases=["Vap","Liq"], 
+                         eos=EosType.PR)
+    )
+    m.fs.h2_flash_prop.set_default_scaling("mole_frac_comp", 10)
+    m.fs.h2_flash_prop.set_default_scaling("mole_frac_phase_comp", 10)
+    
     m.fs.o2_prop = GenericParameterBlock(
         default=get_prop(components={"O2", "H2O"}, phases=["Vap"], eos=EosType.IDEAL)
     )
@@ -415,25 +423,85 @@ def add_more_hx_connections(m):
 
 
 def add_h2_compressor(m):
-    @m.fs.hxh2.Expression(m.fs.time, {"H2"})
-    def waterless_mole_frac_expr(b, t, i):
-        return 1
+    # @m.fs.hxh2.Expression(m.fs.time, {"H2"})
+    # def waterless_mole_frac_expr(b, t, i):
+    #     return 1
 
-    @m.fs.hxh2.Expression(m.fs.time)
-    def waterless_flow_expr(b, t):
-        return (
-            m.fs.hxh2._flow_mol_shell_outlet_ref[t]
-            * m.fs.hxh2._mole_frac_comp_shell_outlet_ref[t, "H2"]
+    # @m.fs.hxh2.Expression(m.fs.time)
+    # def waterless_flow_expr(b, t):
+    #     return (
+    #         m.fs.hxh2._flow_mol_shell_outlet_ref[t]
+    #         * m.fs.hxh2._mole_frac_comp_shell_outlet_ref[t, "H2"]
+    #     )
+
+    # m.fs.hxh2.shell_outlet_drop_water = Port(
+    #     rule=lambda b: {
+    #         "flow_mol": m.fs.hxh2.waterless_flow_expr,
+    #         "pressure": m.fs.hxh2._pressure_shell_outlet_ref,
+    #         "temperature": m.fs.hxh2._temperature_shell_outlet_ref,
+    #         "mole_frac_comp": m.fs.hxh2.waterless_mole_frac_expr,
+    #     }
+    # )
+    
+    m.fs.h2flash_translator = gum.Translator(default={"inlet_property_package": m.fs.h2_prop,
+                                      "outlet_property_package": m.fs.h2_flash_prop,
+                                      "outlet_state_defined": False})
+    def rule_flow_mol_comp(blk,t,j):
+        return blk.properties_in[t].flow_mol_comp[j] == blk.properties_out[t].flow_mol_comp[j]
+    def rule_temperature(blk,t):
+        return blk.properties_in[t].temperature == blk.properties_out[t].temperature
+    def rule_pressure(blk,t):
+        return blk.properties_in[t].pressure == blk.properties_out[t].pressure
+    def rule_zero_flow(blk,t,j):
+        return blk.properties_out[t].flow_mol_comp[j] == 0
+    
+    m.fs.h2flash_translator.temperature_eqn = pyo.Constraint(m.fs.time, rule=rule_temperature)
+    m.fs.h2flash_translator.pressure_eqn = pyo.Constraint(m.fs.time, rule=rule_pressure)
+    m.fs.h2flash_translator.flow_mol_comp = (
+        pyo.Constraint(m.fs.time, m.fs.h2_prop.component_list,
+                       rule=rule_flow_mol_comp)
         )
-
-    m.fs.hxh2.shell_outlet_drop_water = Port(
-        rule=lambda b: {
-            "flow_mol": m.fs.hxh2.waterless_flow_expr,
-            "pressure": m.fs.hxh2._pressure_shell_outlet_ref,
-            "temperature": m.fs.hxh2._temperature_shell_outlet_ref,
-            "mole_frac_comp": m.fs.hxh2.waterless_mole_frac_expr,
-        }
-    )
+    
+    
+    m.fs.h2precool = gum.Heater(default={"property_package": m.fs.h2_flash_prop})
+    m.fs.h2flash01 = gum.Flash(default={"property_package": m.fs.h2_flash_prop})
+    
+    # TODO: add in an explicit flowsheet block for the implicit adsorbtion
+    # column later
+    # m.fs.h2_magic_adsorbtion_column = gum.Separator(
+    #     default={"property_package": m.fs.h2_flash_prop})
+    
+    m.fs.h2cmp_translator = gum.Translator(
+        default={"inlet_property_package": m.fs.h2_flash_prop,
+                "outlet_property_package": m.fs.h2_compress_prop,
+                "outlet_state_defined": False})
+    
+    # Silently drop water flow before compressors for now
+    m.fs.h2cmp_translator.temperature_eqn = pyo.Constraint(m.fs.time, rule=rule_temperature)
+    m.fs.h2cmp_translator.pressure_eqn = pyo.Constraint(m.fs.time, rule=rule_pressure)
+    m.fs.h2cmp_translator.flow_mol_comp = (
+        pyo.Constraint(m.fs.time, ["H2"],
+                       rule=rule_flow_mol_comp)
+        )
+    
+    m.fs.h2cmp01 = CompressorMultistage(
+        default={"property_package":m.fs.h2_compress_prop,
+                 "num_stages":6,
+                 "include_final_cooler":True,
+                 "equal_ratioP":True})
+    m.fs.h2cmp01.ratioP[0].fix(1.247)
+    m.fs.h2cmp01.efficiency_isentropic.fix(0.79)
+    m.fs.h2cmp01.cold_gas_temperature.fix(273.15+40)
+    
+    m.fs.h2cmp02 = CompressorMultistage(
+        default={"property_package":m.fs.h2_compress_prop,
+                 "num_stages":6,
+                 "include_final_cooler":True,
+                 "equal_ratioP":True})
+    m.fs.h2cmp02.ratioP[0].fix(1.247)
+    m.fs.h2cmp02.efficiency_isentropic.fix(0.79)
+    m.fs.h2cmp02.cold_gas_temperature.fix(273.15+40)
+    
     m.fs.hcmp_ic01 = gum.Heater(default={"property_package": m.fs.h2_compress_prop})
     m.fs.hcmp01 = gum.Compressor(default={"property_package": m.fs.h2_compress_prop})
     m.fs.hcmp_ic02 = gum.Heater(default={"property_package": m.fs.h2_compress_prop})
@@ -442,16 +510,37 @@ def add_h2_compressor(m):
     m.fs.hcmp03 = gum.Compressor(default={"property_package": m.fs.h2_compress_prop})
     m.fs.hcmp_ic04 = gum.Heater(default={"property_package": m.fs.h2_compress_prop})
     m.fs.hcmp04 = gum.Compressor(default={"property_package": m.fs.h2_compress_prop})
-    m.fs.h04 = Arc(
-        source=m.fs.hxh2.shell_outlet_drop_water, destination=m.fs.hcmp_ic01.inlet
+    m.fs.h04a = Arc(
+        source=m.fs.hxh2.shell_outlet, 
+        destination=m.fs.h2flash_translator.inlet
     )
-    m.fs.h05 = Arc(source=m.fs.hcmp_ic01.outlet, destination=m.fs.hcmp01.inlet)
-    m.fs.h06 = Arc(source=m.fs.hcmp01.outlet, destination=m.fs.hcmp_ic02.inlet)
-    m.fs.h07 = Arc(source=m.fs.hcmp_ic02.outlet, destination=m.fs.hcmp02.inlet)
-    m.fs.h08 = Arc(source=m.fs.hcmp02.outlet, destination=m.fs.hcmp_ic03.inlet)
-    m.fs.h09 = Arc(source=m.fs.hcmp_ic03.outlet, destination=m.fs.hcmp03.inlet)
-    m.fs.h10 = Arc(source=m.fs.hcmp03.outlet, destination=m.fs.hcmp_ic04.inlet)
-    m.fs.h11 = Arc(source=m.fs.hcmp_ic04.outlet, destination=m.fs.hcmp04.inlet)
+    m.fs.h04b = Arc(
+        source=m.fs.h2flash_translator.outlet, 
+        destination=m.fs.h2precool.inlet
+    )
+    m.fs.h05 = Arc(
+        source=m.fs.h2precool.outlet, 
+        destination=m.fs.h2flash01.inlet
+    )
+    # Skip 6 becuase that will be separator block
+    m.fs.h07a = Arc(
+        source=m.fs.h2flash01.vap_outlet, 
+        destination=m.fs.h2cmp_translator.inlet 
+    )
+    m.fs.h07b = Arc(
+        source=m.fs.h2cmp_translator.outlet,
+        destination=m.fs.h2cmp01.inlet)
+    m.fs.h08 = Arc(
+        source=m.fs.h2cmp01.outlet,
+        destination=m.fs.h2cmp02.inlet) 
+    
+    # m.fs.h05 = Arc(source=m.fs.hcmp_ic01.outlet, destination=m.fs.hcmp01.inlet)
+    # m.fs.h06 = Arc(source=m.fs.hcmp01.outlet, destination=m.fs.hcmp_ic02.inlet)
+    # m.fs.h07 = Arc(source=m.fs.hcmp_ic02.outlet, destination=m.fs.hcmp02.inlet)
+    # m.fs.h08 = Arc(source=m.fs.hcmp02.outlet, destination=m.fs.hcmp_ic03.inlet)
+    # m.fs.h09 = Arc(source=m.fs.hcmp_ic03.outlet, destination=m.fs.hcmp03.inlet)
+    # m.fs.h10 = Arc(source=m.fs.hcmp03.outlet, destination=m.fs.hcmp_ic04.inlet)
+    # m.fs.h11 = Arc(source=m.fs.hcmp_ic04.outlet, destination=m.fs.hcmp04.inlet)
 
 
 def add_constraints(m):
@@ -791,6 +880,8 @@ def do_scaling(m):
     iscale.set_scaling_factor(m.fs.mxa1.recycle_state[0.0].enth_mol_phase["Vap"], 1e-4)
     iscale.set_scaling_factor(m.fs.mxa1.mixed_state[0.0].enth_mol_phase["Vap"], 1e-4)
 
+    #iscale.set_scaling_factor()
+
     iscale.calculate_scaling_factors(m)
 
     iscale.constraint_scaling_transform(m.fs.soec_cmb_temperature_eqn[0.0], 1e-2)
@@ -853,22 +944,18 @@ def do_initialize(m, solver):
     m.fs.mxf1.initialize()
     m.fs.mxa1.initialize()
 
-    iinit.propagate_state(m.fs.h04)
-    m.fs.hcmp_ic01.initialize()
+    iinit.propagate_state(m.fs.h04a)
+    m.fs.h2flash_translator.initialize()
+    iinit.propagate_state(m.fs.h04b)
+    m.fs.h2precool.initialize()
     iinit.propagate_state(m.fs.h05)
-    m.fs.hcmp01.initialize()
-    iinit.propagate_state(m.fs.h06)
-    m.fs.hcmp_ic02.initialize()
-    iinit.propagate_state(m.fs.h07)
-    m.fs.hcmp02.initialize()
+    m.fs.h2flash01.initialize()
+    iinit.propagate_state(m.fs.h07a)
+    m.fs.h2cmp_translator.initialize()
+    iinit.propagate_state(m.fs.h07b)
+    m.fs.h2cmp01.initialize()
     iinit.propagate_state(m.fs.h08)
-    m.fs.hcmp_ic03.initialize()
-    iinit.propagate_state(m.fs.h09)
-    m.fs.hcmp03.initialize()
-    iinit.propagate_state(m.fs.h10)
-    m.fs.hcmp_ic04.initialize()
-    iinit.propagate_state(m.fs.h11)
-    m.fs.hcmp04.initialize()
+    m.fs.h2cmp02.initialize()
 
     m.fs.bhx2.tube_inlet.unfix()
     m.fs.preheat_split.inlet.unfix()

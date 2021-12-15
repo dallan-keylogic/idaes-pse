@@ -14,7 +14,8 @@
 import pytest
 from pytest import approx
 import pyomo.environ as pyo
-from pyomo.util.check_units import assert_units_consistent
+from pyomo.util.check_units import (assert_units_consistent, 
+                                    assert_units_equivalent)
 
 from idaes.core import FlowsheetBlock
 from idaes.generic_models.properties.core.generic.generic_property import (
@@ -30,8 +31,8 @@ __author__ = "Douglas Allan"
 # Set up solver
 solver = get_solver()
 
-#@pytest.mark.component
-def test_multistage_compressor():
+@pytest.fixture()
+def model():
     m = pyo.ConcreteModel()
     m.fs = FlowsheetBlock(default={"dynamic": False})
     air_species = {"CO2","Ar","H2O","O2","N2"}
@@ -60,12 +61,39 @@ def test_multistage_compressor():
     comp.inlet.flow_mol[0].fix(1000)
     
     comp.ratioP[0].fix(1.5)
-    comp.cold_gas_temperature[0].fix(273+40)
+    comp.cold_gas_temperature[0].fix(273.15+40)
     comp.efficiency_isentropic[0].fix(0.85)
     
+    return m
+
+@pytest.mark.component
+def test_multistage_compressor(model):
+    m = model
+    air_species = {"CO2","Ar","H2O","O2","N2"}
+    comp = m.fs.compressor_train
+    
     assert(degrees_of_freedom(m) == 0)
-    m.fs.compressor_train.initialize(outlvl=idaeslog.INFO_HIGH)
+    m.fs.compressor_train.initialize(outlvl=idaeslog.INFO)
+    
+    # Ensure correct variables are still fixed
+    assert comp.inlet.temperature[0].fixed
+    assert comp.inlet.pressure[0].fixed
+    assert comp.inlet.flow_mol[0].fixed
+    for key in air_species:
+        assert comp.inlet.mole_frac_comp[0,key].fixed
+    assert comp.ratioP[0].fixed
+    assert comp.inlet.pressure[0].fixed
+    assert comp.efficiency_isentropic[0].fixed
+    
+    # Ensure all constraints are active
+    # and no temporary constraints survived
+    for con in comp.component_data_objects(pyo.Constraint):
+        assert con.local_name != "tmp_init_constraint"
+        assert con.active
+        
     assert(degrees_of_freedom(m) == 0)
+    
+    # Assert variables have correct values
     assert(comp.compressors[1].outlet.pressure[0].value
            /comp.compressors[1].inlet.pressure[0].value
            == approx(1.5))
@@ -73,17 +101,33 @@ def test_multistage_compressor():
             == approx(comp.coolers[1].outlet.pressure[0].value))
     assert(comp.outlet.pressure[0].value/comp.inlet.pressure[0].value
            == approx(1.5**2))
+    assert(comp.coolers[1].outlet.temperature[0].value
+           == approx(273.15+40))
     assert(comp.outlet.temperature[0].value
-           == approx(338.7276))
+           == approx(358.4436))
     assert(comp.outlet.flow_mol[0].value 
            == approx(comp.inlet.flow_mol[0].value))
     for key in air_species:
         assert(comp.outlet.mole_frac_comp[0,key].value
                == approx(comp.inlet.mole_frac_comp[0,key].value))
 
+@pytest.mark.component
+def test_units(model):
+    assert_units_consistent(model)
+    assert_units_equivalent(model.fs.compressor_train.work_mechanical[0], 
+                            pyo.units.W)
+    assert_units_equivalent(model.fs.compressor_train.heat_duty[0], 
+                            pyo.units.W)
+    assert_units_equivalent(model.fs.compressor_train.ratioP[0], 
+                            pyo.units.dimensionless)
+    assert_units_equivalent(model.fs.compressor_train.cold_gas_temperature[0], 
+                            pyo.units.K)
+    
+    
 # TODO:
-# Test unit consistency
+# Basic unit testing to ensure right components have and haven't been created
 # Test scaling
+# Test with IAPWS95 steam being compressed
 
-if __name__ == "__main__":
-    test_multistage_compressor()
+# if __name__ == "__main__":
+#     test_multistage_compressor()

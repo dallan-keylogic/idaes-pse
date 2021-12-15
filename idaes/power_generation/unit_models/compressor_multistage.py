@@ -352,21 +352,20 @@ class CompressorMultistageData(UnitModelBlockData):
                                "to initialize block.")
         if all(val.fixed for val in self.efficiency_isentropic.values()):
             efficiency_isentropic = {
-                idx:val.value for idx,val in self.ratioP.items()}
+                idx:val.value for idx,val in self.efficiency_isentropic.items()}
         else:
             raise RuntimeError(f"In initialization of block {self.name}, "
                                "efficiency_isentropic is not fixed for all "
                                "times and compressors. Unclear how to "
                                "initialize block.")
             
-        # TODO: What if temperature is not a variable?
         try:
             cold_gas_temp_fixed = all(
                 val.fixed for val in self.cold_gas_temperature.values())
         except AttributeError:
             # Temperature is not a variable
-            #???
-            pass
+            cold_gas_temp_fixed = False
+            
         if cold_gas_temp_fixed:
             cold_gas_temp = {idx:val.value 
                              for idx,val in self.cold_gas_temperature.items()}
@@ -396,16 +395,19 @@ class CompressorMultistageData(UnitModelBlockData):
             ########################
             
             # Fix ratioP and efficiency_isentropic
+            # Theoretically, if equal_ratioP or equal_efficiency_isentropic
+            # are false, they should already be fixed, so no need to fix or
+            # unfix
             for t in self.flowsheet().time:
                 if self.config.equal_ratioP:
                     self.compressors[i].ratioP[t].fix(ratioP[t])
-                else:
-                    self.ratioP[i,t].fix(ratioP[(i,t)])
+                # else:
+                #     self.ratioP[i,t].fix(ratioP[(i,t)])
                 if self.config.equal_efficiency_isentropic:
                     self.compressors[i].efficiency_isentropic[t].fix(
                             efficiency_isentropic[t])
-                else:
-                    self.efficiency_isentropic[i,t].fix(efficiency_isentropic[(i,t)])
+                # else:
+                #     self.efficiency_isentropic[i,t].fix(efficiency_isentropic[(i,t)])
                     
             # Initialize
             self.compressors[i].initialize(outlvl=outlvl, optarg=optarg, solver=solver)
@@ -414,12 +416,13 @@ class CompressorMultistageData(UnitModelBlockData):
             for t in self.flowsheet().time:
                 if self.config.equal_ratioP:
                     self.compressors[i].ratioP[t].unfix()
-                else:
-                    self.ratioP[i,t].unfix()
+                    
+                # else:
+                #     self.ratioP[i,t].unfix()
                 if self.config.equal_efficiency_isentropic:
                     self.compressors[i].efficiency_isentropic[t].unfix()
-                else:
-                    self.efficiency_isentropic[i,t].unfix()
+                # else:
+                #     self.efficiency_isentropic[i,t].unfix()
             
             ####################
             # Initialize cooler
@@ -436,7 +439,11 @@ class CompressorMultistageData(UnitModelBlockData):
                     self.coolers[i].tmp_init_constraint = pyo.Constraint(
                         self.flowsheet().time, rule=tmp_rule)
                 else:
-                    raise NotImplementedError("blag")
+                    def tmp_rule(b, t):
+                        return (b.control_volume.properties_out[t].temperature
+                                == cold_gas_temp[(i,t)])
+                    self.coolers[i].tmp_init_constraint = pyo.Constraint(
+                        self.flowsheet().time, rule=tmp_rule)
 
                 # Initialize
                 self.coolers[i].initialize(outlvl=outlvl,
@@ -447,9 +454,18 @@ class CompressorMultistageData(UnitModelBlockData):
             if i!=n_comp:
                 propagate_state(arc=self.cold_gas[i], direction="forward")
         
-        # No block-level solve should be necessary
+        # A unit level solve shouldn't be necessary in most cases, but is
+        # included here in case the user has written their own constraints
+        # to the block in some unanticipated way
+        flags = fix_state_vars(prop_in)
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            res = opt.solve(self, tee=slc.tee)
+        init_log.info("Initialization status {}."
+                           .format(idaeslog.condition(res)))
+        revert_state_vars(prop_in,flags)
         
         # Restore variables to original fixedness status
+        # I don't think this does anything in the initialization as written
         for vbl in component_level_vars:
             for idx, val in vbl.items():
                 if not variable_fixed[vbl][idx]:

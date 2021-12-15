@@ -1325,110 +1325,110 @@ def get_model(m=None, name="SOEC Module"):
     do_scaling(m)
     solver = get_solver()
     do_initialize(m, solver)
-    soec_cost.get_soec_capital_costing(m)
-    m.fs.soec.costing.total_plant_cost.fix(130)
-    m.fs.soec.costing.total_plant_cost_eq.deactivate()
-    iscale.calculate_scaling_factors(m.fs.costing)
+    # soec_cost.get_soec_capital_costing(m)
+    # m.fs.soec.costing.total_plant_cost.fix(130)
+    # m.fs.soec.costing.total_plant_cost_eq.deactivate()
+    # iscale.calculate_scaling_factors(m.fs.costing)
     return m, solver
 
 
 if __name__ == "__main__":
     m, solver = get_model()
     write_pfd_results(m, "soec_init.svg")
-    # check_scaling(m)
+    check_scaling(m)
     # soec_cost.get_soec_capital_costing(m)
     # soec_cost.get_soec_OM_costing(m)
     print(f"Hydrogen product rate {m.tag_input['hydrogen_product_rate']}.")
 
-    m.tag_input["hydrogen_product_rate"].fix()
-    m.tag_input["single_cell_h2_side_inlet_flow"].unfix()
-    solver.solve(m, tee=True)
-    soec_cost.lock_capital_cost(m)
-    soec_cost.get_soec_OM_costing(m)
-    solver.solve(m, tee=True)
+    # m.tag_input["hydrogen_product_rate"].fix()
+    # m.tag_input["single_cell_h2_side_inlet_flow"].unfix()
+    # solver.solve(m, tee=True)
+    # soec_cost.lock_capital_cost(m)
+    # soec_cost.get_soec_OM_costing(m)
+    # solver.solve(m, tee=True)
 
-    m.fs.costing.display()
+    # m.fs.costing.display()
 
-    # strip_bounds = pyo.TransformationFactory("contrib.strip_var_bounds")
-    # strip_bounds.apply_to(m, reversible=False)
+    # # strip_bounds = pyo.TransformationFactory("contrib.strip_var_bounds")
+    # # strip_bounds.apply_to(m, reversible=False)
 
-    m.fs.sweep_constraint = pyo.Constraint(
-        expr=m.tag_input["single_cell_sweep_flow"].expression
-        == 1.0 * m.tag_input["single_cell_h2_side_inlet_flow"].expression
-    )
-    m.tag_input["single_cell_sweep_flow"].unfix()
-    m.tag_input["sweep_o2_frac"].unfix()
-    m.tag_input["sweep_o2_frac"].setlb(0.05)
-    m.tag_input["sweep_o2_frac"].setub(0.80)
+    # m.fs.sweep_constraint = pyo.Constraint(
+    #     expr=m.tag_input["single_cell_sweep_flow"].expression
+    #     == 1.0 * m.tag_input["single_cell_h2_side_inlet_flow"].expression
+    # )
+    # m.tag_input["single_cell_sweep_flow"].unfix()
+    # m.tag_input["sweep_o2_frac"].unfix()
+    # m.tag_input["sweep_o2_frac"].setlb(0.05)
+    # m.tag_input["sweep_o2_frac"].setub(0.80)
 
-    m.tag_input["feed_h2_frac"].unfix()
-    m.tag_input["feed_h2_frac"].setlb(0.02)
-    m.tag_input["feed_h2_frac"].setub(0.15)
+    # m.tag_input["feed_h2_frac"].unfix()
+    # m.tag_input["feed_h2_frac"].setlb(0.02)
+    # m.tag_input["feed_h2_frac"].setub(0.15)
 
-    # m.tag_input["preheat_fg_split_to_air"].unfix()
-    # m.tag_input["preheat_fg_split_to_air"].setlb(0.85)
-    # m.tag_input["preheat_fg_split_to_air"].setub(0.95)
+    # # m.tag_input["preheat_fg_split_to_air"].unfix()
+    # # m.tag_input["preheat_fg_split_to_air"].setlb(0.85)
+    # # m.tag_input["preheat_fg_split_to_air"].setub(0.95)
 
-    m.tag_input["recover_split_to_hxh2"].unfix()
-    m.tag_input["recover_split_to_hxh2"].setlb(0.20)
-    m.tag_input["recover_split_to_hxh2"].setub(0.80)
+    # m.tag_input["recover_split_to_hxh2"].unfix()
+    # m.tag_input["recover_split_to_hxh2"].setlb(0.20)
+    # m.tag_input["recover_split_to_hxh2"].setub(0.80)
 
-    m.fs.spltf1.split_fraction[:, "out"].setlb(0.001)
-    m.fs.spltf1.split_fraction[:, "out"].setub(0.95)
+    # m.fs.spltf1.split_fraction[:, "out"].setlb(0.001)
+    # m.fs.spltf1.split_fraction[:, "out"].setub(0.95)
 
-    m.fs.splta1.split_fraction[:, "out"].setlb(0.001)
-    m.fs.splta1.split_fraction[:, "out"].setub(0.95)
+    # m.fs.splta1.split_fraction[:, "out"].setlb(0.001)
+    # m.fs.splta1.split_fraction[:, "out"].setub(0.95)
 
-    m.fs.aux_boiler_feed_pump.outlet.pressure.fix(20e5)
-    # m.fs.aux_boiler_feed_pump.outlet.pressure.setlb(1.1e5)
-    # m.fs.aux_boiler_feed_pump.outlet.pressure.setub(40e5)
+    # m.fs.aux_boiler_feed_pump.outlet.pressure.fix(20e5)
+    # # m.fs.aux_boiler_feed_pump.outlet.pressure.setlb(1.1e5)
+    # # m.fs.aux_boiler_feed_pump.outlet.pressure.setub(40e5)
 
-    m.fs.obj = pyo.Objective(expr=m.fs.ng_preheater.tube_inlet.flow_mol[0] / 10)
-    # m.fs.obj = pyo.Objective(expr=-m.fs.hxh2.shell_outlet.mole_frac_comp[0, "H2"]*10)
-    # m.fs.obj = pyo.Objective(expr=m.fs.H2_costing.total_variable_OM_cost[0])
+    # m.fs.obj = pyo.Objective(expr=m.fs.ng_preheater.tube_inlet.flow_mol[0] / 10)
+    # # m.fs.obj = pyo.Objective(expr=-m.fs.hxh2.shell_outlet.mole_frac_comp[0, "H2"]*10)
+    # # m.fs.obj = pyo.Objective(expr=m.fs.H2_costing.total_variable_OM_cost[0])
 
-    m.tag_pfd["total_variable_OM_cost"] = iutil.ModelTag(
-        expr=m.fs.H2_costing.total_variable_OM_cost[0],
-        format_string="{:.3f}",
-        display_units=pyo.units.USD / pyo.units.kg,
-        doc="Variable Hydrogen Production Cost",
-    )
+    # m.tag_pfd["total_variable_OM_cost"] = iutil.ModelTag(
+    #     expr=m.fs.H2_costing.total_variable_OM_cost[0],
+    #     format_string="{:.3f}",
+    #     display_units=pyo.units.USD / pyo.units.kg,
+    #     doc="Variable Hydrogen Production Cost",
+    # )
 
-    cols_input = ("hydrogen_product_rate",)
-    cols_pfd = (
-        "status",
-        "total_variable_OM_cost",
-        "h2_product_rate_mass",
-        "co2_product_rate",
-        "co2_product_rate_mass",
-        "soec_power",
-        "h2_compressor_power",
-        "feed_pump_power",
-        "fuel_rate",
-        "fuel_rate_mass",
-        "electric_power",
-        "electric_power_per_mass_h2",
-    )
+    # cols_input = ("hydrogen_product_rate",)
+    # cols_pfd = (
+    #     "status",
+    #     "total_variable_OM_cost",
+    #     "h2_product_rate_mass",
+    #     "co2_product_rate",
+    #     "co2_product_rate_mass",
+    #     "soec_power",
+    #     "h2_compressor_power",
+    #     "feed_pump_power",
+    #     "fuel_rate",
+    #     "fuel_rate_mass",
+    #     "electric_power",
+    #     "electric_power_per_mass_h2",
+    # )
 
-    head_1 = m.tag_input.table_heading(tags=cols_input, units=True)
-    head_2 = m.tag_pfd.table_heading(tags=cols_pfd, units=True)
-    with open("opt_res.csv", "w", newline="") as f:
-        w = csv.writer(f)
-        w.writerow(head_1 + head_2)
-    for h in np.linspace(1.4, 0.2, 25):
-        m.tag_input["hydrogen_product_rate"].fix(
-            float(h) * pyo.units.kmol / pyo.units.s
-        )
-        print(f"Hydrogen product rate {m.tag_input['hydrogen_product_rate']}.")
-        res = solver.solve(m, tee=True)
-        stat = idaeslog.condition(res)
-        m.tag_pfd["status"].set(stat)
-        # soec_cost.display_soec_costing(m)
-        row_1 = m.tag_input.table_row(tags=cols_input, numeric=True)
-        row_2 = m.tag_pfd.table_row(tags=cols_pfd, numeric=True)
-        with open("opt_res.csv", "a", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(row_1 + row_2)
-        write_pfd_results(
-            m, f"soec_{m.tag_input['hydrogen_product_rate'].display(units=False)}.svg"
-        )
+    # head_1 = m.tag_input.table_heading(tags=cols_input, units=True)
+    # head_2 = m.tag_pfd.table_heading(tags=cols_pfd, units=True)
+    # with open("opt_res.csv", "w", newline="") as f:
+    #     w = csv.writer(f)
+    #     w.writerow(head_1 + head_2)
+    # for h in np.linspace(1.4, 0.2, 25):
+    #     m.tag_input["hydrogen_product_rate"].fix(
+    #         float(h) * pyo.units.kmol / pyo.units.s
+    #     )
+    #     print(f"Hydrogen product rate {m.tag_input['hydrogen_product_rate']}.")
+    #     res = solver.solve(m, tee=True)
+    #     stat = idaeslog.condition(res)
+    #     m.tag_pfd["status"].set(stat)
+    #     # soec_cost.display_soec_costing(m)
+    #     row_1 = m.tag_input.table_row(tags=cols_input, numeric=True)
+    #     row_2 = m.tag_pfd.table_row(tags=cols_pfd, numeric=True)
+    #     with open("opt_res.csv", "a", newline="") as f:
+    #         w = csv.writer(f)
+    #         w.writerow(row_1 + row_2)
+    #     write_pfd_results(
+    #         m, f"soec_{m.tag_input['hydrogen_product_rate'].display(units=False)}.svg"
+    #     )

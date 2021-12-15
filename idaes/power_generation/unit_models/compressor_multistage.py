@@ -175,23 +175,6 @@ class CompressorMultistageData(UnitModelBlockData):
         
         t0 = self.flowsheet().time.first()
         
-        
-        # Clever code is the path to the dark side
-        # def lift_var(name,component,doc_string):
-        #     equal_value = getattr(config,"equal_"+name)
-        #     if equal_value:
-        #         low_level_var = getattr(component[1],name)
-        #         init = low_level_var[t0].value
-        #         bounds = low_level_var[t0].bounds
-        #         setattr(self,name,pyo.Var(self.flowsheet().time,
-        #             initialize=init,bounds = bounds, doc = doc_string)
-                
-        #         s
-        #         @self.Constraint(self.flowsheet().time, n_comp_idx)
-        #         def ratioP_eqn(b,t,i):
-        #             return b.compressors[i].ratioP[t] == b.ratioP[t]
-        #     else:
-                
         # For ratioP, efficiency_isentropic, and cold_gas_temperature, we
         # either create a single higher level variable and constrain the lower
         # level component variables to equal that variable, or create a higher
@@ -232,8 +215,6 @@ class CompressorMultistageData(UnitModelBlockData):
             self.cold_gas_temperature = pyo.Var(
                 self.flowsheet().time,
                 initialize = 1,
-                #bounds = self.heat_exchangers[1].hot_side\
-                #    .properties_out[t0].temperature.bounds,
                 units = temp_units,
                 doc = "Temperature reached before next compression stage")
             
@@ -300,11 +281,6 @@ class CompressorMultistageData(UnitModelBlockData):
         init_log = idaeslog.getInitLogger(self.name, outlvl, tag="unit")
         solve_log = idaeslog.getSolveLogger(self.name, outlvl, tag="unit")
         opt = get_solver(solver, optarg)
-        # Store initial model specs, restored at the end of initializtion, so
-        # the problem is not altered.  This can restore fixed/free vars,
-        # active/inactive constraints, and fixed variable values.
-        # sp = StoreSpec.value_isfixed_isactive(only_fixed=True)
-        # istate = to_json(self, return_dict=True, wts=sp)
 
         n_comp = self.config.num_stages
         n_coolers = (self.config.num_stages - 1 
@@ -318,13 +294,13 @@ class CompressorMultistageData(UnitModelBlockData):
         
         component_level_vars += [vbl for vbl in self.outlet.vars.values()]
             
-        component_level_constraints = []
-        if self.config.equal_ratioP:
-            component_level_constraints.append(self.ratioP_eqn)
-        if self.config.equal_efficiency_isentropic:
-            component_level_constraints.append(self.efficiency_isentropic_eqn)
-        if self.config.equal_cold_gas_temperature:
-            component_level_constraints.append(self.cold_gas_temperature_eqn)
+        # component_level_constraints = []
+        # if self.config.equal_ratioP:
+        #     component_level_constraints.append(self.ratioP_eqn)
+        # if self.config.equal_efficiency_isentropic:
+        #     component_level_constraints.append(self.efficiency_isentropic_eqn)
+        # if self.config.equal_cold_gas_temperature:
+        #     component_level_constraints.append(self.cold_gas_temperature_eqn)
         #TODO support user component level variables and constraints
         
         variable_fixed = {}
@@ -333,12 +309,12 @@ class CompressorMultistageData(UnitModelBlockData):
             for idx, val in vbl.items():
                 variable_fixed[vbl][idx] = val.fixed
             
-        constraint_active = {}
-        for con in component_level_constraints:
-            constraint_active[con] = {}
-            for idx, val in con.items():
-                constraint_active[con][idx] = val.active
-            con.deactivate()
+        # constraint_active = {}
+        # for con in component_level_constraints:
+        #     constraint_active[con] = {}
+        #     for idx, val in con.items():
+        #         constraint_active[con][idx] = val.active
+        #     con.deactivate()
         
         
         t0 = self.flowsheet().time.first()
@@ -382,7 +358,16 @@ class CompressorMultistageData(UnitModelBlockData):
                                "efficiency_isentropic is not fixed for all "
                                "times and compressors. Unclear how to "
                                "initialize block.")
-        if all(val.fixed for val in self.cold_gas_temperature.values()):
+            
+        # TODO: What if temperature is not a variable?
+        try:
+            cold_gas_temp_fixed = all(
+                val.fixed for val in self.cold_gas_temperature.values())
+        except AttributeError:
+            # Temperature is not a variable
+            #???
+            pass
+        if cold_gas_temp_fixed:
             cold_gas_temp = {idx:val.value 
                              for idx,val in self.cold_gas_temperature.items()}
         elif self.config.equal_cold_gas_temperature:
@@ -396,7 +381,8 @@ class CompressorMultistageData(UnitModelBlockData):
                 cold_gas_temp_expr = {t:prop_in[t].temperature
                                       for t in self.flowsheet().time}
                 prop_in.initialize()
-            cold_gas_temp = {t:pyo.value(cold_gas_temp_expr[t])}
+            cold_gas_temp = {t:pyo.value(cold_gas_temp_expr[t])
+                             for t in self.flowsheet().time}
         else: 
             raise RuntimeError(f"In initialization of block {self.name}, "
                                "equal_cold_gas_temperature is false, but "
@@ -404,59 +390,45 @@ class CompressorMultistageData(UnitModelBlockData):
                                "for all times and coolers. Unclear how "
                                "to initialize block.")
             
-        
-        self.compressors.deactivate()
-        self.hot_gas.deactivate()
-        self.coolers.deactivate()
-        self.cold_gas.deactivate()
-        
-        # for t in self.flowsheet().time:
-        #     self.ratioP[t].fix()
-        #     self.efficiency_isentropic[t].fix()
-        #     self.cold_gas_temperature[t].fix()
-
-        
-        # self.ratioP_eqn.deactivate()
-        # self.efficiency_isentropic_eqn.deactivate()
-        # self.cold_gas_temperature_eqn.deactivate()
-            
         for i in range(1,n_comp+1):
+            ########################
             # Initialize compressor
-            self.compressors[i].activate()
-            # self.ratioP_eqn[i].activate()
-            # self.efficiency_isentropic_eqn[i].activate()
+            ########################
+            
+            # Fix ratioP and efficiency_isentropic
             for t in self.flowsheet().time:
                 if self.config.equal_ratioP:
                     self.compressors[i].ratioP[t].fix(ratioP[t])
                 else:
-                    self.compressors[i].ratioP[t].fix(ratioP[(i,t)])
+                    self.ratioP[i,t].fix(ratioP[(i,t)])
                 if self.config.equal_efficiency_isentropic:
                     self.compressors[i].efficiency_isentropic[t].fix(
                             efficiency_isentropic[t])
                 else:
-                    raise NotImplementedError("blag")
+                    self.efficiency_isentropic[i,t].fix(efficiency_isentropic[(i,t)])
+                    
+            # Initialize
             self.compressors[i].initialize(outlvl=outlvl, optarg=optarg, solver=solver)
-            # with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-            #     res = opt.solve(self, tee=slc.tee)
             
+            # Unfix fixed variables
             for t in self.flowsheet().time:
                 if self.config.equal_ratioP:
                     self.compressors[i].ratioP[t].unfix()
                 else:
-                    raise NotImplementedError("blag")
+                    self.ratioP[i,t].unfix()
                 if self.config.equal_efficiency_isentropic:
                     self.compressors[i].efficiency_isentropic[t].unfix()
                 else:
-                    raise NotImplementedError("blag")
-            self.compressors[i].deactivate()
-            # self.ratioP_eqn[i].deactivate()
-            # self.efficiency_isentropic_eqn[i].deactivate()
+                    self.efficiency_isentropic[i,t].unfix()
             
-            # Initialize heat exchanger
+            ####################
+            # Initialize cooler
+            ####################
             if i != n_comp or self.config.include_final_cooler:
                 propagate_state(arc=self.hot_gas[i], direction="forward")
-                self.coolers[i].activate()
                 
+                # Write temporary constraint to cooler so that output
+                # temperatue can be constrained without solving the whole block
                 if self.config.equal_cold_gas_temperature:
                     def tmp_rule(b, t):
                         return (b.control_volume.properties_out[t].temperature
@@ -466,42 +438,26 @@ class CompressorMultistageData(UnitModelBlockData):
                 else:
                     raise NotImplementedError("blag")
 
-                       
-               
+                # Initialize
                 self.coolers[i].initialize(outlvl=outlvl,
                                            optarg=optarg, solver=solver)
-                
-                # Need to perform a unit level solve in order to take the
-                # temperature constraint into account
-                # TODO: Is it better to write a temporary constraint to the
-                # heat exchanger?
-                # flags = fix_state_vars(self.coolers[i].control_volume.properties_in)
-                # with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-                #     res = opt.solve(self, tee=slc.tee)
-                # revert_state_vars(self.coolers[i].control_volume.properties_in,
-                #                    flags)
+                # Delete temporary constraint
                 self.coolers[i].del_component(self.coolers[i].tmp_init_constraint)
-                self.coolers[i].deactivate()
                 
             if i!=n_comp:
                 propagate_state(arc=self.cold_gas[i], direction="forward")
-        self.compressors.activate()
-        self.hot_gas.activate()
-        self.coolers.activate()
-        self.cold_gas.activate()
-
-        # with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-        #     res = opt.solve(self, tee=slc.tee)
-        # init_log.info_high("Initialization Step 3 {}."
-        #                    .format(idaeslog.condition(res)))
+        
+        # No block-level solve should be necessary
+        
+        # Restore variables to original fixedness status
         for vbl in component_level_vars:
             for idx, val in vbl.items():
                 if not variable_fixed[vbl][idx]:
                     vbl[idx].unfix()
-        for con in component_level_constraints:
-            for idx, val in con.items():
-                if constraint_active[con][idx]:
-                    con[idx].activate()
+        # for con in component_level_constraints:
+        #     for idx, val in con.items():
+        #         if constraint_active[con][idx]:
+        #             con[idx].activate()
         
 
 
@@ -518,7 +474,7 @@ class CompressorMultistageData(UnitModelBlockData):
             for i in range(1,n_coolers+1):
                 sf_T = iscale.get_scaling_factor(\
                     self.coolers[i].outlet.temperature[t], 
-                    default=300, warning=True)
+                    default=0.005, warning=True)
                 iscale.constraint_scaling_transform(
                     self.cold_gas_temperature_eqn[t,i], sf_T, overwrite=False)
             if iscale.get_scaling_factor(self.cold_gas_temperature) is None:

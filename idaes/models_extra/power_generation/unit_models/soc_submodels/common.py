@@ -550,9 +550,9 @@ def _binary_diffusion_coefficient_expr(temperature, p, c1, c2):
     Pa_to_bar = 1e-5
     return (
         (
-            0.002666
+            0.00266
             * cm2_to_m2
-            * temperature ** (3 / 2)
+            * (temperature / pyo.units.K) ** (3 / 2)
             / (p / pyo.units.Pa)
             / Pa_to_bar
             / mab**0.5

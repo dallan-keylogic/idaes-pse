@@ -44,7 +44,8 @@ Instances of ``Var`` that must be fixed:
       values that include void areas must be corrected by dividing by one minus porosity
     - ``solid_thermal_conductivity``: Thermal conductivity of solid phase of slab. Again, literature
       values may need to be divided by one minus porosity
-    - ``resistivity_log_preexponential_factor``: Natural logarithm of resistivity preexponential factor in ohm * m
+    - ``resistivity_log_preexponential_factor``: Natural logarithm of resistivity preexponential factor in ohm * m.
+      Again, literature values may need to be divided by one minus porosity
     - ``resistivity_thermal_exponent_dividend``: Parameter divided by temperature in resistivity equation, in K.
       Would be something like (reduced) activation energy, but it can be both negative and positive.
 """
@@ -271,9 +272,21 @@ class PorousConductiveSlabData(UnitModelBlockData):
         )
 
         # Parameters
-        self.solid_heat_capacity = pyo.Var()
-        self.solid_density = pyo.Var()
-        self.solid_thermal_conductivity = pyo.Var()
+        self.solid_heat_capacity = pyo.Var(
+            initialize = 200,
+            doc = "Heat capacity of solid part of porous slab (mass basis)",
+            units = pyo.units.J / pyo.units.kg / pyo.units.K
+        )
+        self.solid_density = pyo.Var(
+            initialize = 1000,
+            doc = "Density of solid part of porous slab",
+            units = pyo.units.kg/pyo.units.m**3
+        )
+        self.solid_thermal_conductivity = pyo.Var(
+            initialize = 80,
+            doc = "Thermal conductivity of solid part of porous slab",
+            units = pyo.units.W / pyo.units.m / pyo.units.K
+        )
 
         # Add time derivative varaible if steady state use const 0.
         if dynamic:

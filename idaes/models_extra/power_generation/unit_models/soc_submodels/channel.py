@@ -176,13 +176,24 @@ class SocChannelData(UnitModelBlockData):
                 units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
             )
 
-            @self.Expression(tset, iznodes, comps)
-            def conc_mol_comp_deviation_x1(b, t, iz, j):
-                return 0
+            self.conc_mol_comp_deviation_x1 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero concentration deviation at interconnect wall.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m ** 3,
 
-            @self.Expression(tset, iznodes, comps)
-            def material_flux_x1(b, t, iz, j):
-                return 0
+            )
+            self.material_flux_x1 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero material flux from channel "
+                    "to interconnect.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m ** 2 / pyo.units.s,
+            )
 
         else:
             self.conc_mol_comp_deviation_x1 = pyo.Var(
@@ -203,14 +214,24 @@ class SocChannelData(UnitModelBlockData):
                 initialize=0,
                 units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
             )
+            self.conc_mol_comp_deviation_x0 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero concentration deviation at interconnect wall.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m ** 3,
 
-            @self.Expression(tset, iznodes, comps)
-            def conc_mol_comp_deviation_x0(b, t, iz, j):
-                return 0
-
-            @self.Expression(tset, iznodes, comps)
-            def material_flux_x0(b, t, iz, j):
-                return 0
+            )
+            self.material_flux_x0 = pyo.Param(
+                tset,
+                iznodes,
+                comps,
+                doc="Dummy parameter for zero material flux from channel "
+                    "to interconnect.",
+                initialize=0,
+                units=pyo.units.mol / pyo.units.m ** 2 / pyo.units.s,
+            )
 
         # Channel thickness AKA length in the x direction is specific to the
         # channel so local variable here is the only option

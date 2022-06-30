@@ -171,11 +171,11 @@ def test_build_modelNoHoldup(modelNoHoldup):
     comp_dict[pyo.Var]["conc_mol_comp_deviation_x0"] = nt * nz * ncomp
     comp_dict[pyo.Var]["material_flux_x0"] = nt * nz * ncomp
     comp_dict[pyo.Constraint]["material_flux_x0_eqn"] = nt * nz * ncomp
-    comp_dict[pyo.Expression]["conc_mol_comp_deviation_x1"] = nt * nz * ncomp
-    comp_dict[pyo.Expression]["material_flux_x1"] = nt * nz * ncomp
     comp_dict[pyo.Param] = {}
     comp_dict[pyo.Param]["dconc_mol_compdt"] = nt * nz * ncomp
     comp_dict[pyo.Param]["dcedt"] = nt * nz
+    comp_dict[pyo.Param]["conc_mol_comp_deviation_x1"] = nt * nz * ncomp
+    comp_dict[pyo.Param]["material_flux_x1"] = nt * nz * ncomp
 
     soc_testing._build_test_utility(
         block=channel,
@@ -193,8 +193,6 @@ def test_build_modelHoldupNotDynamic(modelHoldupNotDynamic):
     ncomp = len(channel.component_list)
 
     comp_dict = common_components(nt, nz, ncomp)
-    comp_dict[pyo.Expression]["conc_mol_comp_deviation_x0"] = nt * nz * ncomp
-    comp_dict[pyo.Expression]["material_flux_x0"] = nt * nz * ncomp
     comp_dict[pyo.Var]["conc_mol_comp_deviation_x1"] = nt * nz * ncomp
     comp_dict[pyo.Var]["material_flux_x1"] = nt * nz * ncomp
     comp_dict[pyo.Constraint]["material_flux_x1_eqn"] = nt * nz * ncomp
@@ -203,6 +201,8 @@ def test_build_modelHoldupNotDynamic(modelHoldupNotDynamic):
     comp_dict[pyo.Param] = {}
     comp_dict[pyo.Param]["dconc_mol_compdt"] = nt * nz * ncomp
     comp_dict[pyo.Param]["dcedt"] = nt * nz
+    comp_dict[pyo.Param]["conc_mol_comp_deviation_x0"] = nt * nz * ncomp
+    comp_dict[pyo.Param]["material_flux_x0"] = nt * nz * ncomp
     comp_dict[pyo.Constraint]["int_energy_mol_eqn"] = nt * nz
     comp_dict[pyo.Constraint]["int_energy_density_eqn"] = nt * nz
 

@@ -239,6 +239,15 @@ class SolidOxideCellData(UnitModelBlockData):
         ),
     )
     CONFIG.declare(
+        "control_volume_xfaces_interconnect",
+        ConfigValue(
+            domain=ListOf(float),
+            description="List containing coordinates of control volume faces "
+                        "in x direction for interconnect. Coordinates must start with "
+                        "zero, be strictly increasing, and end with one",
+        ),
+    )
+    CONFIG.declare(
         "include_contact_resistance",
         ConfigValue(
             default=False,
@@ -537,6 +546,7 @@ class SolidOxideCellData(UnitModelBlockData):
                 "include_temperature_x_thermo": include_temp_x_thermo,
             }
         )
+
         self.state_vars = {"flow_mol", "mole_frac_comp", "temperature", "pressure"}
         for chan, alias in zip(
             [self.fuel_channel, self.oxygen_channel], ["fuel", "oxygen"]
@@ -582,8 +592,22 @@ class SolidOxideCellData(UnitModelBlockData):
             )
 
         if self.config.flux_through_interconnect:
-            raise NotImplementedError(
-                "Flux through interconnect has not yet been implemented"
+            self.interconnect = soc.SocConductiveSlab(
+                default={
+                    "has_holdup": has_holdup,
+                    "dynamic": dynamic,
+                    "control_volume_zfaces": self.config.control_volume_zfaces,
+                    "control_volume_xfaces": self.config.control_volume_xfaces_interconnect,
+                    "length_z": self.length_z,
+                    "length_y": self.length_y,
+                    "temperature_z": self.temperature_z,
+                    "current_density": self.current_density,
+                    "temperature_deviation_x0": self.oxygen_channel.temperature_deviation_x1,
+                    "temperature_deviation_x1": self.fuel_channel.temperature_deviation_x0,
+                    "heat_flux_x0": interconnect_heat_flux_x0,
+                    "heat_flux_x1": interconnect_heat_flux_x1,
+                    "include_temperature_x_thermo": include_temp_x_thermo,
+                }
             )
         else:
             interconnect_heat_flux_x0.value = 0
@@ -1008,6 +1032,8 @@ class SolidOxideCellData(UnitModelBlockData):
             submodels.append(self.contact_flow_mesh_fuel_electrode)
             submodels.append(self.contact_interconnect_oxygen_flow_mesh)
             submodels.append(self.contact_flow_mesh_oxygen_electrode)
+        if self.config.flux_through_interconnect:
+            submodels.append(self.interconnect)
 
         sy_def = 10
         s_inert_flux = 1e4

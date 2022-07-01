@@ -570,27 +570,6 @@ class SolidOxideCellData(UnitModelBlockData):
                 ),
             )
 
-        @self.Expression(tset, iznodes)
-        def voltage_drop_contact(b, t, iz):
-            if self.config.include_contact_resistance:
-                return (
-                    b.contact_interconnect_fuel_flow_mesh.voltage_drop[t, iz]
-                    + b.contact_flow_mesh_fuel_electrode.voltage_drop[t, iz]
-                    + b.contact_interconnect_oxygen_flow_mesh.voltage_drop[t, iz]
-                    + b.contact_flow_mesh_oxygen_electrode.voltage_drop[t, iz]
-                )
-            else:
-                return 0
-
-        @self.Expression(tset, iznodes)
-        def voltage_drop_ohmic(b, t, iz):
-            return (
-                b.electrolyte.voltage_drop_total[t, iz]
-                + b.fuel_electrode.voltage_drop_total[t, iz]
-                + b.oxygen_electrode.voltage_drop_total[t, iz]
-                + b.voltage_drop_contact[t, iz]
-            )
-
         if self.config.flux_through_interconnect:
             self.interconnect = soc.SocConductiveSlab(
                 default={
@@ -631,6 +610,37 @@ class SolidOxideCellData(UnitModelBlockData):
 
         if dynamic:
             self.mean_temperature_eqn[tset.first(), :].deactivate()
+
+
+
+        @self.Expression(tset, iznodes)
+        def voltage_drop_contact(b, t, iz):
+            if b.config.include_contact_resistance:
+                return (
+                    b.contact_interconnect_fuel_flow_mesh.voltage_drop[t, iz]
+                    + b.contact_flow_mesh_fuel_electrode.voltage_drop[t, iz]
+                    + b.contact_interconnect_oxygen_flow_mesh.voltage_drop[t, iz]
+                    + b.contact_flow_mesh_oxygen_electrode.voltage_drop[t, iz]
+                )
+            else:
+                return 0
+
+        @self.Expression(tset, iznodes)
+        def voltage_drop_interconnect(b, t, iz):
+            if b.config.flux_through_interconnect:
+                return b.interconnect.voltage_drop_total[t, iz]
+            else:
+                return 0
+
+        @self.Expression(tset, iznodes)
+        def voltage_drop_ohmic(b, t, iz):
+            return (
+                b.electrolyte.voltage_drop_total[t, iz]
+                + b.fuel_electrode.voltage_drop_total[t, iz]
+                + b.oxygen_electrode.voltage_drop_total[t, iz]
+                + b.voltage_drop_contact[t, iz]
+                + b.voltage_drop_interconnect[t, iz]
+            )
 
         @self.Constraint(tset, iznodes)
         def potential_eqn(b, t, iz):

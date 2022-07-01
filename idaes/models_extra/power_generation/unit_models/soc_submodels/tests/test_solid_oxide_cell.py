@@ -47,6 +47,7 @@ def build_tester(cell, nt, nz):
                 "voltage_drop_ohmic": nz * nt,
                 "electrical_work": 1,
                 "average_current_density": 1,
+                "voltage_drop_interconnect": nz * nt,
             },
         },
     )
@@ -494,6 +495,7 @@ def build_tester_interconnect(cell, nt, nz):
                 "voltage_drop_ohmic": nz * nt,
                 "electrical_work": 1,
                 "average_current_density": 1,
+                "voltage_drop_interconnect": nz * nt,
             },
         },
     )

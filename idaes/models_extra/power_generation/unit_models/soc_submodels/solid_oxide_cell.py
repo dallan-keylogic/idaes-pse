@@ -243,8 +243,8 @@ class SolidOxideCellData(UnitModelBlockData):
         ConfigValue(
             domain=ListOf(float),
             description="List containing coordinates of control volume faces "
-                        "in x direction for interconnect. Coordinates must start with "
-                        "zero, be strictly increasing, and end with one",
+            "in x direction for interconnect. Coordinates must start with "
+            "zero, be strictly increasing, and end with one",
         ),
     )
     CONFIG.declare(
@@ -610,8 +610,6 @@ class SolidOxideCellData(UnitModelBlockData):
 
         if dynamic:
             self.mean_temperature_eqn[tset.first(), :].deactivate()
-
-
 
         @self.Expression(tset, iznodes)
         def voltage_drop_contact(b, t, iz):

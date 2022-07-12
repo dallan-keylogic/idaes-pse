@@ -475,6 +475,7 @@ def test_build_no_contact_resistance(model_no_contact_resistance):
         is cell.electrolyte.heat_flux_x1.referent
     )
 
+
 def build_tester_interconnect(cell, nt, nz):
     soc_testing._build_test_utility(
         cell,
@@ -499,6 +500,7 @@ def build_tester_interconnect(cell, nt, nz):
             },
         },
     )
+
 
 @pytest.fixture
 def model_contact_resistance_and_interconnect():
@@ -553,9 +555,12 @@ def model_contact_resistance_and_interconnect():
     )
     return m
 
+
 @pytest.mark.build
 @pytest.mark.unit
-def test_build_contact_resistance_and_interconnect(model_contact_resistance_and_interconnect):
+def test_build_contact_resistance_and_interconnect(
+    model_contact_resistance_and_interconnect,
+):
     cell = model_contact_resistance_and_interconnect.fs.cell
     nt = len(model_contact_resistance_and_interconnect.fs.time)
     nz = len(cell.zfaces) - 1
@@ -760,6 +765,7 @@ def test_build_contact_resistance_and_interconnect(model_contact_resistance_and_
         is cell.interconnect.heat_flux_x1.referent
     )
 
+
 @pytest.fixture
 def model_no_contact_resistance_but_interconnect():
     time_set = [0]
@@ -816,7 +822,9 @@ def model_no_contact_resistance_but_interconnect():
 
 @pytest.mark.build
 @pytest.mark.unit
-def test_build_no_contact_resistance_but_interconnect(model_no_contact_resistance_but_interconnect):
+def test_build_no_contact_resistance_but_interconnect(
+    model_no_contact_resistance_but_interconnect,
+):
     cell = model_no_contact_resistance_but_interconnect.fs.cell
     nt = len(model_no_contact_resistance_but_interconnect.fs.time)
     nz = len(cell.zfaces) - 1
@@ -954,11 +962,5 @@ def test_build_no_contact_resistance_but_interconnect(model_no_contact_resistanc
         cell.fuel_channel.temperature_deviation_x0
         is cell.interconnect.temperature_deviation_x1.referent
     )
-    assert (
-        cell.oxygen_channel.heat_flux_x1
-        is cell.interconnect.heat_flux_x0.referent
-    )
-    assert (
-        cell.fuel_channel.heat_flux_x0
-        is cell.interconnect.heat_flux_x1.referent
-    )
+    assert cell.oxygen_channel.heat_flux_x1 is cell.interconnect.heat_flux_x0.referent
+    assert cell.fuel_channel.heat_flux_x0 is cell.interconnect.heat_flux_x1.referent

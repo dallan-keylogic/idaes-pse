@@ -270,7 +270,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
             doc="Effective Fick's law diffusion coefficient at node centers",
             initialize=2e-5,
             bounds=(0, None),
-            units=pyo.units.m ** 2 / pyo.units.s
+            units=pyo.units.m**2 / pyo.units.s,
         )
         self.resistivity_log_preexponential_factor = pyo.Var(
             doc="Logarithm of resistivity preexponential factor " "in units of ohm*m",
@@ -282,19 +282,19 @@ class PorousConductiveSlabData(UnitModelBlockData):
 
         # Parameters
         self.solid_heat_capacity = pyo.Var(
-            initialize = 200,
-            doc = "Heat capacity of solid part of porous slab (mass basis)",
-            units = pyo.units.J / pyo.units.kg / pyo.units.K
+            initialize=200,
+            doc="Heat capacity of solid part of porous slab (mass basis)",
+            units=pyo.units.J / pyo.units.kg / pyo.units.K,
         )
         self.solid_density = pyo.Var(
-            initialize = 1000,
-            doc = "Density of solid part of porous slab",
-            units = pyo.units.kg/pyo.units.m**3
+            initialize=1000,
+            doc="Density of solid part of porous slab",
+            units=pyo.units.kg / pyo.units.m**3,
         )
         self.solid_thermal_conductivity = pyo.Var(
-            initialize = 80,
-            doc = "Thermal conductivity of solid part of porous slab",
-            units = pyo.units.W / pyo.units.m / pyo.units.K
+            initialize=80,
+            doc="Thermal conductivity of solid part of porous slab",
+            units=pyo.units.W / pyo.units.m / pyo.units.K,
         )
 
         # Add time derivative varaible if steady state use const 0.
@@ -466,13 +466,9 @@ class PorousConductiveSlabData(UnitModelBlockData):
             P = b.pressure[t, ix, iz]
             x = b.mole_frac_comp
             bfun = common._binary_diffusion_coefficient_expr
-            return (
-                b.diff_eff_coeff[t, ix, iz, i]
-                == b.porosity
-                / b.tortuosity
-                * (1.0 - x[t, ix, iz, i])
-                / sum(x[t, ix, iz, j] / bfun(T, P, i, j) for j in comps if i != j)
-            )
+            return b.diff_eff_coeff[t, ix, iz, i] == b.porosity / b.tortuosity * (
+                1.0 - x[t, ix, iz, i]
+            ) / sum(x[t, ix, iz, j] / bfun(T, P, i, j) for j in comps if i != j)
 
         @self.Expression(tset, ixfaces, iznodes, comps)
         def dcdx(b, t, ix, iz, i):

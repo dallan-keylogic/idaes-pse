@@ -182,17 +182,16 @@ class SocChannelData(UnitModelBlockData):
                 comps,
                 doc="Dummy parameter for zero concentration deviation at interconnect wall.",
                 initialize=0,
-                units=pyo.units.mol / pyo.units.m ** 3,
-
+                units=pyo.units.mol / pyo.units.m**3,
             )
             self.material_flux_x1 = pyo.Param(
                 tset,
                 iznodes,
                 comps,
                 doc="Dummy parameter for zero material flux from channel "
-                    "to interconnect.",
+                "to interconnect.",
                 initialize=0,
-                units=pyo.units.mol / pyo.units.m ** 2 / pyo.units.s,
+                units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
             )
 
         else:
@@ -220,17 +219,16 @@ class SocChannelData(UnitModelBlockData):
                 comps,
                 doc="Dummy parameter for zero concentration deviation at interconnect wall.",
                 initialize=0,
-                units=pyo.units.mol / pyo.units.m ** 3,
-
+                units=pyo.units.mol / pyo.units.m**3,
             )
             self.material_flux_x0 = pyo.Param(
                 tset,
                 iznodes,
                 comps,
                 doc="Dummy parameter for zero material flux from channel "
-                    "to interconnect.",
+                "to interconnect.",
                 initialize=0,
-                units=pyo.units.mol / pyo.units.m ** 2 / pyo.units.s,
+                units=pyo.units.mol / pyo.units.m**2 / pyo.units.s,
             )
 
         # Channel thickness AKA length in the x direction is specific to the
@@ -315,7 +313,7 @@ class SocChannelData(UnitModelBlockData):
             doc="Effective Fick's law diffusion coefficient at node centers",
             initialize=2e-5,
             bounds=(0, None),
-            units=pyo.units.m ** 2 / pyo.units.s
+            units=pyo.units.m**2 / pyo.units.s,
         )
         self.flow_mol_inlet = pyo.Var(
             tset,

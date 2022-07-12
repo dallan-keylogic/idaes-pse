@@ -637,7 +637,7 @@ def test_model_replication(model):
 
 if __name__ == "__main__":
     m = model_func()
-    #out = kazempoor_braun_replication(m)
+    # out = kazempoor_braun_replication(m)
     out = test_initialization_cell(m)
 
     # Uncomment to recreate cached data

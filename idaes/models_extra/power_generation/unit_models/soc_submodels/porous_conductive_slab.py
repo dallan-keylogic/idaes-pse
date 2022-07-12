@@ -262,7 +262,16 @@ class PorousConductiveSlabData(UnitModelBlockData):
             initialize=1 / len(comps),
             bounds=(0, 1),
         )
-
+        self.diff_eff_coeff = pyo.Var(
+            tset,
+            ixnodes,
+            iznodes,
+            comps,
+            doc="Effective Fick's law diffusion coefficient at node centers",
+            initialize=2e-5,
+            bounds=(0, None),
+            units=pyo.units.m ** 2 / pyo.units.s
+        )
         self.resistivity_log_preexponential_factor = pyo.Var(
             doc="Logarithm of resistivity preexponential factor " "in units of ohm*m",
             units=pyo.units.dimensionless,
@@ -451,14 +460,15 @@ class PorousConductiveSlabData(UnitModelBlockData):
         def mole_frac_comp_eqn(b, t, ix, iz):
             return 1 == sum(b.mole_frac_comp[t, ix, iz, i] for i in comps)
 
-        @self.Expression(tset, ixnodes, iznodes, comps)
-        def diff_eff_coeff(b, t, ix, iz, i):
+        @self.Constraint(tset, ixnodes, iznodes, comps)
+        def diff_eff_coeff_eqn(b, t, ix, iz, i):
             T = b.temperature[t, ix, iz]
             P = b.pressure[t, ix, iz]
             x = b.mole_frac_comp
             bfun = common._binary_diffusion_coefficient_expr
             return (
-                b.porosity
+                b.diff_eff_coeff[t, ix, iz, i]
+                == b.porosity
                 / b.tortuosity
                 * (1.0 - x[t, ix, iz, i])
                 / sum(x[t, ix, iz, j] / bfun(T, P, i, j) for j in comps if i != j)
@@ -906,7 +916,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
         sy_def = 10  # Mole frac comp scaling
         sh = 1e-2  # Heat xfer coeff
         sH = 1e-4  # Enthalpy/int energy
-        sk = 10  # Fudge factor to scale temperature_deviation_x
+        sk = 0.1  # Fudge factor to scale temperature_deviation_x
         sLx = sgsf(self.length_x, len(self.ixnodes) / self.length_x.value)
         sLy = 1 / self.length_y[None].value
         sLz = len(self.iznodes) / self.length_z[None].value
@@ -1009,3 +1019,6 @@ class PorousConductiveSlabData(UnitModelBlockData):
                             self.material_balance_eqn[t, ix, iz, j],
                             smaterial_flux_x[j] * sLy * sLz,
                         )
+                        # FIXME come back later to clean up
+                        ssf(self.diff_eff_coeff[t, ix, iz, j], 1e5)
+                        cst(self.diff_eff_coeff_eqn[t, ix, iz, j], 1e5)

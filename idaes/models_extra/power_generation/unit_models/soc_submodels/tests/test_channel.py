@@ -47,6 +47,7 @@ def common_components(nt, nz, ncomp):
             "temperature_inlet": nt,
             "temperature_outlet": nt,
             "mole_frac_comp_inlet": nt * ncomp,
+            "diff_eff_coeff": nt * nz * ncomp,
         },
         pyo.Constraint: {
             "flow_mol_eqn": nz * nt,
@@ -54,6 +55,7 @@ def common_components(nt, nz, ncomp):
             "conc_mol_comp_eqn": nz * nt * ncomp,
             "enth_mol_eqn": nt * nz,
             "mole_frac_comp_eqn": nt * nz,
+            "diff_eff_coeff_eqn": nt * nz * ncomp,
             "material_balance_eqn": nt * nz * ncomp,
             "energy_balance_eqn": nt * nz,
             "temperature_x0_eqn": nt * nz,
@@ -70,7 +72,6 @@ def common_components(nt, nz, ncomp):
             "node_volume": nz,
             "xface_area": nz,
             "enth_mol_inlet": nt,
-            "diff_eff_coeff": nt * nz * ncomp,
             "vol_mol": nt * nz,
             "vol_mol_inlet": nt,
             "mass_transfer_coeff": nt * nz * ncomp,

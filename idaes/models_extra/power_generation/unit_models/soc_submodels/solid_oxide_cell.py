@@ -1048,7 +1048,7 @@ class SolidOxideCellData(UnitModelBlockData):
         sy_def = 10
         s_inert_flux = 1e4
 
-        sdf(self.current_density, 1e-2)
+        sdf(self.current_density, 5e-4)
         sdf(self.temperature_z, 1e-2)
         sdf(self.potential, 1)
         sdf(self.fuel_inlet.temperature, 1e-2)

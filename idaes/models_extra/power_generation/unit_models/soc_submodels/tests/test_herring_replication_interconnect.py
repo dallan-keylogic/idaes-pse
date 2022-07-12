@@ -350,7 +350,7 @@ def test_initialization_cell(model):
     # Test whether fixed degrees of freedom remain fixed
     assert degrees_of_freedom(m.fs.cell) == 0
 
-    approx = lambda x: pytest.approx(x, 1e-4)
+    approx = lambda x: pytest.approx(x, 5e-3)
     assert cell.current_density[0, 1].value == approx(-2394.77)
     assert cell.current_density[0, 3].value == approx(-2326.71)
     assert cell.current_density[0, 5].value == approx(-2268.31)
@@ -425,7 +425,7 @@ def test_initialization_stack(model_stack):
     # Test whether fixed degrees of freedom remain fixed
     assert degrees_of_freedom(m.fs.stack) == 0
 
-    approx = lambda x: pytest.approx(x, 1e-4)
+    approx = lambda x: pytest.approx(x, 5e-3)
     assert cell.current_density[0, 1].value == approx(-2394.77)
     assert cell.current_density[0, 3].value == approx(-2326.71)
     assert cell.current_density[0, 5].value == approx(-2268.31)

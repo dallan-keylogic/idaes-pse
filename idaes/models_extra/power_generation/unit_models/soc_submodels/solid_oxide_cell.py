@@ -649,7 +649,8 @@ class SolidOxideCellData(UnitModelBlockData):
                     "length_y": self.length_y,
                     "temperature_z": self.temperature_z,
                     "temperature_deviation_x": fuel_electrode_temperature_deviation_x1,
-                    "heat_flux_x1": oxygen_electrode_heat_flux_x1,
+                    "heat_flux_x0": self.fuel_triple_phase_boundary.heat_flux_x1,
+                    "heat_flux_x1": self.oxygen_triple_phase_boundary.heat_flux_x0,
                     "current_density": self.current_density,
                     "include_temperature_x_thermo": include_temp_x_thermo,
                 }
@@ -821,24 +822,30 @@ class SolidOxideCellData(UnitModelBlockData):
                 )
             )
 
+        @self.Expression(iznodes)
+        def dz(b, iz):
+            return b.zfaces.at(iz + 1) - b.zfaces.at(iz)
+
+        @self.Expression(iznodes)
+        def xface_area(b, iz):
+            return b.length_y * b.length_z * b.dz[iz]
+
+        @self.Expression()
+        def cell_area(b):
+            return b.length_y * b.length_z
+
         # This is net flow of power *into* the cell. In fuel cell mode, this will
         # be negative
         @self.Expression(tset)
         def electrical_work(b, t):
-            return -sum(
-                b.potential[t] * b.electrolyte.current[t, iz]
-                for iz in b.electrolyte.iznodes
-            )
+            return -b.potential[t] * sum(b.xface_area[iz] * b.current_density[t, iz] for iz in b.electrolyte.iznodes)
 
         @self.Expression(tset)
         def average_current_density(b, t):
             # z is dimensionless and goes from 0 to 1 so sum(dz) = 1 and the
             # cell is a rectangle hence I don't need to worry about width or
             # length or dividing by the sum of dz and the units are right.
-            return sum(
-                b.current_density[t, iz] * b.electrolyte.dz[iz]
-                for iz in b.electrolyte.iznodes
-            )
+            return sum(b.current_density[t, iz] * b.dz[iz] for iz in b.iznodes)
 
     def initialize_build(
         self,
@@ -1336,15 +1343,10 @@ class SolidOxideCellData(UnitModelBlockData):
         for t in self.flowsheet().time:
             for iz in self.iznodes:
                 if self.config.thin_electrolyte:
-                    sT1 = gsf(
-                        self.electrolyte.temperature_deviation_x0.referent()[t, iz],
+                    sT = gsf(
+                        self.electrolyte.temperature_deviation_x.referent[t, iz],
                         default=1,
                     )
-                    sT2 = gsf(
-                        self.oxygen_channel.temperature_deviation_x1.referent()[t, iz],
-                        default=1,
-                    )
-                    sT = min(sT1, sT2)
                     cst(self.electrolyte.temperature_continuity_eqn[t, iz], sT)
                 if (
                     self.config.flux_through_interconnect

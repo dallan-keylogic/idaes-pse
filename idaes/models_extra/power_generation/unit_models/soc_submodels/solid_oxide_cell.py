@@ -481,7 +481,9 @@ class SolidOxideCellData(UnitModelBlockData):
             interconnect_heat_flux_x1 = self.fuel_channel.heat_flux_x0
         if self.config.thin_fuel_electrode:
             if self.config.control_volume_xfaces_fuel_electrode is not None:
-                raise ConfigurationError("User specified thin fuel electrode, but provided xfaces.")
+                raise ConfigurationError(
+                    "User specified thin fuel electrode, but provided xfaces."
+                )
             self.fuel_electrode = soc.SocContactResistor(
                 default={
                     "has_holdup": False,
@@ -498,8 +500,12 @@ class SolidOxideCellData(UnitModelBlockData):
             )
             # Technically I could use fuel_electrode.temperature_deviation_x, but I want to avoid
             # references to references
-            fuel_electrode_temperature_deviation_x1 = self.fuel_channel.temperature_deviation_x1
-            fuel_electrode_conc_mol_comp_deviation_x1 = self.fuel_channel.conc_mol_comp_deviation_x1
+            fuel_electrode_temperature_deviation_x1 = (
+                self.fuel_channel.temperature_deviation_x1
+            )
+            fuel_electrode_conc_mol_comp_deviation_x1 = (
+                self.fuel_channel.conc_mol_comp_deviation_x1
+            )
             fuel_electrode_material_flux_x1 = self.fuel_channel.material_flux_x1
         else:
             self.fuel_electrode = soc.PorousConductiveSlab(
@@ -522,13 +528,19 @@ class SolidOxideCellData(UnitModelBlockData):
                     "include_temperature_x_thermo": include_temp_x_thermo,
                 }
             )
-            fuel_electrode_temperature_deviation_x1 = self.fuel_electrode.temperature_deviation_x1
-            fuel_electrode_conc_mol_comp_deviation_x1 = self.fuel_electrode.conc_mol_comp_deviation_x1
+            fuel_electrode_temperature_deviation_x1 = (
+                self.fuel_electrode.temperature_deviation_x1
+            )
+            fuel_electrode_conc_mol_comp_deviation_x1 = (
+                self.fuel_electrode.conc_mol_comp_deviation_x1
+            )
             fuel_electrode_material_flux_x1 = self.fuel_electrode.material_flux_x1
 
         if self.config.thin_oxygen_electrode:
             if self.config.control_volume_xfaces_oxygen_electrode is not None:
-                raise ConfigurationError("User specified thin oxygen electrode, but provided xfaces.")
+                raise ConfigurationError(
+                    "User specified thin oxygen electrode, but provided xfaces."
+                )
             self.oxygen_electrode = soc.SocContactResistor(
                 default={
                     "has_holdup": False,
@@ -545,8 +557,12 @@ class SolidOxideCellData(UnitModelBlockData):
             )
             # Technically I could use oxygen_electrode.temperature_deviation_x, but I want to avoid
             # references to references
-            oxygen_electrode_temperature_deviation_x0 = self.oxygen_channel.temperature_deviation_x0
-            oxygen_electrode_conc_mol_comp_deviation_x0 = self.oxygen_channel.conc_mol_comp_deviation_x0
+            oxygen_electrode_temperature_deviation_x0 = (
+                self.oxygen_channel.temperature_deviation_x0
+            )
+            oxygen_electrode_conc_mol_comp_deviation_x0 = (
+                self.oxygen_channel.conc_mol_comp_deviation_x0
+            )
             oxygen_electrode_material_flux_x0 = self.oxygen_channel.material_flux_x0
         else:
             self.oxygen_electrode = soc.PorousConductiveSlab(
@@ -569,10 +585,14 @@ class SolidOxideCellData(UnitModelBlockData):
                     "include_temperature_x_thermo": include_temp_x_thermo,
                 }
             )
-            oxygen_electrode_temperature_deviation_x0 = self.oxygen_electrode.temperature_deviation_x0
-            oxygen_electrode_conc_mol_comp_deviation_x0 = self.oxygen_electrode.conc_mol_comp_deviation_x0
+            oxygen_electrode_temperature_deviation_x0 = (
+                self.oxygen_electrode.temperature_deviation_x0
+            )
+            oxygen_electrode_conc_mol_comp_deviation_x0 = (
+                self.oxygen_electrode.conc_mol_comp_deviation_x0
+            )
             oxygen_electrode_material_flux_x0 = self.oxygen_electrode.material_flux_x0
-            
+
         self.fuel_triple_phase_boundary = soc.SocTriplePhaseBoundary(
             default={
                 "has_holdup": False,
@@ -617,7 +637,9 @@ class SolidOxideCellData(UnitModelBlockData):
         )
         if self.config.thin_electrolyte:
             if self.config.control_volume_xfaces_electrolyte is not None:
-                raise ConfigurationError("User specified thin electrolyte, but provided xfaces.")
+                raise ConfigurationError(
+                    "User specified thin electrolyte, but provided xfaces."
+                )
             self.electrolyte = soc.SocContactResistor(
                 default={
                     "has_holdup": False,
@@ -632,9 +654,14 @@ class SolidOxideCellData(UnitModelBlockData):
                     "include_temperature_x_thermo": include_temp_x_thermo,
                 }
             )
+
             @self.electrolyte.Constraint(tset, iznodes)
             def temperature_continuity_eqn(b, t, iz):
-                return fuel_electrode_temperature_deviation_x1[t, iz] == oxygen_electrode_temperature_deviation_x0[t, iz]
+                return (
+                    fuel_electrode_temperature_deviation_x1[t, iz]
+                    == oxygen_electrode_temperature_deviation_x0[t, iz]
+                )
+
         else:
             self.electrolyte = soc.SocConductiveSlab(
                 default={
@@ -647,7 +674,7 @@ class SolidOxideCellData(UnitModelBlockData):
                     "temperature_z": self.temperature_z,
                     "current_density": self.current_density,
                     "temperature_deviation_x0": fuel_electrode_temperature_deviation_x1,
-                    "temperature_deviation_x1":  oxygen_electrode_temperature_deviation_x0,
+                    "temperature_deviation_x1": oxygen_electrode_temperature_deviation_x0,
                     "heat_flux_x0": self.fuel_triple_phase_boundary.heat_flux_x1,
                     "heat_flux_x1": self.oxygen_triple_phase_boundary.heat_flux_x0,
                     "include_temperature_x_thermo": include_temp_x_thermo,
@@ -680,7 +707,9 @@ class SolidOxideCellData(UnitModelBlockData):
         if self.config.flux_through_interconnect:
             if self.config.thin_interconnect:
                 if self.config.control_volume_xfaces_interconnect is not None:
-                    raise ConfigurationError("User specified thin electrolyte, but provided xfaces.")
+                    raise ConfigurationError(
+                        "User specified thin electrolyte, but provided xfaces."
+                    )
                 self.interconnect = soc.SocContactResistor(
                     default={
                         "has_holdup": False,
@@ -699,8 +728,11 @@ class SolidOxideCellData(UnitModelBlockData):
 
                 @self.interconnect.Constraint(tset, iznodes)
                 def temperature_continuity_eqn(b, t, iz):
-                    return (self.oxygen_channel.temperature_deviation_x1[t, iz]
-                            == self.fuel_channel.temperature_deviation_x0[t, iz])
+                    return (
+                        self.oxygen_channel.temperature_deviation_x1[t, iz]
+                        == self.fuel_channel.temperature_deviation_x0[t, iz]
+                    )
+
             else:
                 self.interconnect = soc.SocConductiveSlab(
                     default={
@@ -725,11 +757,17 @@ class SolidOxideCellData(UnitModelBlockData):
 
             @self.Constraint(tset, iznodes)
             def no_heat_flux_fuel_interconnect_eqn(b, t, iz):
-                return 0 * pyo.units.W / pyo.units.m**2 == interconnect_heat_flux_x1[t, iz]
+                return (
+                    0 * pyo.units.W / pyo.units.m**2
+                    == interconnect_heat_flux_x1[t, iz]
+                )
 
             @self.Constraint(tset, iznodes)
             def no_heat_flux_oxygen_interconnect_eqn(b, t, iz):
-                return 0 * pyo.units.W / pyo.units.m**2 == interconnect_heat_flux_x0[t, iz]
+                return (
+                    0 * pyo.units.W / pyo.units.m**2
+                    == interconnect_heat_flux_x0[t, iz]
+                )
 
         @self.Constraint(tset, iznodes)
         def mean_temperature_eqn(b, t, iz):
@@ -1289,7 +1327,6 @@ class SolidOxideCellData(UnitModelBlockData):
                             overwrite=False,
                         )
 
-
         for idx, con in self.mean_temperature_eqn.items():
             cst(con, 1, overwrite=False)
 
@@ -1299,12 +1336,25 @@ class SolidOxideCellData(UnitModelBlockData):
         for t in self.flowsheet().time:
             for iz in self.iznodes:
                 if self.config.thin_electrolyte:
-                    sT1 = gsf(self.electrolyte.temperature_deviation_x0.referent()[t, iz], default=1)
-                    sT2 = gsf(self.oxygen_channel.temperature_deviation_x1.referent()[t, iz], default=1)
+                    sT1 = gsf(
+                        self.electrolyte.temperature_deviation_x0.referent()[t, iz],
+                        default=1,
+                    )
+                    sT2 = gsf(
+                        self.oxygen_channel.temperature_deviation_x1.referent()[t, iz],
+                        default=1,
+                    )
                     sT = min(sT1, sT2)
                     cst(self.electrolyte.temperature_continuity_eqn[t, iz], sT)
-                if self.config.flux_through_interconnect and self.config.thin_interconnect:
-                    sT1 = gsf(self.fuel_channel.temperature_deviation_x0[t, iz], default=1)
-                    sT2 = gsf(self.oxygen_channel.temperature_deviation_x1[t, iz], default=1)
+                if (
+                    self.config.flux_through_interconnect
+                    and self.config.thin_interconnect
+                ):
+                    sT1 = gsf(
+                        self.fuel_channel.temperature_deviation_x0[t, iz], default=1
+                    )
+                    sT2 = gsf(
+                        self.oxygen_channel.temperature_deviation_x1[t, iz], default=1
+                    )
                     sT = min(sT1, sT2)
                     cst(self.interconnect.temperature_continuity_eqn[t, iz], sT)

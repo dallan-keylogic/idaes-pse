@@ -134,8 +134,8 @@ oxygen_stoich_dict = {"O2": -0.25, "Vac": -0.5, "O^2-": 0.5, "e^-": -1.0}
 cell_config = {
     "has_holdup": True,
     "control_volume_zfaces": zfaces,
-    #"control_volume_xfaces_fuel_electrode": xfaces_electrode,
-    #"control_volume_xfaces_oxygen_electrode": xfaces_electrode,
+    # "control_volume_xfaces_fuel_electrode": xfaces_electrode,
+    # "control_volume_xfaces_oxygen_electrode": xfaces_electrode,
     "thin_fuel_electrode": True,
     "thin_oxygen_electrode": True,
     "control_volume_xfaces_electrolyte": xfaces_electrolyte,

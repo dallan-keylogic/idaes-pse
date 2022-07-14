@@ -615,7 +615,7 @@ class SolidOxideCellData(UnitModelBlockData):
                 "below_electrolyte": False,
             }
         )
-        if self.config.thin_oxygen_electrode:
+        if self.config.thin_electrolyte:
             if self.config.control_volume_xfaces_electrolyte is not None:
                 raise ConfigurationError("User specified thin electrolyte, but provided xfaces.")
             self.electrolyte = soc.SocContactResistor(
@@ -746,10 +746,10 @@ class SolidOxideCellData(UnitModelBlockData):
         def voltage_drop_contact(b, t, iz):
             if b.config.include_contact_resistance:
                 return (
-                    b.contact_interconnect_fuel_flow_mesh.voltage_drop[t, iz]
-                    + b.contact_flow_mesh_fuel_electrode.voltage_drop[t, iz]
-                    + b.contact_interconnect_oxygen_flow_mesh.voltage_drop[t, iz]
-                    + b.contact_flow_mesh_oxygen_electrode.voltage_drop[t, iz]
+                    b.contact_interconnect_fuel_flow_mesh.voltage_drop_total[t, iz]
+                    + b.contact_flow_mesh_fuel_electrode.voltage_drop_total[t, iz]
+                    + b.contact_interconnect_oxygen_flow_mesh.voltage_drop_total[t, iz]
+                    + b.contact_flow_mesh_oxygen_electrode.voltage_drop_total[t, iz]
                 )
             else:
                 return 0 * pyo.units.V
@@ -978,7 +978,12 @@ class SolidOxideCellData(UnitModelBlockData):
 
         init_log.info_high("Initializing Fuel Electrode")
         if self.config.thin_fuel_electrode:
-           pass
+            self.fuel_electrode.initialize_build(
+                outlvl=outlvl,
+                solver=solver,
+                optarg=optarg,
+                fix_heat_flux_x0=True,
+            )
         else:
             self.fuel_electrode.conc_mol_comp_ref.fix()
             self.fuel_electrode.conc_mol_comp_deviation_x0.fix()
@@ -1001,7 +1006,12 @@ class SolidOxideCellData(UnitModelBlockData):
 
         init_log.info_high("Initializing Oxygen Electrode")
         if self.config.thin_oxygen_electrode:
-            pass
+            self.oxygen_electrode.initialize_build(
+                outlvl=outlvl,
+                solver=solver,
+                optarg=optarg,
+                fix_heat_flux_x0=False,
+            )
         else:
             self.oxygen_electrode.conc_mol_comp_ref.fix()
             self.oxygen_electrode.conc_mol_comp_deviation_x1.fix()
@@ -1077,17 +1087,6 @@ class SolidOxideCellData(UnitModelBlockData):
         self.fuel_electrode.model_check()
         self.oxygen_electrode.model_check()
         self.electrolyte.model_check()
-
-        # Make sure arguments to safe_log and safe_sqrt
-        # are sufficiently large at solution
-        for expr in [
-            self.temperature_z,
-            self.fuel_electrode.temperature_x1,
-            self.oxygen_electrode.temperature_x1,
-        ]:
-            for T in expr.values():
-                assert pyo.value(T) / 1000 > common._safe_log_eps * 100
-        print("No problems with safe_math functions in electrochemistry.")
 
         comp_set = set(self.fuel_component_list)
         comp_set = comp_set.union(self.oxygen_component_list)

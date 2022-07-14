@@ -27,9 +27,6 @@ import idaes.core.util.model_statistics as mstat
 from idaes.core.util.constants import Constants
 import idaes.logger as idaeslog
 
-_safe_log_eps = 1e-9
-_safe_sqrt_eps = 1e-9
-
 
 class CV_Bound(enum.Enum):
     EXTRAPOLATE = 1

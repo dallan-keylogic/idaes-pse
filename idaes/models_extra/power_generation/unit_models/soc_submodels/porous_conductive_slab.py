@@ -65,6 +65,7 @@ from idaes.models_extra.power_generation.unit_models.soc_submodels.common import
     _element_list,
     _element_dict,
 )
+from idaes.core.util.exceptions import ConfigurationError
 import idaes.core.util.scaling as iscale
 from idaes.core.solvers import get_solver
 
@@ -74,6 +75,14 @@ import idaes.logger as idaeslog
 @declare_process_block_class("PorousConductiveSlab")
 class PorousConductiveSlabData(UnitModelBlockData):
     CONFIG = UnitModelBlockData.CONFIG()
+    CONFIG.declare(
+        "has_gas_holdup",
+        ConfigValue(
+            domain=Bool,
+            default=False,
+            description="If True, make holdup terms corresponding to gas phase",
+        ),
+    )
     CONFIG.declare(
         "control_volume_xfaces",
         ConfigValue(
@@ -147,6 +156,11 @@ class PorousConductiveSlabData(UnitModelBlockData):
             ) or (
                 self.config.conc_mol_comp_ref is not None
                 and self.config.dconc_mol_comp_refdt is not None
+            )
+
+        if self.config.has_gas_holdup and not self.config.has_holdup:
+            raise ConfigurationError(
+                "Creating gas holdup terms while not creating other holdup terms is not supported."
             )
 
         if self.config.conc_mol_comp_ref is None:
@@ -315,7 +329,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 units=pyo.units.mol / pyo.units.m**3 / pyo.units.s,
             )
         # Add time derivative varaible if steady state use const 0.
-        if dynamic:
+        if dynamic and self.config.has_gas_holdup:
             self.dcedt = DerivativeVar(
                 self.int_energy_density,
                 wrt=tset,
@@ -432,21 +446,22 @@ class PorousConductiveSlabData(UnitModelBlockData):
             )
 
         if self.config.has_holdup:
-            # For the vapor phase
-            @self.Constraint(tset, ixnodes, iznodes)
-            def int_energy_mol_eqn(b, t, ix, iz):
-                return b.int_energy_mol[t, ix, iz] == sum(
-                    common._comp_int_energy_expr(b.temperature[t, ix, iz], i)
-                    * b.mole_frac_comp[t, ix, iz, i]
-                    for i in comps
-                )
+            if self.config.has_gas_holdup:
+                # For the vapor phase
+                @self.Constraint(tset, ixnodes, iznodes)
+                def int_energy_mol_eqn(b, t, ix, iz):
+                    return b.int_energy_mol[t, ix, iz] == sum(
+                        common._comp_int_energy_expr(b.temperature[t, ix, iz], i)
+                        * b.mole_frac_comp[t, ix, iz, i]
+                        for i in comps
+                    )
 
-            @self.Constraint(tset, ixnodes, iznodes)
-            def int_energy_density_eqn(b, t, ix, iz):
-                return (
-                    b.int_energy_density[t, ix, iz]
-                    == b.int_energy_mol[t, ix, iz] / b.vol_mol[t, ix, iz]
-                )
+                @self.Constraint(tset, ixnodes, iznodes)
+                def int_energy_density_eqn(b, t, ix, iz):
+                    return (
+                        b.int_energy_density[t, ix, iz]
+                        == b.int_energy_mol[t, ix, iz] / b.vol_mol[t, ix, iz]
+                    )
 
             @self.Constraint(tset, ixnodes, iznodes)
             def int_energy_density_solid_eqn(b, t, ix, iz):
@@ -791,7 +806,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                             for i in comps
                         ),
                     )
-                    if self.config.has_holdup:
+                    if self.config.has_gas_holdup:
                         _set_if_unfixed(
                             self.int_energy_mol[t, ix, iz],
                             sum(
@@ -983,11 +998,12 @@ class PorousConductiveSlabData(UnitModelBlockData):
                     cst(self.enth_mol_eqn[t, ix, iz], sH)
 
                     if self.config.has_holdup:
-                        sU = sgsf(self.int_energy_mol[t, ix, iz], sH)
-                        cst(self.int_energy_mol_eqn[t, ix, iz], sU)
+                        if self.config.has_gas_holdup:
+                            sU = sgsf(self.int_energy_mol[t, ix, iz], sH)
+                            cst(self.int_energy_mol_eqn[t, ix, iz], sU)
 
-                        s_rho_U = sgsf(self.int_energy_density[t, ix, iz], sU / sV)
-                        cst(self.int_energy_density_eqn[t, ix, iz], s_rho_U)
+                            s_rho_U = sgsf(self.int_energy_density[t, ix, iz], sU / sV)
+                            cst(self.int_energy_density_eqn[t, ix, iz], s_rho_U)
 
                         s_rho_U_solid = sgsf(
                             self.int_energy_density_solid[t, ix, iz],

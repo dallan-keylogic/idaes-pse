@@ -43,6 +43,9 @@ def build_tester(cell, nt, nz):
                 "no_heat_flux_oxygen_interconnect_eqn": nz * nt,
             },
             pyo.Expression: {
+                "dz": nz,
+                "xface_area": nz,
+                "cell_area": 1,
                 "voltage_drop_contact": nz * nt,
                 "voltage_drop_ohmic": nz * nt,
                 "electrical_work": 1,
@@ -492,6 +495,9 @@ def build_tester_interconnect(cell, nt, nz):
                 "potential_eqn": nz * nt,
             },
             pyo.Expression: {
+                "cell_area": 1,
+                "dz": nz,
+                "xface_area": nz,
                 "voltage_drop_contact": nz * nt,
                 "voltage_drop_ohmic": nz * nt,
                 "electrical_work": 1,

@@ -188,6 +188,7 @@ def modelHoldupNotDynamic():
     m.fs.fuel_electrode = soc.PorousConductiveSlab(
         default={
             "has_holdup": True,
+            "has_gas_holdup": True,
             "control_volume_zfaces": zfaces,
             "control_volume_xfaces": xfaces_electrode,
             "component_list": ["H2", "H2O", "N2"],

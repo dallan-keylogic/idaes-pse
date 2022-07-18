@@ -133,6 +133,14 @@ import idaes.logger as idaeslog
 class SolidOxideCellData(UnitModelBlockData):
     CONFIG = UnitModelBlockData.CONFIG()
     CONFIG.declare(
+        "has_gas_holdup",
+        ConfigValue(
+            domain=Bool,
+            default=False,
+            description="If True, make holdup terms corresponding to gas phase",
+        ),
+    )
+    CONFIG.declare(
         "control_volume_zfaces",
         ConfigValue(
             domain=ListOf(float),
@@ -303,9 +311,15 @@ class SolidOxideCellData(UnitModelBlockData):
     def build(self):
         super().build()
         has_holdup = self.config.has_holdup
+        has_gas_holdup = self.config.has_gas_holdup
         dynamic = self.config.dynamic
         tset = self.flowsheet().config.time
         t0 = tset.first()
+
+        if has_gas_holdup and not has_holdup:
+            raise ConfigurationError(
+                "Creating gas holdup terms while not creating other holdup terms is not supported."
+            )
 
         if self.config.fuel_component_list is None:
             fuel_comp_list = ["H2", "H2O"]
@@ -379,8 +393,8 @@ class SolidOxideCellData(UnitModelBlockData):
 
         self.fuel_channel = soc.SocChannel(
             default={
-                "has_holdup": has_holdup,
-                "dynamic": dynamic,
+                "has_holdup": has_gas_holdup,
+                "dynamic": has_gas_holdup and dynamic,
                 "control_volume_zfaces": self.config.control_volume_zfaces,
                 "length_z": self.length_z,
                 "length_y": self.length_y,
@@ -393,8 +407,8 @@ class SolidOxideCellData(UnitModelBlockData):
         )
         self.oxygen_channel = soc.SocChannel(
             default={
-                "has_holdup": has_holdup,
-                "dynamic": dynamic,
+                "has_holdup": has_gas_holdup,
+                "dynamic": has_gas_holdup and dynamic,
                 "control_volume_zfaces": self.config.control_volume_zfaces,
                 "length_z": self.length_z,
                 "length_y": self.length_y,
@@ -511,6 +525,7 @@ class SolidOxideCellData(UnitModelBlockData):
             self.fuel_electrode = soc.PorousConductiveSlab(
                 default={
                     "has_holdup": has_holdup,
+                    "has_gas_holdup": has_gas_holdup,
                     "dynamic": dynamic,
                     "control_volume_zfaces": self.config.control_volume_zfaces,
                     "control_volume_xfaces": self.config.control_volume_xfaces_fuel_electrode,
@@ -568,6 +583,7 @@ class SolidOxideCellData(UnitModelBlockData):
             self.oxygen_electrode = soc.PorousConductiveSlab(
                 default={
                     "has_holdup": has_holdup,
+                    "has_gas_holdup": has_gas_holdup,
                     "dynamic": dynamic,
                     "control_volume_zfaces": self.config.control_volume_zfaces,
                     "control_volume_xfaces": self.config.control_volume_xfaces_oxygen_electrode,
@@ -838,7 +854,10 @@ class SolidOxideCellData(UnitModelBlockData):
         # be negative
         @self.Expression(tset)
         def electrical_work(b, t):
-            return -b.potential[t] * sum(b.xface_area[iz] * b.current_density[t, iz] for iz in b.electrolyte.iznodes)
+            return -b.potential[t] * sum(
+                b.xface_area[iz] * b.current_density[t, iz]
+                for iz in b.electrolyte.iznodes
+            )
 
         @self.Expression(tset)
         def average_current_density(b, t):

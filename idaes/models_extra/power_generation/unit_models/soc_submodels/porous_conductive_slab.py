@@ -172,7 +172,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 initialize=0.0,
                 units=pyo.units.mol / pyo.units.m**3,
             )
-            if self.config.dynamic:
+            if self.config.dynamic and self.config.has_gas_holdup:
                 self.dconc_mol_comp_refdt = DerivativeVar(
                     self.conc_mol_comp_ref,
                     wrt=tset,
@@ -236,20 +236,21 @@ class PorousConductiveSlabData(UnitModelBlockData):
             units=pyo.units.J / pyo.units.mol,
         )
         if self.config.has_holdup:
-            self.int_energy_mol = pyo.Var(
-                tset,
-                ixnodes,
-                iznodes,
-                doc="Fluid molar internal energy at node centers",
-                units=pyo.units.J / pyo.units.mol,
-            )
-            self.int_energy_density = pyo.Var(
-                tset,
-                ixnodes,
-                iznodes,
-                doc="Fluid molar internal energy density at node centers",
-                units=pyo.units.J / pyo.units.m**3,
-            )
+            if self.config.has_gas_holdup:
+                self.int_energy_mol = pyo.Var(
+                    tset,
+                    ixnodes,
+                    iznodes,
+                    doc="Fluid molar internal energy at node centers",
+                    units=pyo.units.J / pyo.units.mol,
+                )
+                self.int_energy_density = pyo.Var(
+                    tset,
+                    ixnodes,
+                    iznodes,
+                    doc="Fluid molar internal energy density at node centers",
+                    units=pyo.units.J / pyo.units.m**3,
+                )
             self.int_energy_density_solid = pyo.Var(
                 tset,
                 ixnodes,
@@ -312,7 +313,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
         )
 
         # Add time derivative varaible if steady state use const 0.
-        if dynamic:
+        if dynamic and self.config.has_gas_holdup:
             self.dconc_mol_comp_deviation_xdt = DerivativeVar(
                 self.conc_mol_comp_deviation_x,
                 wrt=tset,
@@ -702,7 +703,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 b.material_flux_z[t, ix, iz, i] - b.material_flux_z[t, ix, iz + 1, i]
             )
 
-        if dynamic:
+        if dynamic and self.config.has_gas_holdup:
             self.material_balance_eqn[tset.first(), :, :, :].deactivate()
 
         @self.Expression(tset, ixnodes, iznodes)

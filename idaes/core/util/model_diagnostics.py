@@ -24,8 +24,9 @@ import pyomo.environ as pyo
 from pyomo.core.expr.visitor import identify_variables
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 import numpy as np
+from numpy.linalg import qr
 from scipy.linalg import svd
-from scipy.sparse.linalg import svds, norm
+from scipy.sparse.linalg import svds, norm, eigsh
 from scipy.sparse import issparse, find
 
 from idaes.core.util.model_statistics import (
@@ -506,7 +507,7 @@ class DegeneracyHunter:
         else:
             return None, None
 
-    def svd_analysis(self, n_sv=None, dense=False):
+    def svd_analysis(self, n_sv=None, dense=False, shift=1e-16):
         """
         Perform SVD analysis of the constraint Jacobian
 
@@ -555,7 +556,68 @@ class DegeneracyHunter:
                 # singular values, but typically generates them least-to-greatest.
                 # Maybe the warning is for singular values of nearly equal
                 # magnitude or a similar edge case?
-                u, s, vT = svds(self.jac_eq, k=n_sv, which="SM")  # , solver='lobpcg')
+                #u, s, vT = svds(self.jac_eq, k=n_sv, which="SM", solver='lobpcg')
+
+                # Based on Scipy's svds, modified for present circumstances. Until we figure out in what capacity
+                # we need to attribute Scipy, here's Scipy's license.
+
+                # Copyright (c) 2001-2002 Enthought, Inc. 2003-2022, SciPy Developers.
+                # All rights reserved.
+                #
+                # Redistribution and use in source and binary forms, with or without
+                # modification, are permitted provided that the following conditions
+                # are met:
+                #
+                # 1. Redistributions of source code must retain the above copyright
+                #    notice, this list of conditions and the following disclaimer.
+                #
+                # 2. Redistributions in binary form must reproduce the above
+                #    copyright notice, this list of conditions and the following
+                #    disclaimer in the documentation and/or other materials provided
+                #    with the distribution.
+                #
+                # 3. Neither the name of the copyright holder nor the names of its
+                #    contributors may be used to endorse or promote products derived
+                #    from this software without specific prior written permission.
+                #
+                # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+                # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+                # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+                # A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+                # OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+                # SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+                # LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+                # DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+                # THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+                # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+                # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+                # TODO do we ever have to worry about overdetermined Jacobians?
+                normal_matrix = self.jac_eq @ self.jac_eq.T
+
+                # Perform an eigenvalue decomposition on the normal matrix in order to find singular vector candidates
+                # Finding the smallest eigenvalues using inverse iteration is more reliable than just asking for them
+                # by specifying which="SM" (smallest magnitude). Use which="LM" (largest magnitude) because it returns
+                # eigenvalues for the shifted-inverted matrix.
+                _, eigvec = eigsh(normal_matrix, k=n_sv, sigma=shift, which="LM")
+
+                # Perform QR decomposition to orthogonalize left singular vectors (the vectors returned by eigsh)
+                # may not be perfectly orthogonal
+                eigvec, _ = qr(eigvec)
+
+                Av = self.jac_eq.T @ eigvec
+
+                u, s, vT = svd(Av, full_matrices=False, overwrite_a=True)
+
+                # Reorder singular values and vectors so that the singular
+                # values are from least to greatest
+                u = u[:, ::-1]
+                s = s[::-1]
+                vT = vT[::-1]
+
+                u_tmp = eigvec @ vT.T
+                vT = u.T
+                u = u_tmp
 
             # Save results
             self.u = u

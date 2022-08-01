@@ -556,7 +556,7 @@ class DegeneracyHunter:
                 # singular values, but typically generates them least-to-greatest.
                 # Maybe the warning is for singular values of nearly equal
                 # magnitude or a similar edge case?
-                #u, s, vT = svds(self.jac_eq, k=n_sv, which="SM", solver='lobpcg')
+                # u, s, vT = svds(self.jac_eq, k=n_sv, which="SM", solver='lobpcg')
 
                 # Based on Scipy's svds, modified for present circumstances. Until we figure out in what capacity
                 # we need to attribute Scipy, here's Scipy's license.

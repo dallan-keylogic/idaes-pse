@@ -507,7 +507,7 @@ class DegeneracyHunter:
         else:
             return None, None
 
-    def svd_analysis(self, n_sv=None, dense=False, shift=1e-16):
+    def svd_analysis(self, n_sv=None, dense=False, shift=1e-15):
         """
         Perform SVD analysis of the constraint Jacobian
 

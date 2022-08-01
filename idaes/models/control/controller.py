@@ -266,18 +266,19 @@ proportional and integral, **ControllerType.PD** proportional and derivative, an
                 time_set,
                 initialize=0,
                 doc="Integral term calculated from de_i(t)/dt = e(t)",
-                units=pv_units * time_units
+                units=pv_units * time_units,
             )
             self.integral_of_error_dot = pyodae.DerivativeVar(
                 self.integral_of_error,
                 wrt=time_set,
                 initialize=0,
                 units=pv_units,
-                doc="de_i(t)/dt"
+                doc="de_i(t)/dt",
             )
 
             if self.config.calculate_initial_integral:
                 t0 = time_set.first()
+
                 @self.Constraint(doc="Calculate initial e_i based on output")
                 def initial_integral_error_eqn(b):
                     if self.config.type == ControllerType.PI:

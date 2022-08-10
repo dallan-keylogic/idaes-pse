@@ -37,7 +37,8 @@ from pyomo.network import Arc
 from pyomo.contrib.pynumero.interfaces.pyomo_nlp import PyomoNLP
 from pyomo.common.modeling import unique_component_name
 from pyomo.core.base.constraint import _ConstraintData
-from pyomo.common.collections import ComponentMap
+from pyomo.common.collections import ComponentMap, ComponentSet
+from pyomo.dae import DerivativeVar
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
 import idaes.logger as idaeslog
 
@@ -200,7 +201,7 @@ def calculate_scaling_factors(blk):
     scale_arc_constraints(blk)
 
 
-def set_scaling_factor(c, v, data_objects=True):
+def set_scaling_factor(c, v, data_objects=True, overwrite=True):
     """Set a scaling factor for a model component. This function creates the
     scaling_factor suffix if needed.
 
@@ -208,20 +209,30 @@ def set_scaling_factor(c, v, data_objects=True):
         c: component to supply scaling factor for
         v: scaling factor
         data_objects: set scaling factors for indexed data objects (default=True)
+        overwrite: whether to overwrite an existing scaling factor
     Returns:
         None
     """
     if isinstance(c, (float, int)):
         # property packages can return 0 for material balance terms on components
         # doesn't exist.  This handles the case where you get a constant 0 and
-        # need it's scale factor to scale the mass balance.
+        # need its scale factor to scale the mass balance.
         return 1
     try:
         suf = c.parent_block().scaling_factor
+
     except AttributeError:
         c.parent_block().scaling_factor = pyo.Suffix(direction=pyo.Suffix.EXPORT)
         suf = c.parent_block().scaling_factor
 
+    if not overwrite:
+        try:
+            tmp = suf[c]
+            # Able to access suffix value for c, so return without setting scaling factor
+            return
+        except KeyError:
+            # No value exists yet for c, go ahead and set it
+            pass
     suf[c] = v
     if data_objects and c.is_indexed():
         for cdat in c.values():
@@ -742,6 +753,65 @@ def jacobian_cond(m=None, scaled=True, ord=None, pinv=False, jac=None):
         jac_inv = la.pinv(jac.toarray())
         return spla.norm(jac, ord) * la.norm(jac_inv, ord)
 
+
+def scale_time_discretization_equations(fs, time_scaling_factor):
+    """
+    Get the condition number of the scaled or unscaled Jacobian matrix of a model.
+
+    Args:
+        fs: Flowsheet whose time discretization equations are being scaled
+        time_scaling_factor: Scaling factor to use for time. For time-stepping discretization methods with a uniform
+        time step dt, a good scaling factor is 1/dt.
+
+    Returns:
+        (float) Condition number
+    """
+    tname = fs.time.local_name
+    # Copy and pasted from solvers.petsc.find_discretization_equations then modified
+    for var in fs.component_objects(pyo.Var):
+        if isinstance(var, DerivativeVar):
+            cont_set_set = ComponentSet(var.get_continuousset_list())
+            if fs.time in cont_set_set:
+                if len(cont_set_set) > 1:
+                    _log.warning(
+                        "IDAES presently does not support automatically scaling discretization equations for "
+                        f"second order or higher derivatives like {var.name} that are differentiated at least once with "
+                        "respect to time. Please scale the corresponding discretization equation yourself."
+                    )
+                    continue
+                state_var = var.get_state_var()
+                parent = var.parent_block()
+
+                disc_eq = getattr(parent, var.local_name + "_disc_eq")
+                # Look for continuity equation, which exists only for collocation with certain sets of polynomials
+                try:
+                    cont_eq = getattr(parent, var.local_name + "_" + tname + "_cont_eq")
+                except KeyError:
+                    cont_eq = None
+
+                if cont_eq is not None:
+                    pass
+
+                for i in state_var.index_set():
+                    if get_scaling_factor(var[i]) is None:
+                        s_state = get_scaling_factor(state_var[i], default=1, warning=True)
+                        set_scaling_factor(var[i], s_state/time_scaling_factor)
+                    s_var = get_scaling_factor(var[i])
+                    # FIXME are we sure that the first index will always be time?
+                    if type(i) == float or type(i) == int:
+                        t = i
+                    else:
+                        t = i[0]
+                    if t == fs.time.first() or t == fs.time.last():
+                        try:
+                            constraint_scaling_transform(disc_eq[i], s_var, overwrite=False)
+                        except:
+                            # Discretization equations may or may not exist at the first or last time points
+                            # depending on the method. Backwards skips first, forwards skips last, central skips
+                            # both (which means the user needs to provide additional equations)
+                            pass
+                    else:
+                        constraint_scaling_transform(disc_eq[i], s_var, overwrite=False)
 
 class CacheVars(object):
     """

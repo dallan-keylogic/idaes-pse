@@ -329,7 +329,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 initialize=0,
                 units=pyo.units.mol / pyo.units.m**3 / pyo.units.s,
             )
-        # Add time derivative varaible if steady state use const 0.
+        # Add time derivative variable if steady state use const 0.
         if dynamic and self.config.has_gas_holdup:
             self.dcedt = DerivativeVar(
                 self.int_energy_density,
@@ -345,7 +345,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 initialize=0,
                 units=pyo.units.W / pyo.units.m**3,
             )
-        # Add time derivative varaible if steady state use const 0.
+        # Add time derivative variable if steady state use const 0.
         if dynamic:
             self.dcedt_solid = DerivativeVar(
                 self.int_energy_density_solid,

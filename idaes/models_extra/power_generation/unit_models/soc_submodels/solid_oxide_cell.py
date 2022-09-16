@@ -392,89 +392,77 @@ class SolidOxideCellData(UnitModelBlockData):
             )
 
         self.fuel_channel = soc.SocChannel(
-            default={
-                "has_holdup": has_gas_holdup,
-                "dynamic": has_gas_holdup and dynamic,
-                "control_volume_zfaces": self.config.control_volume_zfaces,
-                "length_z": self.length_z,
-                "length_y": self.length_y,
-                "temperature_z": self.temperature_z,
-                "opposite_flow": False,  # Fuel channel flows from z=0 to z=1 no matter what
-                "below_electrode": True,
-                "component_list": self.fuel_component_list,
-                "include_temperature_x_thermo": include_temp_x_thermo,
-            }
+            has_holdup=has_gas_holdup,
+            dynamic=has_gas_holdup and dynamic,
+            control_volume_zfaces=self.config.control_volume_zfaces,
+            length_z=self.length_z,
+            length_y=self.length_y,
+            temperature_z=self.temperature_z,
+            opposite_flow=False,  # Fuel channel flows from z=0 to z=1 no matter what
+            below_electrode=True,
+            component_list=self.fuel_component_list,
+            include_temperature_x_thermo=include_temp_x_thermo,
         )
         self.oxygen_channel = soc.SocChannel(
-            default={
-                "has_holdup": has_gas_holdup,
-                "dynamic": has_gas_holdup and dynamic,
-                "control_volume_zfaces": self.config.control_volume_zfaces,
-                "length_z": self.length_z,
-                "length_y": self.length_y,
-                "temperature_z": self.temperature_z,
-                "below_electrode": False,
-                "opposite_flow": opposite_flow,  # Oxygen channel flow direction depends on config
-                "component_list": self.oxygen_component_list,
-                "include_temperature_x_thermo": include_temp_x_thermo,
-            }
+            has_holdup=has_gas_holdup,
+            dynamic=has_gas_holdup and dynamic,
+            control_volume_zfaces=self.config.control_volume_zfaces,
+            length_z=self.length_z,
+            length_y=self.length_y,
+            temperature_z=self.temperature_z,
+            below_electrode=False,
+            opposite_flow=opposite_flow,  # Oxygen channel flow direction depends on config
+            component_list=self.oxygen_component_list,
+            include_temperature_x_thermo=include_temp_x_thermo,
         )
         if self.config.include_contact_resistance:
             self.contact_interconnect_fuel_flow_mesh = soc.SocContactResistor(
-                default={
-                    "has_holdup": False,
-                    "dynamic": False,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x": self.fuel_channel.temperature_deviation_x0,
-                    "heat_flux_x1": self.fuel_channel.heat_flux_x0,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                has_holdup=False,
+                dynamic=False,
+                control_volume_zfaces=self.config.control_volume_zfaces,
+                length_z=self.length_z,
+                length_y=self.length_y,
+                temperature_z=self.temperature_z,
+                temperature_deviation_x=self.fuel_channel.temperature_deviation_x0,
+                heat_flux_x1=self.fuel_channel.heat_flux_x0,
+                current_density=self.current_density,
+                include_temperature_x_thermo=include_temp_x_thermo,
             )
             self.contact_flow_mesh_fuel_electrode = soc.SocContactResistor(
-                default={
-                    "has_holdup": False,
-                    "dynamic": False,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x": self.fuel_channel.temperature_deviation_x1,
-                    "heat_flux_x0": self.fuel_channel.heat_flux_x1,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                has_holdup=False,
+                dynamic=False,
+                control_volume_zfaces=self.config.control_volume_zfaces,
+                length_z=self.length_z,
+                length_y=self.length_y,
+                temperature_z=self.temperature_z,
+                temperature_deviation_x=self.fuel_channel.temperature_deviation_x1,
+                heat_flux_x0=self.fuel_channel.heat_flux_x1,
+                current_density=self.current_density,
+                include_temperature_x_thermo=include_temp_x_thermo,
             )
             self.contact_interconnect_oxygen_flow_mesh = soc.SocContactResistor(
-                default={
-                    "has_holdup": False,
-                    "dynamic": False,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x": self.oxygen_channel.temperature_deviation_x1,
-                    "heat_flux_x0": self.oxygen_channel.heat_flux_x1,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                has_holdup=False,
+                dynamic=False,
+                control_volume_zfaces=self.config.control_volume_zfaces,
+                length_z=self.length_z,
+                length_y=self.length_y,
+                temperature_z=self.temperature_z,
+                temperature_deviation_x=self.oxygen_channel.temperature_deviation_x1,
+                heat_flux_x0=self.oxygen_channel.heat_flux_x1,
+                current_density=self.current_density,
+                include_temperature_x_thermo=include_temp_x_thermo,
             )
             self.contact_flow_mesh_oxygen_electrode = soc.SocContactResistor(
-                default={
-                    "has_holdup": False,
-                    "dynamic": False,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x": self.oxygen_channel.temperature_deviation_x0,
-                    "heat_flux_x1": self.oxygen_channel.heat_flux_x0,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                has_holdup=False,
+                dynamic=False,
+                control_volume_zfaces=self.config.control_volume_zfaces,
+                length_z=self.length_z,
+                length_y=self.length_y,
+                temperature_z=self.temperature_z,
+                temperature_deviation_x=self.oxygen_channel.temperature_deviation_x0,
+                heat_flux_x1=self.oxygen_channel.heat_flux_x0,
+                current_density=self.current_density,
+                include_temperature_x_thermo=include_temp_x_thermo,
             )
             fuel_electrode_heat_flux_x0 = (
                 self.contact_flow_mesh_fuel_electrode.heat_flux_x1
@@ -499,18 +487,16 @@ class SolidOxideCellData(UnitModelBlockData):
                     "User specified thin fuel electrode, but provided xfaces."
                 )
             self.fuel_electrode = soc.SocContactResistor(
-                default={
-                    "has_holdup": False,
-                    "dynamic": False,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x": self.fuel_channel.temperature_deviation_x1,
-                    "heat_flux_x0": fuel_electrode_heat_flux_x0,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+		    has_holdup=False,
+		    dynamic=False,
+		    control_volume_zfaces=self.config.control_volume_zfaces,
+		    length_z=self.length_z,
+		    length_y=self.length_y,
+		    temperature_z=self.temperature_z,
+		    temperature_deviation_x=self.fuel_channel.temperature_deviation_x1,
+		    heat_flux_x0=fuel_electrode_heat_flux_x0,
+		    current_density=self.current_density,
+		    include_temperature_x_thermo=include_temp_x_thermo,
             )
             # Technically I could use fuel_electrode.temperature_deviation_x, but I want to avoid
             # references to references
@@ -523,25 +509,23 @@ class SolidOxideCellData(UnitModelBlockData):
             fuel_electrode_material_flux_x1 = self.fuel_channel.material_flux_x1
         else:
             self.fuel_electrode = soc.PorousConductiveSlab(
-                default={
-                    "has_holdup": has_holdup,
-                    "has_gas_holdup": has_gas_holdup,
-                    "dynamic": dynamic,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "control_volume_xfaces": self.config.control_volume_xfaces_fuel_electrode,
-                    "component_list": self.fuel_channel.component_list,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "conc_mol_comp_ref": self.fuel_channel.conc_mol_comp,
-                    "dconc_mol_comp_refdt": self.fuel_channel.dconc_mol_compdt,
-                    "conc_mol_comp_deviation_x0": self.fuel_channel.conc_mol_comp_deviation_x1,
-                    "material_flux_x0": self.fuel_channel.material_flux_x1,
-                    "heat_flux_x0": fuel_electrode_heat_flux_x0,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x0": self.fuel_channel.temperature_deviation_x1,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                    has_holdup=has_holdup,
+                    has_gas_holdup=has_gas_holdup,
+                    dynamic=dynamic,
+                    control_volume_zfaces=self.config.control_volume_zfaces,
+                    control_volume_xfaces=self.config.control_volume_xfaces_fuel_electrode,
+                    component_list=self.fuel_channel.component_list,
+                    length_z=self.length_z,
+                    length_y=self.length_y,
+                    conc_mol_comp_ref=self.fuel_channel.conc_mol_comp,
+                    dconc_mol_comp_refdt=self.fuel_channel.dconc_mol_compdt,
+                    conc_mol_comp_deviation_x0=self.fuel_channel.conc_mol_comp_deviation_x1,
+                    material_flux_x0=self.fuel_channel.material_flux_x1,
+                    heat_flux_x0=fuel_electrode_heat_flux_x0,
+                    temperature_z=self.temperature_z,
+                    temperature_deviation_x0=self.fuel_channel.temperature_deviation_x1,
+                    current_density=self.current_density,
+                    include_temperature_x_thermo=include_temp_x_thermo,
             )
             fuel_electrode_temperature_deviation_x1 = (
                 self.fuel_electrode.temperature_deviation_x1
@@ -557,18 +541,16 @@ class SolidOxideCellData(UnitModelBlockData):
                     "User specified thin oxygen electrode, but provided xfaces."
                 )
             self.oxygen_electrode = soc.SocContactResistor(
-                default={
-                    "has_holdup": False,
-                    "dynamic": False,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x": self.oxygen_channel.temperature_deviation_x0,
-                    "heat_flux_x1": oxygen_electrode_heat_flux_x1,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                    has_holdup=False,
+                    dynamic=False,
+                    control_volume_zfaces=self.config.control_volume_zfaces,
+                    length_z=self.length_z,
+                    length_y=self.length_y,
+                    temperature_z=self.temperature_z,
+                    temperature_deviation_x=self.oxygen_channel.temperature_deviation_x0,
+                    heat_flux_x1=oxygen_electrode_heat_flux_x1,
+                    current_density=self.current_density,
+                    include_temperature_x_thermo=include_temp_x_thermo,
             )
             # Technically I could use oxygen_electrode.temperature_deviation_x, but I want to avoid
             # references to references
@@ -581,25 +563,23 @@ class SolidOxideCellData(UnitModelBlockData):
             oxygen_electrode_material_flux_x0 = self.oxygen_channel.material_flux_x0
         else:
             self.oxygen_electrode = soc.PorousConductiveSlab(
-                default={
-                    "has_holdup": has_holdup,
-                    "has_gas_holdup": has_gas_holdup,
-                    "dynamic": dynamic,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "control_volume_xfaces": self.config.control_volume_xfaces_oxygen_electrode,
-                    "component_list": self.oxygen_channel.component_list,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "conc_mol_comp_ref": self.oxygen_channel.conc_mol_comp,
-                    "dconc_mol_comp_refdt": self.oxygen_channel.dconc_mol_compdt,
-                    "conc_mol_comp_deviation_x1": self.oxygen_channel.conc_mol_comp_deviation_x0,
-                    "material_flux_x1": self.oxygen_channel.material_flux_x0,
-                    "heat_flux_x1": oxygen_electrode_heat_flux_x1,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x1": self.oxygen_channel.temperature_deviation_x0,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                    has_holdup=has_holdup,
+                    has_gas_holdup=has_gas_holdup,
+                    dynamic=dynamic,
+                    control_volume_zfaces=self.config.control_volume_zfaces,
+                    control_volume_xfaces=self.config.control_volume_xfaces_oxygen_electrode,
+                    component_list=self.oxygen_channel.component_list,
+                    length_z=self.length_z,
+                    length_y=self.length_y,
+                    conc_mol_comp_ref=self.oxygen_channel.conc_mol_comp,
+                    dconc_mol_comp_refdt=self.oxygen_channel.dconc_mol_compdt,
+                    conc_mol_comp_deviation_x1=self.oxygen_channel.conc_mol_comp_deviation_x0,
+                    material_flux_x1=self.oxygen_channel.material_flux_x0,
+                    heat_flux_x1=oxygen_electrode_heat_flux_x1,
+                    temperature_z=self.temperature_z,
+                    temperature_deviation_x1=self.oxygen_channel.temperature_deviation_x0,
+                    current_density=self.current_density,
+                    include_temperature_x_thermo=include_temp_x_thermo,
             )
             oxygen_electrode_temperature_deviation_x0 = (
                 self.oxygen_electrode.temperature_deviation_x0
@@ -610,46 +590,42 @@ class SolidOxideCellData(UnitModelBlockData):
             oxygen_electrode_material_flux_x0 = self.oxygen_electrode.material_flux_x0
 
         self.fuel_triple_phase_boundary = soc.SocTriplePhaseBoundary(
-            default={
-                "has_holdup": False,
-                "dynamic": False,
-                "control_volume_zfaces": self.config.control_volume_zfaces,
-                "length_z": self.length_z,
-                "length_y": self.length_y,
-                "component_list": self.fuel_component_list,
-                "reaction_stoichiometry": fuel_tpb_stoich,
-                "inert_species": self.config.inert_fuel_species_triple_phase_boundary,
-                "current_density": self.current_density,
-                "temperature_z": self.temperature_z,
-                "temperature_deviation_x": fuel_electrode_temperature_deviation_x1,
-                "heat_flux_x0": self.fuel_electrode.heat_flux_x1,
-                "conc_mol_comp_ref": self.fuel_channel.conc_mol_comp,
-                "conc_mol_comp_deviation_x": fuel_electrode_conc_mol_comp_deviation_x1,
-                "material_flux_x": fuel_electrode_material_flux_x1,
-                "include_temperature_x_thermo": include_temp_x_thermo,
-                "below_electrolyte": True,
-            }
+            has_holdup=False,
+            dynamic=False,
+            control_volume_zfaces=self.config.control_volume_zfaces,
+            length_z=self.length_z,
+            length_y=self.length_y,
+            component_list=self.fuel_component_list,
+            reaction_stoichiometry=fuel_tpb_stoich,
+            inert_species=self.config.inert_fuel_species_triple_phase_boundary,
+            current_density=self.current_density,
+            temperature_z=self.temperature_z,
+            temperature_deviation_x=fuel_electrode_temperature_deviation_x1,
+            heat_flux_x0=self.fuel_electrode.heat_flux_x1,
+            conc_mol_comp_ref=self.fuel_channel.conc_mol_comp,
+            conc_mol_comp_deviation_x=fuel_electrode_conc_mol_comp_deviation_x1,
+            material_flux_x= fuel_electrode_material_flux_x1,
+            include_temperature_x_thermo=include_temp_x_thermo,
+            below_electrolyte=True,
         )
         self.oxygen_triple_phase_boundary = soc.SocTriplePhaseBoundary(
-            default={
-                "has_holdup": False,
-                "dynamic": False,
-                "control_volume_zfaces": self.config.control_volume_zfaces,
-                "length_z": self.length_z,
-                "length_y": self.length_y,
-                "component_list": self.oxygen_component_list,
-                "reaction_stoichiometry": oxygen_tpb_stoich,
-                "inert_species": self.config.inert_oxygen_species_triple_phase_boundary,
-                "current_density": self.current_density,
-                "temperature_z": self.temperature_z,
-                "temperature_deviation_x": oxygen_electrode_temperature_deviation_x0,
-                "heat_flux_x1": self.oxygen_electrode.heat_flux_x0,
-                "conc_mol_comp_ref": self.oxygen_channel.conc_mol_comp,
-                "conc_mol_comp_deviation_x": oxygen_electrode_conc_mol_comp_deviation_x0,
-                "material_flux_x": oxygen_electrode_material_flux_x0,
-                "include_temperature_x_thermo": include_temp_x_thermo,
-                "below_electrolyte": False,
-            }
+            has_holdup=False,
+            dynamic=False,
+            control_volume_zfaces=self.config.control_volume_zfaces,
+            length_z=self.length_z,
+            length_y=self.length_y,
+            component_list=self.oxygen_component_list,
+            reaction_stoichiometry=oxygen_tpb_stoich,
+            inert_species=self.config.inert_oxygen_species_triple_phase_boundary,
+            current_density=self.current_density,
+            temperature_z=self.temperature_z,
+            temperature_deviation_x=oxygen_electrode_temperature_deviation_x0,
+            heat_flux_x1=self.oxygen_electrode.heat_flux_x0,
+            conc_mol_comp_ref=self.oxygen_channel.conc_mol_comp,
+            conc_mol_comp_deviation_x=oxygen_electrode_conc_mol_comp_deviation_x0,
+            material_flux_x=oxygen_electrode_material_flux_x0,
+            include_temperature_x_thermo=include_temp_x_thermo,
+            below_electrolyte=False,
         )
         if self.config.thin_electrolyte:
             if self.config.control_volume_xfaces_electrolyte is not None:
@@ -657,19 +633,17 @@ class SolidOxideCellData(UnitModelBlockData):
                     "User specified thin electrolyte, but provided xfaces."
                 )
             self.electrolyte = soc.SocContactResistor(
-                default={
-                    "has_holdup": False,
-                    "dynamic": False,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "temperature_deviation_x": fuel_electrode_temperature_deviation_x1,
-                    "heat_flux_x0": self.fuel_triple_phase_boundary.heat_flux_x1,
-                    "heat_flux_x1": self.oxygen_triple_phase_boundary.heat_flux_x0,
-                    "current_density": self.current_density,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                    has_holdup=False,
+                    dynamic=False,
+                    control_volume_zfaces=self.config.control_volume_zfaces,
+                    length_z=self.length_z,
+                    length_y=self.length_y,
+                    temperature_z=self.temperature_z,
+                    temperature_deviation_x=fuel_electrode_temperature_deviation_x1,
+                    heat_flux_x0=self.fuel_triple_phase_boundary.heat_flux_x1,
+                    heat_flux_x1=self.oxygen_triple_phase_boundary.heat_flux_x0,
+                    current_density=self.current_density,
+                    include_temperature_x_thermo=include_temp_x_thermo,
             )
 
             @self.electrolyte.Constraint(tset, iznodes)
@@ -681,21 +655,19 @@ class SolidOxideCellData(UnitModelBlockData):
 
         else:
             self.electrolyte = soc.SocConductiveSlab(
-                default={
-                    "has_holdup": has_holdup,
-                    "dynamic": dynamic,
-                    "control_volume_zfaces": self.config.control_volume_zfaces,
-                    "control_volume_xfaces": self.config.control_volume_xfaces_electrolyte,
-                    "length_z": self.length_z,
-                    "length_y": self.length_y,
-                    "temperature_z": self.temperature_z,
-                    "current_density": self.current_density,
-                    "temperature_deviation_x0": fuel_electrode_temperature_deviation_x1,
-                    "temperature_deviation_x1": oxygen_electrode_temperature_deviation_x0,
-                    "heat_flux_x0": self.fuel_triple_phase_boundary.heat_flux_x1,
-                    "heat_flux_x1": self.oxygen_triple_phase_boundary.heat_flux_x0,
-                    "include_temperature_x_thermo": include_temp_x_thermo,
-                }
+                    has_holdup=has_holdup,
+                    dynamic=dynamic,
+                    control_volume_zfaces=self.config.control_volume_zfaces,
+                    control_volume_xfaces=self.config.control_volume_xfaces_electrolyte,
+                    length_z=self.length_z,
+                    length_y=self.length_y,
+                    temperature_z=self.temperature_z,
+                    current_density=self.current_density,
+                    temperature_deviation_x0=fuel_electrode_temperature_deviation_x1,
+                    temperature_deviation_x1=oxygen_electrode_temperature_deviation_x0,
+                    heat_flux_x0=self.fuel_triple_phase_boundary.heat_flux_x1,
+                    heat_flux_x1=self.oxygen_triple_phase_boundary.heat_flux_x0,
+                    include_temperature_x_thermo=include_temp_x_thermo,
             )
 
         self.state_vars = {"flow_mol", "mole_frac_comp", "temperature", "pressure"}
@@ -728,19 +700,17 @@ class SolidOxideCellData(UnitModelBlockData):
                         "User specified thin electrolyte, but provided xfaces."
                     )
                 self.interconnect = soc.SocContactResistor(
-                    default={
-                        "has_holdup": False,
-                        "dynamic": False,
-                        "control_volume_zfaces": self.config.control_volume_zfaces,
-                        "length_z": self.length_z,
-                        "length_y": self.length_y,
-                        "temperature_z": self.temperature_z,
-                        "temperature_deviation_x": self.oxygen_channel.temperature_deviation_x1,
-                        "heat_flux_x0": interconnect_heat_flux_x0,
-                        "heat_flux_x1": interconnect_heat_flux_x1,
-                        "current_density": self.current_density,
-                        "include_temperature_x_thermo": include_temp_x_thermo,
-                    }
+                        has_holdup=False,
+                        dynamic=False,
+                        control_volume_zfaces=self.config.control_volume_zfaces,
+                        length_z=self.length_z,
+                        length_y=self.length_y,
+                        temperature_z=self.temperature_z,
+                        temperature_deviation_x=self.oxygen_channel.temperature_deviation_x1,
+                        heat_flux_x0=interconnect_heat_flux_x0,
+                        heat_flux_x1=interconnect_heat_flux_x1,
+                        current_density=self.current_density,
+                        include_temperature_x_thermo=include_temp_x_thermo,
                 )
 
                 @self.interconnect.Constraint(tset, iznodes)
@@ -752,21 +722,19 @@ class SolidOxideCellData(UnitModelBlockData):
 
             else:
                 self.interconnect = soc.SocConductiveSlab(
-                    default={
-                        "has_holdup": has_holdup,
-                        "dynamic": dynamic,
-                        "control_volume_zfaces": self.config.control_volume_zfaces,
-                        "control_volume_xfaces": self.config.control_volume_xfaces_interconnect,
-                        "length_z": self.length_z,
-                        "length_y": self.length_y,
-                        "temperature_z": self.temperature_z,
-                        "current_density": self.current_density,
-                        "temperature_deviation_x0": self.oxygen_channel.temperature_deviation_x1,
-                        "temperature_deviation_x1": self.fuel_channel.temperature_deviation_x0,
-                        "heat_flux_x0": interconnect_heat_flux_x0,
-                        "heat_flux_x1": interconnect_heat_flux_x1,
-                        "include_temperature_x_thermo": include_temp_x_thermo,
-                    }
+                        has_holdup=has_holdup,
+                        dynamic=dynamic,
+                        control_volume_zfaces=self.config.control_volume_zfaces,
+                        control_volume_xfaces=self.config.control_volume_xfaces_interconnect,
+                        length_z=self.length_z,
+                        length_y=self.length_y,
+                        temperature_z=self.temperature_z,
+                        current_density=self.current_density,
+                        temperature_deviation_x0=self.oxygen_channel.temperature_deviation_x1,
+                        temperature_deviation_x1=self.fuel_channel.temperature_deviation_x0,
+                        heat_flux_x0=interconnect_heat_flux_x0,
+                        heat_flux_x1=interconnect_heat_flux_x1,
+                        include_temperature_x_thermo=include_temp_x_thermo,
                 )
         else:
             interconnect_heat_flux_x0.value = 0
@@ -1352,7 +1320,6 @@ class SolidOxideCellData(UnitModelBlockData):
                             sq,
                             overwrite=False,
                         )
-
         for idx, con in self.mean_temperature_eqn.items():
             cst(con, 1, overwrite=False)
 

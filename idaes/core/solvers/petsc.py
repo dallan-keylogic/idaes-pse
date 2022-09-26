@@ -41,29 +41,51 @@ import idaes.logger as idaeslog
 from idaes.core.solvers import get_solver
 import idaes.config as icfg
 
-PetscBinaryIOTrajectory = None
-PetscBinaryIO = None
 
+def petsc_binary_io():
+    if petsc_binary_io.PetscBinaryIOTrajectory is not None:
+        return petsc_binary_io.PetscBinaryIOTrajectory
 
-def _import_petsc_binary_io():
-    global PetscBinaryIOTrajectory
-    global PetscBinaryIO
+    # First see if the python IO helpers are directly importable
     try:
         import PetscBinaryIOTrajectory
         import PetscBinaryIO
+
+        petsc_binary_io.PetscBinaryIOTrajectory = PetscBinaryIOTrajectory
+        return PetscBinaryIOTrajectory
     except ImportError:
-        petsc_dir = os.path.join(icfg.bin_directory, "petscpy")
-        if not os.path.isdir(petsc_dir):
-            return
-        sys.path.append(petsc_dir)
+        pass
+    # Next, look for a 'petscpy' directory alongside the 'petsc'
+    # executable: first look at the petsc we found on the path, then
+    # look in the IDAES bin dir.  Casting the Executable path to a
+    # string will map None to '' in the case where there is no petsc
+    # executable found.
+    for petsc_exe_dir in (
+        os.path.dirname(str(Executable("petsc").path())),
+        icfg.bin_directory,
+    ):
+        if not petsc_exe_dir:
+            continue
+        petscpy_dir = os.path.join(petsc_exe_dir, "petscpy")
         try:
+            sys.path.insert(0, petscpy_dir)
             import PetscBinaryIOTrajectory
             import PetscBinaryIO
+
+            # Import the petsc_conf so that it is cached in sys.modules
+            # (because we will be removing petscpy from sys.path)
+            import petsc_conf
+
+            petsc_binary_io.PetscBinaryIOTrajectory = PetscBinaryIOTrajectory
+            return PetscBinaryIOTrajectory
         except ImportError:
             pass
+        finally:
+            sys.path.remove(petscpy_dir)
+    return None
 
 
-_import_petsc_binary_io()
+petsc_binary_io.PetscBinaryIOTrajectory = None
 
 
 class DaeVarTypes(enum.IntEnum):
@@ -128,8 +150,8 @@ class PetscTS(Petsc):
         else:
             kwds["options"] = {}
         # Force some options.
-        kwds["options"]["--dae_solve"] = "" # is DAE solver
-        kwds["options"]["--ts_monitor"] = "" # show TS solver progress
+        kwds["options"]["--dae_solve"] = ""  # is DAE solver
+        kwds["options"]["--ts_monitor"] = ""  # show TS solver progress
         # We're assuming trajectory will be written in the visualization
         # style, so just set that here.
         kwds["options"]["--ts_trajectory_type"] = "visualization"
@@ -357,6 +379,7 @@ def _sub_problem_scaling_suffix(m, t_block):
             if c in m.scaling_factor:
                 t_block.scaling_factor[c] = m.scaling_factor[c]
 
+
 class PetscDAEResults(object):
     """This class stores the results of ``petsc_dae_by_time_element()`` it has
     two attributes ``results`` and ``trajectory``.  Results is a list of Pyomo
@@ -367,9 +390,11 @@ class PetscDAEResults(object):
     for all time steps taken by the PETSc solver. This is generally finer than
     the Pyomo.DAE discretization.
     """
+
     def __init__(self, results=None, trajectory=None):
         self.results = results
         self.trajectory = trajectory
+
 
 def petsc_dae_by_time_element(
     m,
@@ -448,7 +473,8 @@ def petsc_dae_by_time_element(
         bad_times = between - time
         if bad_times:
             raise RuntimeError(
-                    "Elements of the 'between' argument must be in the time set")
+                "Elements of the 'between' argument must be in the time set"
+            )
         between = pyo.Set(initialize=sorted(between))
         between.construct()
 
@@ -511,7 +537,7 @@ def petsc_dae_by_time_element(
     ):
         # Solver time steps
         deriv_diff_map = _get_derivative_differential_data_map(m, time)
-        tj = None # trajectory data
+        tj = None  # trajectory data
         for t in between:
             if t == between.first():
                 # t == between.first() was handled above
@@ -533,7 +559,8 @@ def petsc_dae_by_time_element(
             # mistake.
             if len(differential_vars) < 1:
                 raise RuntimeError(
-                    f"No differential equations found at t = {t}, not a DAE")
+                    f"No differential equations found at t = {t}, not a DAE"
+                )
             if timevar is not None:
                 t_block.dae_suffix[timevar[t]] = int(DaeVarTypes.TIME)
             # Set up the scaling factor suffix
@@ -563,11 +590,11 @@ def petsc_dae_by_time_element(
                 # and unfixed
                 for i, v in enumerate(variables):
                     if isinstance(v.parent_component(), pyodae.DerivativeVar):
-                        continue # skip derivative vars
+                        continue  # skip derivative vars
                     try:
                         vec = tj.get_vec(v)
                     except KeyError:
-                        tj._set_vec(v,[pyo.value(v)]*len(tj.time))
+                        tj._set_vec(v, [pyo.value(v)] * len(tj.time))
                 if tj_prev is not None:
                     # due to the way variables is generated we know variables
                     # have corresponding positions in the list
@@ -575,9 +602,9 @@ def petsc_dae_by_time_element(
                     for i, v in enumerate(variables):
                         vp = variables_prev[i]
                         if id(v) in no_repeat:
-                            continue # variables can be repeated in list
+                            continue  # variables can be repeated in list
                         if isinstance(v.parent_component(), pyodae.DerivativeVar):
-                            continue # skip derivative vars
+                            continue  # skip derivative vars
                         no_repeat.add(id(v))
                         # We'll add fixed vars in case they aren't fixed in
                         # another section. Fixed vars don't go to the solver
@@ -605,7 +632,7 @@ def petsc_dae_by_time_element(
                     continue
                 no_repeat.add(id(var[tlast]))
                 if isinstance(var[t0].parent_component(), pyodae.DerivativeVar):
-                    continue # skip derivative vars
+                    continue  # skip derivative vars
                 vec = tj.interpolate_vec(itime, var[tlast])
                 for i, (t, v) in enumerate(var.items()):
                     if t < t0 or t > tlast or t in between:
@@ -623,6 +650,7 @@ def petsc_dae_by_time_element(
             calculate_time_derivatives(m, time)
         # return the solver results and trajectory if available
     return PetscDAEResults(results=res_list, trajectory=tj)
+
 
 def calculate_time_derivatives(m, time):
     """Calculate the derivative values from the discretization equations.
@@ -646,7 +674,7 @@ def calculate_time_derivatives(m, time):
                             v.value = 0  # Make sure there is a value
                             calculate_variable_from_constraint(v, disc_eq[i])
                     except KeyError:
-                        pass # discretization equation may not exist at first time
+                        pass  # discretization equation may not exist at first time
 
 
 class PetscTrajectory(object):
@@ -681,7 +709,7 @@ class PetscTrajectory(object):
         """
         if no_read:
             return
-        if PetscBinaryIOTrajectory is None and stub is not None:
+        if petsc_binary_io() is None and stub is not None:
             raise RuntimeError("PetscBinaryIOTrajectory could not be imported")
         # if unscale is True, use model as scale factor source
         if model is not None and unscale is True:
@@ -715,7 +743,7 @@ class PetscTrajectory(object):
         with open(f"{self.stub}.typ") as f:
             typ = list(map(int, f.readlines()))
         vars = [name for i, name in enumerate(names) if typ[i] in [0, 1]]
-        (t, v, names) = PetscBinaryIOTrajectory.ReadTrajectory("Visualization-data")
+        (t, v, names) = petsc_binary_io().ReadTrajectory("Visualization-data")
         self.time = t
         self.vecs_by_time = v
         self.vecs = dict.fromkeys(vars, None)
@@ -738,7 +766,6 @@ class PetscTrajectory(object):
     def _set_time_vec(self, vec):
         self.vecs["_time"] = vec
         self.time = self.vecs["_time"]
-
 
     def get_vec(self, var):
         """Return the vector of variable values at each time point for var.

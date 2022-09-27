@@ -370,6 +370,11 @@ class PropertyClassMetadata(object):
                     * self.default_units["temperature"] ** -1
                     * self.default_units["amount"] ** -1
                 ),
+                "dipole_moment": (
+                    self.default_units["current"]
+                    * self.default_units["time"]
+                    * self.default_units["length"]
+                )
             }
         except TypeError:
             raise PropertyPackageError(

@@ -49,17 +49,17 @@ class ChapmanEnskogLennardJones(object):
         def build_parameters(cobj):
             ChapmanEnskogLennardJones.build_lennard_jones_parameters(cobj)
             if not hasattr(cobj, "viscosity_collision_integral_callback"):
-                cobj.viscosity_collision_integral_callback = collision_integral_kim_ross_callback
+                cobj.viscosity_collision_integral_callback = collision_integral_neufeld_callback
 
         @staticmethod
         def return_expression(b, cobj, T):
             # Properties of Gases and Liquids, Eq. 9.3.9
-            units = b.get_metadata().derived_units
+            units = b.params.get_metadata().derived_units
 
             T = pyunits.convert(T, to_units=pyunits.K)
             sigma = pyunits.convert(cobj.lennard_jones_sigma, pyunits.angstrom)
             M = pyunits.convert(cobj.mw, pyunits.g/pyunits.mol)
-            T_dim = T / pyunits.convert(cobj.lennard_jones_epsilon)
+            T_dim = T / pyunits.convert(cobj.lennard_jones_epsilon_reduced, to_units=pyunits.K)
             Omega = cobj.viscosity_collision_integral_callback(T_dim)
 
             C = 26.69 * pyunits.micropoise * pyunits.angstrom ** 2 / pyo.sqrt(pyunits.g / pyunits.mol * pyunits.K)

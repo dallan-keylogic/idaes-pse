@@ -50,7 +50,7 @@ class ChungViscosityPure(object):
         def build_parameters(cobj):
             ChungViscosityPure.build_common_parameters(cobj)
             if not hasattr(cobj, "viscosity_collision_integral_callback"):
-                cobj.viscosity_collision_integral_callback = collision_integral_kim_ross_callback
+                cobj.viscosity_collision_integral_callback = collision_integral_neufeld_callback
 
         @staticmethod
         def return_expression(b, cobj, T):

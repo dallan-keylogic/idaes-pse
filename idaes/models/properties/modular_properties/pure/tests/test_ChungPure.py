@@ -84,13 +84,13 @@ def test_visc_mol_comp():
     m.props[1].temperature = Var(initialize=273 + 300, units=pyunits.K)
 
     ChungViscosityPure.viscosity_dynamic_vap_comp.build_parameters(m.params)
-    m.params.viscosity_collision_integral_callback = collision_integral_neufeld_callback
 
     assert isinstance(m.params.dipole_moment, Var)
     # The SI unit for dipole moment, coulomb meters, is hilariously oversized for molecular dipoles
     assert value(m.params.dipole_moment) == pytest.approx(5.337025523170434e-30, rel=1e-12)
     assert isinstance(m.params.association_factor_chung, Var)
     assert value(m.params.association_factor_chung) == 0
+    assert m.params.viscosity_collision_integral_callback is collision_integral_neufeld_callback
 
     expr = ChungViscosityPure.viscosity_dynamic_vap_comp.return_expression(
         m.props[1], m.params, m.props[1].temperature
@@ -160,7 +160,6 @@ def test_visc_mol_comp_association_factor():
     m.props[1].temperature = Var(initialize=273 + 300, units=pyunits.K)
 
     ChungViscosityPure.viscosity_dynamic_vap_comp.build_parameters(m.params)
-    m.params.viscosity_collision_integral_callback = collision_integral_neufeld_callback
 
     assert isinstance(m.params.dipole_moment, Var)
     # The SI unit for dipole moment, coulomb meters, is hilariously oversized for molecular dipoles
@@ -198,7 +197,7 @@ def test_visc_mol_comp_nonpolar():
     m.params = Block()
 
     m.params.config = ConfigBlock(implicit=True)
-    # Properties of Methanol from Properties of Gases and Liquids 5th Ed. Appendix A
+    # Properties of Ethane from Properties of Gases and Liquids 5th Ed. Appendix A
     m.params.config.parameter_data = {
             "dipole_moment": 0 * pyunits.debye,
             "association_factor_chung": 0,
@@ -234,7 +233,6 @@ def test_visc_mol_comp_nonpolar():
     m.props[1].temperature = Var(initialize=273 + 300, units=pyunits.K)
 
     ChungViscosityPure.viscosity_dynamic_vap_comp.build_parameters(m.params)
-    m.params.viscosity_collision_integral_callback = collision_integral_neufeld_callback
 
     assert isinstance(m.params.dipole_moment, Var)
     assert value(m.params.dipole_moment) == pytest.approx(0, rel=1e-12)
@@ -252,7 +250,7 @@ def test_visc_mol_comp_nonpolar():
     # Here, we use the ones from Appendix A, while Poling et al. apparently used
     # different ones when constructing this table
     # err_list = [0.1, 0.2, -1.0]  # Percent error with Chung et al.'s method
-    # Poling et al.'s values seem to be ~1% below ours, so fudge the values up
+    # Poling et al.'s values for Ethane seem to be ~1% below ours, so fudge the values upward
     err_list = [1.1, 1.2, 0.0]
 
     for i in range(3):

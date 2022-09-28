@@ -272,7 +272,7 @@ class Constant(object):
             set_param_from_config(cobj, param="visc_d_liq_comp_coeff")
 
         @staticmethod
-        def return_expression(b, cobj, T):
+        def return_expression(b, cobj):
             return cobj.visc_d_liq_comp_coeff
 
     class visc_d_vap_comp(object):
@@ -286,7 +286,7 @@ class Constant(object):
             set_param_from_config(cobj, param="visc_d_vap_comp_coeff")
 
         @staticmethod
-        def return_expression(b, cobj, T):
+        def return_expression(b, cobj):
             return cobj.visc_d_vap_comp_coeff
 
     class therm_cond_liq_comp(object):
@@ -300,7 +300,7 @@ class Constant(object):
             set_param_from_config(cobj, param="therm_cond_liq_comp_coeff")
 
         @staticmethod
-        def return_expression(b, cobj, T):
+        def return_expression(b, cobj):
             return cobj.therm_cond_liq_comp_coeff
 
     class therm_cond_vap_comp(object):
@@ -314,5 +314,5 @@ class Constant(object):
             set_param_from_config(cobj, param="therm_cond_vap_comp_coeff")
 
         @staticmethod
-        def return_expression(b, cobj, T):
+        def return_expression(b, cobj):
             return cobj.therm_cond_vap_comp_coeff

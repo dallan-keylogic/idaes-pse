@@ -23,8 +23,12 @@ from idaes.core.util.constants import Constants
 
 
 
-# -----------------------------------------------------------------------------
-# Heat capacities, enthalpies and entropies
+# ------------------------------------------------------------------------------------
+# Gas viscosity at low pressures from Lennard Jones paramters. Note that LJ parameters
+# are underdetermined when estimated from viscosity data (see The Indeterminacy of
+# the Values of Potential Parameters as Derived from Transport and Virial Coefficient
+# by Reichenberg D., 1973 for more information) so it's important to use LJ parameters
+# from the same source.
 class ChapmanEnskogLennardJones(object):
     @staticmethod
     def build_lennard_jones_parameters(cobj):
@@ -52,11 +56,11 @@ class ChapmanEnskogLennardJones(object):
                 cobj.viscosity_collision_integral_callback = collision_integral_neufeld_callback
 
         @staticmethod
-        def return_expression(b, cobj, T):
+        def return_expression(b, cobj):
             # Properties of Gases and Liquids, Eq. 9.3.9
             units = b.params.get_metadata().derived_units
 
-            T = pyunits.convert(T, to_units=pyunits.K)
+            T = pyunits.convert(b.temperature, to_units=pyunits.K)
             sigma = pyunits.convert(cobj.lennard_jones_sigma, pyunits.angstrom)
             M = pyunits.convert(cobj.mw, pyunits.g/pyunits.mol)
             T_dim = T / pyunits.convert(cobj.lennard_jones_epsilon_reduced, to_units=pyunits.K)
@@ -64,6 +68,7 @@ class ChapmanEnskogLennardJones(object):
 
             C = 26.69 * pyunits.micropoise * pyunits.angstrom ** 2 / pyo.sqrt(pyunits.g / pyunits.mol * pyunits.K)
             visc = C * pyo.sqrt(M * T) / (sigma ** 2 * Omega)
+
             return pyunits.convert(visc, units["dynamic_viscosity"])
 
 def collision_integral_kim_ross_callback(T_dim):

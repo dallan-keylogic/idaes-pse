@@ -25,7 +25,11 @@ from idaes.models.properties.modular_properties.pure.ChapmanEnskog import (
 
 
 # -----------------------------------------------------------------------------
-# Heat capacities, enthalpies and entropies
+# Gas viscosities at low pressures from critical properties, acentric factor,
+# and dipole moment. Also requires an association factor, which can be found
+# for some highly polar substances in Table 9-1 in the Properties of Gases and
+# Liquids, 5th Ed. Chung et al. might also have additional factors in some of
+# their papers. If unknown, set the association factor to zero.
 class ChungViscosityPure(object):
     @staticmethod
     def build_common_parameters(cobj):
@@ -53,27 +57,29 @@ class ChungViscosityPure(object):
                 cobj.viscosity_collision_integral_callback = collision_integral_neufeld_callback
 
         @staticmethod
-        def return_expression(b, cobj, T):
-            # Properties of Gases and Liquids 5th Ed., Eq. 9.3.9
+        def return_expression(b, cobj):
+            # Properties of Gases and Liquids 5th Ed., Section 9-4-2
             units = b.params.get_metadata().derived_units
 
-            T = pyunits.convert(T, to_units=pyunits.K)
+            T = pyunits.convert(b.temperature, to_units=pyunits.K)
             T_crit = pyunits.convert(cobj.temperature_crit, to_units=pyunits.K)
             V_crit = 1 / pyunits.convert(cobj.dens_mol_crit, to_units=pyunits.mol/pyunits.mL)
             M = pyunits.convert(cobj.mw, pyunits.g/pyunits.mol)
             mu = pyunits.convert(cobj.dipole_moment, pyunits.debye)
             omega = cobj.omega
             kappa = cobj.association_factor_chung
-            Omega = cobj.viscosity_collision_integral_callback(1.2593 * T / T_crit)  # Eq. 9.4.10
+            Omega = cobj.viscosity_collision_integral_callback(1.2593 * T / T_crit)  # Eq. 9-4.10
+            # Eq. 9-4.12
             mu_r = 131.3 * pyo.sqrt(pyunits.mL / pyunits.mol * pyunits.K) / pyunits.debye * (
                 mu / pyo.sqrt(V_crit * T_crit)
             )
+            # Eq. 9-4.11
             Fc = 1 - 0.2756 * omega + 0.059035 * mu_r ** 4 + kappa
-
             C = (
                     40.785 * pyunits.micropoise * (pyunits.mL/pyunits.mol) ** (2/3)
                     / pyo.sqrt(pyunits.g / pyunits.mol * pyunits.K)
-                 )
+             )
+            # Eq. 9-4.10
             visc = C * Fc * pyo.sqrt(M * T) / (V_crit ** (2/3) * Omega)
-            #import pdb; pdb.set_trace()
+
             return pyunits.convert(visc, units["dynamic_viscosity"])

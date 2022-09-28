@@ -39,7 +39,7 @@ import idaes.logger as idaeslog
 
 
 @pytest.mark.unit
-def test_visc_mol_comp():
+def test_visc_vap_comp_sulfur_dioxide():
     m = ConcreteModel()
 
     # Create a dummy parameter block
@@ -93,7 +93,7 @@ def test_visc_mol_comp():
     assert m.params.viscosity_collision_integral_callback is collision_integral_neufeld_callback
 
     expr = ChungViscosityPure.viscosity_dynamic_vap_comp.return_expression(
-        m.props[1], m.params, m.props[1].temperature
+        m.props[1], m.params
     )
     assert value(expr) == pytest.approx(2.455e-05, rel=5e-4)
 
@@ -115,7 +115,7 @@ def test_visc_mol_comp():
 
 
 @pytest.mark.unit
-def test_visc_mol_comp_association_factor():
+def test_visc_vap_comp_methanol():
     m = ConcreteModel()
 
     # Create a dummy parameter block
@@ -168,7 +168,7 @@ def test_visc_mol_comp_association_factor():
     assert value(m.params.association_factor_chung) == 0.215
 
     expr = ChungViscosityPure.viscosity_dynamic_vap_comp.return_expression(
-        m.props[1], m.params, m.props[1].temperature
+        m.props[1], m.params
     )
     expr_micropoise = pyunits.convert(expr, pyunits.micropoise)
     # Pulled from Table 9.2, Properties of Gases and Liquids
@@ -190,7 +190,7 @@ def test_visc_mol_comp_association_factor():
     assert_units_equivalent(expr, pyunits.Pa * pyunits.s)
 
 @pytest.mark.unit
-def test_visc_mol_comp_nonpolar():
+def test_visc_vap_comp_ethane():
     m = ConcreteModel()
 
     # Create a dummy parameter block
@@ -240,7 +240,7 @@ def test_visc_mol_comp_nonpolar():
     assert value(m.params.association_factor_chung) == 0
 
     expr = ChungViscosityPure.viscosity_dynamic_vap_comp.return_expression(
-        m.props[1], m.params, m.props[1].temperature
+        m.props[1], m.params
     )
     expr_micropoise = pyunits.convert(expr, pyunits.micropoise)
     # Pulled from Table 9.2, Properties of Gases and Liquids

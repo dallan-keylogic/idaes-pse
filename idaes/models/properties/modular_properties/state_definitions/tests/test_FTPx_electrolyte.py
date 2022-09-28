@@ -102,6 +102,7 @@ class TestApparentSpeciesBasisNoInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -334,6 +335,7 @@ class TestApparentSpeciesBasisInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -642,6 +644,7 @@ class TestTrueSpeciesBasisNoInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -817,6 +820,7 @@ class TestTrueSpeciesBasisInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -1146,6 +1150,7 @@ class TestApparentSpeciesBasisInherentIdeal:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -1478,6 +1483,7 @@ class TestTrueSpeciesBasisInherentIdeal:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,

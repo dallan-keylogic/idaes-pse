@@ -104,6 +104,7 @@ class TestApparentSpeciesBasisNoInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FcTP,
@@ -335,6 +336,7 @@ class TestApparentSpeciesBasisInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FcTP,
@@ -642,6 +644,7 @@ class TestTrueSpeciesBasisNoInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FcTP,
@@ -817,6 +820,7 @@ class TestTrueSpeciesBasisInherent:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FcTP,

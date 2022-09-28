@@ -254,6 +254,7 @@ def test_equilibrium_ratio():
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
     }
 

@@ -80,6 +80,7 @@ base_units = {
     "mass": pyunits.kg,
     "amount": pyunits.mol,
     "temperature": pyunits.K,
+    "current": pyunits.ampere,
 }
 
 
@@ -126,7 +127,7 @@ class TestGenericReactionParameterBlock(object):
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
-            "current": None,
+            "current": pyunits.ampere,
             "luminous intensity": None,
         }
 

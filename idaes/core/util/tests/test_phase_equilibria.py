@@ -134,6 +134,7 @@ def test_Txy_data():
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -241,6 +242,7 @@ def test_Txy_data_no_dew():
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -359,6 +361,7 @@ def test_Txy_data_no_bub():
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,

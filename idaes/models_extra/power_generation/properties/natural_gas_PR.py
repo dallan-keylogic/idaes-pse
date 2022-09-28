@@ -439,6 +439,7 @@ def get_prop(components=None, phases="Vap", eos=EosType.PR, scaled=False):
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,

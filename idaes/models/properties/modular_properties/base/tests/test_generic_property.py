@@ -65,6 +65,7 @@ base_units = {
     "mass": pyunits.kg,
     "amount": pyunits.mol,
     "temperature": pyunits.K,
+    "current": pyunits.ampere,
 }
 
 
@@ -102,7 +103,7 @@ class TestGenericParameterBlock(object):
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
-            "current": None,
+            "current": pyunits.ampere,
             "luminous intensity": None,
         }
 
@@ -1127,6 +1128,8 @@ class TestGenericParameterBlock(object):
                 "mass": pyunits.pound,
                 "amount": pyunits.mol,
                 "temperature": pyunits.degR,
+                # FIXME come back to this later
+                "current": pyunits.abampere
             },
         )
 
@@ -1170,14 +1173,17 @@ class TestGenericStateBlock(object):
                 "a": {
                     "type": Solvent,
                     "diffus_phase_comp": {"p1": dummy_method, "p2": dummy_method},
+                    "visc_d_phase_comp": {"p1": dummy_method, "p2": dummy_method},
                     "pressure_sat_comp": dummy_method,
                 },
                 "b": {
                     "diffus_phase_comp": {"p1": dummy_method, "p2": dummy_method},
+                    "visc_d_phase_comp": {"p1": dummy_method, "p2": dummy_method},
                     "pressure_sat_comp": dummy_method,
                 },
                 "c": {
                     "diffus_phase_comp": {"p1": dummy_method, "p2": dummy_method},
+                    "visc_d_phase_comp": {"p1": dummy_method, "p2": dummy_method},
                     "pressure_sat_comp": dummy_method,
                 },
             },
@@ -1308,7 +1314,7 @@ class TestGenericStateBlock(object):
                     frame.props[1], frame.params.get_metadata().properties[p]["method"]
                 )
                 continue
-            elif p in ["diffus_phase_comp"]:
+            elif p in ["diffus_phase_comp", "visc_d_phase_comp"]:
                 # phase indexed properties - these will be tested separately.
                 continue
             else:

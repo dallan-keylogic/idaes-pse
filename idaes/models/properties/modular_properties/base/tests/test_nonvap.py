@@ -188,6 +188,7 @@ configuration = {
         "mass": pyunits.kg,
         "amount": pyunits.mol,
         "temperature": pyunits.K,
+        "current": pyunits.ampere,
     },
     # Defining phase equilibria
     "phases_in_equilibrium": [("Vap", "Liq")],

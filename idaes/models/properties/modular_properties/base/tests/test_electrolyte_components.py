@@ -83,6 +83,7 @@ class TestApparentSpeciesBasis:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -217,6 +218,7 @@ class TestTrueSpeciesBasis:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -359,6 +361,7 @@ class TestNonAqueousComponents:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,
@@ -517,6 +520,7 @@ class TestPhasesPartialComponents:
             "mass": pyunits.kg,
             "amount": pyunits.mol,
             "temperature": pyunits.K,
+            "current": pyunits.ampere,
         },
         # Specifying state definition
         "state_definition": FTPx,

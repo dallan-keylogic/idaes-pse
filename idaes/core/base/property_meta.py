@@ -370,18 +370,21 @@ class PropertyClassMetadata(object):
                     * self.default_units["temperature"] ** -1
                     * self.default_units["amount"] ** -1
                 ),
-                "dipole_moment": (
-                    self.default_units["current"]
-                    * self.default_units["time"]
-                    * self.default_units["length"]
-                )
             }
         except TypeError:
             raise PropertyPackageError(
                 "{} cannot determine derived units, as property package has "
                 "not defined a set of base units.".format(str(self))
             )
-
+        try:
+            self._derived_units["dipole_moment"] = (
+                    self.default_units["current"]
+                    * self.default_units["time"]
+                    * self.default_units["length"]
+            )
+        except AttributeError:
+            # Current not defined, so don't assign units for dipole moment
+            self._derived_units["dipole_moment"] = None
 
 class PropertyMetadata(dict):
     """Container for property parameter metadata.

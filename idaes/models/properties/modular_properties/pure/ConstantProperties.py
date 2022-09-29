@@ -260,34 +260,37 @@ class Constant(object):
             # Molar density
             return cobj.dens_mol_sol_comp_coeff
 
-    class visc_d_liq_comp(object):
+    class visc_d_phase_comp(object):
         @staticmethod
-        def build_parameters(cobj):
+        def build_parameters(cobj, p):
             units = cobj.parent_block().get_metadata().derived_units
             # Calling this a "coefficient" doesn't make much sense, but want to be consistent with other methods
-            cobj.visc_d_liq_comp_coeff = Var(
-                doc="Parameter for liquid phase dynamic viscosity",
-                units=units["dynamic_viscosity"],
+            cobj.add_component(
+                f"visc_d_{p}_comp_coeff",
+                Var(
+                    doc=f"Parameter for {p} phase dynamic viscosity",
+                    units=units["dynamic_viscosity"],
+                )
             )
-            set_param_from_config(cobj, param="visc_d_liq_comp_coeff")
+            set_param_from_config(cobj, param=f"visc_d_{p}_comp_coeff")
 
         @staticmethod
-        def return_expression(b, cobj):
-            return cobj.visc_d_liq_comp_coeff
+        def return_expression(b, cobj, p,  T):
+            return getattr(cobj, f"visc_d_{p}_comp_coeff")
 
-    class visc_d_vap_comp(object):
-        @staticmethod
-        def build_parameters(cobj):
-            units = cobj.parent_block().get_metadata().derived_units
-            cobj.visc_d_vap_comp_coeff = Var(
-                doc="Parameter for vapor phase dynamic viscosity",
-                units=units["dynamic_viscosity"],
-            )
-            set_param_from_config(cobj, param="visc_d_vap_comp_coeff")
-
-        @staticmethod
-        def return_expression(b, cobj):
-            return cobj.visc_d_vap_comp_coeff
+    # class visc_d_vap_comp(object):
+    #     @staticmethod
+    #     def build_parameters(cobj):
+    #         units = cobj.parent_block().get_metadata().derived_units
+    #         cobj.visc_d_vap_comp_coeff = Var(
+    #             doc="Parameter for vapor phase dynamic viscosity",
+    #             units=units["dynamic_viscosity"],
+    #         )
+    #         set_param_from_config(cobj, param="visc_d_vap_comp_coeff")
+    #
+    #     @staticmethod
+    #     def return_expression(b, cobj, T):
+    #         return cobj.visc_d_vap_comp_coeff
 
     class therm_cond_liq_comp(object):
         @staticmethod
@@ -300,7 +303,7 @@ class Constant(object):
             set_param_from_config(cobj, param="therm_cond_liq_comp_coeff")
 
         @staticmethod
-        def return_expression(b, cobj):
+        def return_expression(b, cobj, T):
             return cobj.therm_cond_liq_comp_coeff
 
     class therm_cond_vap_comp(object):
@@ -314,5 +317,5 @@ class Constant(object):
             set_param_from_config(cobj, param="therm_cond_vap_comp_coeff")
 
         @staticmethod
-        def return_expression(b, cobj):
+        def return_expression(b, cobj, T):
             return cobj.therm_cond_vap_comp_coeff

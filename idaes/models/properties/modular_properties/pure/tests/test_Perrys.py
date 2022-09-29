@@ -75,6 +75,7 @@ def frame():
     m.meta_object.default_units["length"] = pyunits.m
     m.meta_object.default_units["time"] = pyunits.s
     m.meta_object.default_units["amount"] = pyunits.mol
+    m.meta_object.default_units["current"] = pyunits.ampere
 
     def get_metadata(self):
         return m.meta_object

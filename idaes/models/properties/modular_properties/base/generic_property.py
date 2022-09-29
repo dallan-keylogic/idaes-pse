@@ -3754,8 +3754,8 @@ class GenericStateBlockData(StateBlockData):
                     cobj.config.visc_d_phase_comp is not None
                     and p in cobj.config.visc_d_phase_comp
                 ):
-                    return cobj.config.diffus_phase_comp[p].return_expression(
-                        b, p, j, b.temperature
+                    return cobj.config.visc_d_phase_comp[p].return_expression(
+                        b, cobj, p, b.temperature
                     )
                 else:
                     return Expression.Skip

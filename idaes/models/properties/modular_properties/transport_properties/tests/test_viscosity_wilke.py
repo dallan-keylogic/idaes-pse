@@ -72,17 +72,17 @@ def test_visc_phase_N2_CO2():
     m.params = DummyParameterBlock(
         components={
             "N2": {
-                "visc_d_vap_comp": ConstantProperties,
+                "visc_d_phase_comp": {"Vap": ConstantProperties},
                 "parameter_data": {
                     "mw": (28.014, pyunits.g/pyunits.mol),
-                    "visc_d_vap": (175.8, pyunits.micropoise)
+                    "visc_d_Vap_comp_coeff": (175.8, pyunits.micropoise)
                 }
             },
             "CO2": {
-                "visc_d_vap_comp": ConstantProperties,
+                "visc_d_phase_comp": {"Vap": ConstantProperties},
                 "parameter_data": {
                     "mw": (44.009, pyunits.g/pyunits.mol),
-                    "visc_d_vap": (146.6, pyunits.micropoise)
+                    "visc_d_Vap_comp_coeff": (146.6, pyunits.micropoise)
                 }
             },
         },
@@ -107,7 +107,7 @@ def test_visc_phase_N2_CO2():
     )
 
     m.props = m.params.state_block_class([1], defined_state=False, parameters=m.params)
-    ViscosityWilkePhase.visc_d_vap.build_parameters(m.params.Vap)
+    ViscosityWilkePhase.visc_d.build_parameters(m.params.Vap)
 
     # Add common variables
     m.props[1].temperature = Var(initialize=300, units=pyunits.K)
@@ -126,7 +126,7 @@ def test_visc_phase_N2_CO2():
 
     assert m.params.Vap.viscosity_phi_ij_callback is wilke_phi_ij_callback
 
-    expr = ViscosityWilkePhase.visc_d_vap.return_expression(
+    expr = ViscosityWilkePhase.visc_d.return_expression(
         m.props[1], m.params.Vap
     )
     expr_micropoise = pyunits.convert(expr, pyunits.micropoise)

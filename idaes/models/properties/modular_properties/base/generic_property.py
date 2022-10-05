@@ -814,7 +814,7 @@ class GenericParameterData(PhysicalParameterBlock):
                             pass
 
         # Validate and other phase indexed props
-        phase_indexed_props = ["diffus_phase_comp"]
+        phase_indexed_props = ["diffus_phase_comp", "visc_d_phase_comp"]
         for prop in phase_indexed_props:
             for j in self.component_list:
                 cobj = self.get_component(j)
@@ -1113,7 +1113,9 @@ class GenericParameterData(PhysicalParameterBlock):
                 "temperature_bubble": {"method": "_temperature_bubble"},
                 "temperature_dew": {"method": "_temperature_dew"},
                 "therm_cond_phase": {"method": "_therm_cond_phase"},
+                "therm_cond_phase_comp": {"method": "_therm_cond_phase_comp"},
                 "visc_d_phase": {"method": "_visc_d_phase"},
+                "visc_d_phase_comp": {"method": "_visc_d_phase_comp"},
                 "vol_mol_phase": {"method": "_vol_mol_phase"},
                 "vol_mol_phase_comp": {"method": "_vol_mol_phase_comp"},
                 "dh_rxn": {"method": "_dh_rxn"},
@@ -3729,6 +3731,31 @@ class GenericStateBlockData(StateBlockData):
             self.del_component(self.therm_cond_phase)
             raise
 
+    def _therm_cond_phase_comp(self):
+        try:
+
+            def rule_therm_cond_phase_comp(b, p, j):
+                cobj = b.params.get_component(j)
+                if (
+                    cobj.config.therm_cond_phase_comp is not None
+                    and p in cobj.config.therm_cond_phase_comp
+                ):
+                    return cobj.config.therm_cond_phase_comp[p].return_expression(
+                        b, cobj, p, b.temperature
+                    )
+                else:
+                    return Expression.Skip
+
+            self.therm_cond_phase_comp = Expression(
+                self.phase_list,
+                self.component_list,
+                doc="Pure component thermal conductivity for each phase-component pair",
+                rule=rule_therm_cond_phase_comp,
+            )
+        except AttributeError:
+            self.del_component(self.visc_d_phase_comp)
+            raise
+
     def _visc_d_phase(self):
         try:
 
@@ -3742,6 +3769,31 @@ class GenericStateBlockData(StateBlockData):
             )
         except AttributeError:
             self.del_component(self.visc_d_phase)
+            raise
+
+    def _visc_d_phase_comp(self):
+        try:
+
+            def rule_visc_d_phase_comp(b, p, j):
+                cobj = b.params.get_component(j)
+                if (
+                    cobj.config.visc_d_phase_comp is not None
+                    and p in cobj.config.visc_d_phase_comp
+                ):
+                    return cobj.config.visc_d_phase_comp[p].return_expression(
+                        b, cobj, p, b.temperature
+                    )
+                else:
+                    return Expression.Skip
+
+            self.visc_d_phase_comp = Expression(
+                self.phase_list,
+                self.component_list,
+                doc="Pure component dynamic viscosity for each phase-component pair",
+                rule=rule_visc_d_phase_comp,
+            )
+        except AttributeError:
+            self.del_component(self.visc_d_phase_comp)
             raise
 
     def _vol_mol_phase(self):

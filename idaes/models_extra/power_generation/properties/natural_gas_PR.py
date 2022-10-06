@@ -499,8 +499,8 @@ _component_params = {
     },
 }
 
-water_visc_d = {"Vap": ChapmanEnskogLennardJones, "Liq": None},
-water_therm_cond = {"Vap": ThermalConductivityWMS, "Liq": None},
+_water_visc_d = {"Vap": ChapmanEnskogLennardJones, "Liq": None}
+_water_therm_cond = {"Vap": ThermalConductivityWMS, "Liq": None}
 
 # returns a configuration dictionary for the list of specified components
 def get_prop(components=None, phases="Vap", eos=EosType.PR, scaled=False):
@@ -535,8 +535,8 @@ def get_prop(components=None, phases="Vap", eos=EosType.PR, scaled=False):
     for comp in components:
         c[comp] = copy.deepcopy(_component_params[comp])
         if comp == "H2O":
-            c["H2O"]["visc_d_phase_comp"] = copy.deepcopy({p: water_visc_d[p] for p in phases})
-            c["H2O"]["therm_cond_phase_comp"] = copy.deepcopy({p: water_therm_cond[p] for p in phases})
+            c["H2O"]["visc_d_phase_comp"] = copy.deepcopy({p: _water_visc_d[p] for p in phases})
+            c["H2O"]["therm_cond_phase_comp"] = copy.deepcopy({p: _water_therm_cond[p] for p in phases})
     for k in phases:
         if eos == EosType.PR:
             configuration["phases"][k] = copy.deepcopy(_phase_dicts_pr[k])

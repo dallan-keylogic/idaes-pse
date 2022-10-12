@@ -3889,8 +3889,15 @@ class GenericStateBlockData(StateBlockData):
             raise
 
     def _therm_cond_phase_comp(self):
+        units = self.params.get_metadata().derived_units
         try:
-
+            self.therm_cond_phase_comp = Var(
+                self.phase_list,
+                self.component_list,
+                doc="Pure component thermal conductivity for each phase-component pair",
+                units=units["thermal_conductivity"],
+                initialize=0.1
+            )
             def rule_therm_cond_phase_comp(b, p, j):
                 cobj = b.params.get_component(j)
                 if (
@@ -3898,13 +3905,13 @@ class GenericStateBlockData(StateBlockData):
                     and p in cobj.config.therm_cond_phase_comp
                     and cobj.config.therm_cond_phase_comp[p] is not None
                 ):
-                    return cobj.config.therm_cond_phase_comp[
+                    return b.therm_cond_phase_comp[p, j] == cobj.config.therm_cond_phase_comp[
                         p
                     ].therm_cond_phase_comp.return_expression(b, cobj, p, b.temperature)
                 else:
-                    return Expression.Skip
+                    return Constraint.Skip
 
-            self.therm_cond_phase_comp = Expression(
+            self.therm_cond_phase_comp_eqn = Constraint(
                 self.phase_list,
                 self.component_list,
                 doc="Pure component thermal conductivity for each phase-component pair",
@@ -3949,7 +3956,16 @@ class GenericStateBlockData(StateBlockData):
             raise
 
     def _visc_d_phase_comp(self):
+        units = self.params.get_metadata().derived_units
         try:
+
+            self.visc_d_phase_comp = Var(
+                self.phase_list,
+                self.component_list,
+                doc="Pure component dynamic viscosity for each phase-component pair",
+                units=units["dynamic_viscosity"],
+                initialize= 1e-5
+            )
 
             def rule_visc_d_phase_comp(b, p, j):
                 cobj = b.params.get_component(j)
@@ -3958,13 +3974,13 @@ class GenericStateBlockData(StateBlockData):
                     and p in cobj.config.visc_d_phase_comp
                     and cobj.config.visc_d_phase_comp[p] is not None
                 ):
-                    return cobj.config.visc_d_phase_comp[
+                    return b.visc_d_phase_comp[p, j] == cobj.config.visc_d_phase_comp[
                         p
                     ].visc_d_phase_comp.return_expression(b, cobj, p, b.temperature)
                 else:
-                    return Expression.Skip
+                    return Constraint.Skip
 
-            self.visc_d_phase_comp = Expression(
+            self.visc_d_phase_comp_eqn = Constraint(
                 self.phase_list,
                 self.component_list,
                 doc="Pure component dynamic viscosity for each phase-component pair",

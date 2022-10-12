@@ -303,7 +303,7 @@ class Cubic(EoSBase):
             def rule_bm(m, p):
                 b = getattr(m, cname + "_b")
                 bm = getattr(m, cname + "_bm")
-                return bm == rule_bm_default(m, b, p)
+                return bm[p] == rule_bm_default(m, b, p)
 
             b.add_component(cname + "_bm_eqn", Constraint(b.phase_list, rule=rule_bm))
         else:

@@ -579,7 +579,7 @@ class Cubic(EoSBase):
         units = b.params.get_metadata().derived_units
 
         if not hasattr(b, cname + "_dam_dT"):
-            b._build_dam_dT(b, p)
+            Cubic._build_dam_dT(b, p)
 
         b.add_component(
             "_" + cname + "_dZ_dT",
@@ -650,13 +650,13 @@ class Cubic(EoSBase):
         cname = pobj._cubic_type.name
 
         if not hasattr(blk, cname + "_dam_dT"):
-            blk._build_dam_dT(blk, p)
+            Cubic._build_dam_dT(blk, p)
 
         if not hasattr(blk, cname + "_d2am_dT2"):
-            blk._build_d2am_dT2(blk, p)
+            Cubic._build_d2am_dT2(blk, p)
 
         if not hasattr(blk, "_" + cname + "_dZ_dT"):
-            blk._build_dZ_dT(blk, p)
+            Cubic._build_dZ_dT(blk, p)
 
         am = getattr(blk, cname + "_am")[p]
         bm = getattr(blk, cname + "_bm")[p]
@@ -704,7 +704,7 @@ class Cubic(EoSBase):
         cname = pobj._cubic_type.name
 
         if not hasattr(blk, cname + "_dam_dT"):
-            blk._build_dam_dT(blk, p)
+            Cubic._build_dam_dT(blk, p)
 
         am = getattr(blk, cname + "_am")[p]
         bm = getattr(blk, cname + "_bm")[p]
@@ -743,7 +743,7 @@ class Cubic(EoSBase):
         cname = pobj._cubic_type.name
 
         if not hasattr(blk, cname + "_dam_dT"):
-            blk._build_dam_dT(blk, p)
+            Cubic._build_dam_dT(blk, p)
 
         am = getattr(blk, cname + "_am")[p]
         bm = getattr(blk, cname + "_bm")[p]
@@ -783,7 +783,7 @@ class Cubic(EoSBase):
         cname = pobj._cubic_type.name
 
         if not hasattr(blk, cname + "_dam_dT"):
-            blk._build_dam_dT(blk, p)
+            Cubic._build_dam_dT(blk, p)
 
         am = getattr(blk, cname + "_am")[p]
         bm = getattr(blk, cname + "_bm")[p]
@@ -829,7 +829,7 @@ class Cubic(EoSBase):
         cname = pobj._cubic_type.name
 
         if not hasattr(blk, cname + "_dam_dT"):
-            blk._build_dam_dT(blk, p)
+            Cubic._build_dam_dT(blk, p)
 
         bm = getattr(blk, cname + "_bm")[p]
         B = getattr(blk, cname + "_B")[p]
@@ -1175,10 +1175,10 @@ def _d_log_fug_coeff_dT_phase_comp(blk, p, j):
             "of mixing rules.".format(blk.name)
         )
     if not hasattr(blk, cname + "_dam_dT"):
-        blk._build_dam_dT(blk, p)
+        Cubic._build_dam_dT(blk, p)
 
     if not hasattr(blk, "_" + cname + "_dZ_dT"):
-        blk._build_dZ_dT(blk, p)
+        Cubic._build_dZ_dT(blk, p)
 
     am = getattr(blk, cname + "_am")[p]
     daij_dT = getattr(blk, cname + "_daij_dT")

@@ -18,6 +18,9 @@ Author: Douglas Allan, Jaffer Ghouse
 import pytest
 from io import StringIO
 
+# from pyomo.repn.plugins import nl_writer
+# nl_writer._activate_nl_writer_version(2)
+
 from pyomo.environ import (
     check_optimal_termination,
     ConcreteModel,

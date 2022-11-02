@@ -20,9 +20,6 @@ import pyomo.common.unittest as unittest
 import pytest
 from io import StringIO
 
-from pyomo.repn.plugins import nl_writer
-nl_writer._activate_nl_writer_version(2)
-
 from pyomo.environ import (
     check_optimal_termination,
     ConcreteModel,
@@ -33,6 +30,9 @@ from pyomo.util.calc_var_value import calculate_variable_from_constraint
 import pyomo.environ as pyo
 from pyomo.common.config import ConfigBlock
 from pyomo.util.check_units import assert_units_consistent, assert_units_equivalent
+
+from pyomo.repn.plugins import nl_writer
+nl_writer._activate_nl_writer_version(2)
 
 import idaes
 from idaes.core import (
@@ -423,3 +423,7 @@ class TestCubicTransportPerformance(PerformanceBaseClass, unittest.TestCase):
 
     def initialize_model(self, model):
         initialize_model(model)
+
+if __name__ == "__main__":
+    m = build_model(EosType.PR)
+    initialize_model(m)

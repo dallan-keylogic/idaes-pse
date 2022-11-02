@@ -2154,17 +2154,17 @@ class GenericStateBlockData(StateBlockData):
                     )
                     iscale.set_scaling_factor(v, sf_rho * sf_u)
 
-        # if self.is_property_constructed("cp_mol_phase"):
-        #     for p in self.phase_list:
-        #         # Cp of air is 30 J/mol K, Cp of liquid water is 75 J/mol K, 1/50 is a good default value
-        #         # for small molecules. For large molecules, this value will be inappropriate
-        #         sf_cp_mol_phase = iscale.get_scaling_factor(
-        #             self.cp_mol_phase[p], default=1 / 50, warning=True
-        #         )
-        #         iscale.set_scaling_factor(self.cp_mol_phase[p], 1 / 50, overwrite=False)
-        #         iscale.constraint_scaling_transform(
-        #             self.cp_mol_phase_eqn[p], sf_cp_mol_phase, overwrite=False
-        #         )
+        if self.is_property_constructed("cp_mol_phase"):
+            for p in self.phase_list:
+                # Cp of air is 30 J/mol K, Cp of liquid water is 75 J/mol K, 1/50 is a good default value
+                # for small molecules. For large molecules, this value will be inappropriate
+                sf_cp_mol_phase = iscale.get_scaling_factor(
+                    self.cp_mol_phase[p], default=1 / 50, warning=True
+                )
+                iscale.set_scaling_factor(self.cp_mol_phase[p], 1 / 50, overwrite=False)
+                # iscale.constraint_scaling_transform(
+                #     self.cp_mol_phase_eqn[p], sf_cp_mol_phase, overwrite=False
+                # )
 
         # Phase equilibrium constraint
         if hasattr(self, "equilibrium_constraint"):
@@ -2461,30 +2461,30 @@ class GenericStateBlockData(StateBlockData):
                 )
                 iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
 
-        # if self.is_property_constructed("therm_cond_phase"):
-        #     for p in self.phase_list:
-        #         pobj = self.params.get_phase(p)
-        #         if pobj.is_vapor_phase():
-        #             sf_default = 100
-        #         elif pobj.is_liquid_phase():
-        #             sf_default = 10
-        #         elif pobj.is_solid_phase():
-        #             sf_default = 1 / 10
-        #         else:
-        #             sf_default = 1
-        #         sf_therm_cond = iscale.get_scaling_factor(
-        #             self.therm_cond_phase[p], default=sf_default, warning=True
-        #         )
-        #         iscale.set_scaling_factor(
-        #             self.therm_cond_phase[p], sf_therm_cond, overwrite=False
-        #         )
-        #         try:
-        #             iscale.constraint_scaling_transform(
-        #                 self.therm_cond_phase_eqn[p], sf_therm_cond, overwrite=False
-        #             )
-        #         except KeyError:
-        #             # Handle case where we have Constraint.Skip
-        #             pass
+        if self.is_property_constructed("therm_cond_phase"):
+            for p in self.phase_list:
+                pobj = self.params.get_phase(p)
+                if pobj.is_vapor_phase():
+                    sf_default = 100
+                elif pobj.is_liquid_phase():
+                    sf_default = 10
+                elif pobj.is_solid_phase():
+                    sf_default = 1 / 10
+                else:
+                    sf_default = 1
+                sf_therm_cond = iscale.get_scaling_factor(
+                    self.therm_cond_phase[p], default=sf_default, warning=True
+                )
+                iscale.set_scaling_factor(
+                    self.therm_cond_phase[p], sf_therm_cond, overwrite=False
+                )
+                # try:
+                #     iscale.constraint_scaling_transform(
+                #         self.therm_cond_phase_eqn[p], sf_therm_cond, overwrite=False
+                #     )
+                # except KeyError:
+                #     # Handle case where we have Constraint.Skip
+                #     pass
 
         # if self.is_property_constructed("therm_cond_phase_comp"):
         #     for p in self.phase_list:
@@ -2512,29 +2512,29 @@ class GenericStateBlockData(StateBlockData):
         #                 # Handle case where we have Constraint.Skip
         #                 pass
 
-        # if self.is_property_constructed("visc_d_phase"):
-        #     for p in self.phase_list:
-        #         pobj = self.params.get_phase(p)
-        #         if pobj.is_vapor_phase():
-        #             sf_default = 1e5
-        #         elif pobj.is_liquid_phase():
-        #             # Works well for water and small organic molecules, not for honey or syrup
-        #             sf_default = 1e3
-        #         else:
-        #             sf_default = 1
-        #         sf_visc_d = iscale.get_scaling_factor(
-        #             self.visc_d_phase[p], default=sf_default, warning=True
-        #         )
-        #         iscale.set_scaling_factor(
-        #             self.visc_d_phase[p], sf_visc_d, overwrite=False
-        #         )
-        #         try:
-        #             iscale.constraint_scaling_transform(
-        #                 self.visc_d_phase_eqn[p], sf_visc_d, overwrite=False
-        #             )
-        #         except KeyError:
-        #             # Handle case where we have Constraint.Skip
-        #             pass
+        if self.is_property_constructed("visc_d_phase"):
+            for p in self.phase_list:
+                pobj = self.params.get_phase(p)
+                if pobj.is_vapor_phase():
+                    sf_default = 1e5
+                elif pobj.is_liquid_phase():
+                    # Works well for water and small organic molecules, not for honey or syrup
+                    sf_default = 1e3
+                else:
+                    sf_default = 1
+                sf_visc_d = iscale.get_scaling_factor(
+                    self.visc_d_phase[p], default=sf_default, warning=True
+                )
+                iscale.set_scaling_factor(
+                    self.visc_d_phase[p], sf_visc_d, overwrite=False
+                )
+                # try:
+                #     iscale.constraint_scaling_transform(
+                #         self.visc_d_phase_eqn[p], sf_visc_d, overwrite=False
+                #     )
+                # except KeyError:
+                #     # Handle case where we have Constraint.Skip
+                #     pass
 
         # if self.is_property_constructed("visc_d_phase_comp"):
         #     for p in self.phase_list:

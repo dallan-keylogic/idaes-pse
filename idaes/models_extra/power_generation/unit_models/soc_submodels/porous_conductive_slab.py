@@ -54,7 +54,7 @@ __author__ = "John Eslick, Douglas Allan"
 from pyomo.common.config import ConfigValue, In, Bool, ListOf
 from pyomo.dae import DerivativeVar
 import pyomo.environ as pyo
-
+from pyomo.util.calc_var_value import calculate_variable_from_constraint
 
 from idaes.core import declare_process_block_class, UnitModelBlockData
 from idaes.core.util.constants import Constants
@@ -226,7 +226,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
             doc="Deviation of component concentration at node centers "
             "from conc_mol_comp_ref",
             units=pyo.units.mol / pyo.units.m**3,
-            bounds=(-100, 100),
+            #bounds=(-100, 100),
         )
         self.enth_mol = pyo.Var(
             tset,
@@ -798,6 +798,13 @@ class PorousConductiveSlabData(UnitModelBlockData):
                         _set_if_unfixed(
                             self.mole_frac_comp[t, ix, iz, i],
                             self.conc_mol_comp[t, ix, iz, i] / mol_dens,
+                        )
+                    # Because the diffusion coefficient depends on all mole fractions
+                    # it has to be set in a loop after all other mole fractions are initialized
+                    for i in comps:
+                        calculate_variable_from_constraint(
+                            self.diff_eff_coeff[t, ix, iz, i],
+                            self.diff_eff_coeff_eqn[t, ix, iz, i]
                         )
                     _set_if_unfixed(
                         self.enth_mol[t, ix, iz],

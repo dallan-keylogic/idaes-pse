@@ -597,6 +597,7 @@ def test_common(m):
                 )
             )
 
+    Cubic._build_dam_dT(m.props[1], "Vap")
     assert isinstance(m.props[1].PR_dam_dT, Expression)
     assert len(m.props[1].PR_dam_dT) == len(m.params.phase_list)
     for p in m.params.phase_list:
@@ -630,7 +631,7 @@ def test_common(m):
                 / sqrt(m.props[1].temperature)
             )
         )
-
+    Cubic._build_d2am_dT2(m.props[1], "Vap")
     assert isinstance(m.props[1].PR_d2am_dT2, Expression)
     assert len(m.props[1].PR_d2am_dT2) == len(m.params.phase_list)
     T = m.props[1].temperature

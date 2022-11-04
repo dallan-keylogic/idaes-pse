@@ -31,7 +31,7 @@ from pyomo.environ import (
     Var,
     units as pyunits,
 )
-from pyomo.common.config import ConfigBlock, ConfigValue, In
+from pyomo.common.config import ConfigBlock, ConfigValue, In, Bool
 from idaes.core import LiquidPhase, VaporPhase
 from idaes.models.properties.modular_properties.base.utility import (
     get_method,
@@ -109,6 +109,16 @@ CubicConfig.declare(
         doc="Enum indicating type of mixing rule for parameter bm to use.",
     ),
 )
+CubicConfig.declare(
+    "replace_expressions_with_var_constraint_pairs",
+    ConfigValue(
+        default=False,
+        domain=Bool,
+        description="If True, replace some Expressions with Var-Constraint pairs",
+        doc="Flag indicating whether to replace thermophysical property Expressions "
+            "with Var-Constraint pairs where convenient.",
+    ),
+)
 
 
 class Cubic(EoSBase):
@@ -134,6 +144,7 @@ class Cubic(EoSBase):
         cname = pobj.config.equation_of_state_options["type"].name
         mixing_rule_a = pobj._mixing_rule_a
         mixing_rule_b = pobj._mixing_rule_b
+        var_constraint_pairs = pobj._replace_expressions_with_var_constraint_pairs
 
         if hasattr(b, cname + "_fw"):
             # Common components already constructed by previous phase
@@ -230,23 +241,26 @@ class Cubic(EoSBase):
         units = b.params.get_metadata().derived_units
 
         if mixing_rule_a == MixingRuleA.default:
-            b.add_component(
-                cname + "_am",
-                Var(
-                    b.phase_list,
-                    units=units["gas_constant"]
-                    * units["temperature"]
-                    / units["density_mole"],
-                    initialize=0.01,
-                ),
-            )
-
-            def rule_am(m, p):
-                a = getattr(m, cname + "_a")
-                am = getattr(m, cname + "_am")
-                return am[p] == rule_am_default(m, cname, a, p)
-
-            b.add_component(cname + "_am_eqn", Constraint(b.phase_list, rule=rule_am))
+            def rule_am(b, p):
+                a = getattr(b, cname + "_a")
+                return rule_am_default(b, cname, a, p)
+            if var_constraint_pairs:
+                b.add_component(
+                    cname + "_am",
+                    Var(
+                        b.phase_list,
+                        units=units["gas_constant"]
+                        * units["temperature"]
+                        / units["density_mole"],
+                        initialize=0.01,
+                    ),
+                )
+                def rule_am_eqn(b, p):
+                    am = getattr(b, cname + "_am")
+                    return am[p] == b.rule_am(b, p)
+                b.add_component(cname + "_am_eqn", Constraint(b.phase_list, rule=rule_am_eqn))
+            else:
+                b.add_component(cname + "_am", Expression(b.phase_list, rule=rule_am))
 
             def rule_daij_dT(m, i, j):
                 a = getattr(m, cname + "_a")
@@ -292,22 +306,24 @@ class Cubic(EoSBase):
             )
 
         if mixing_rule_b == MixingRuleB.default:
-            # b.add_component(
-            #     cname + "_bm",
-            #     Var(
-            #         b.phase_list,
-            #         units=1 / units["density_mole"],
-            #         initialize=0.01,
-            #     ),
-            # )
             def rule_bm(m, p):
                 b = getattr(m, cname + "_b")
                 return rule_bm_default(m, b, p)
-                # bm = getattr(m, cname + "_bm")
-                # return bm[p] == rule_bm_default(m, b, p)
-
-            #b.add_component(cname + "_bm_eqn", Constraint(b.phase_list, rule=rule_bm))
-            b.add_component(cname + "_bm", Expression(b.phase_list, rule=rule_bm))
+            if var_constraint_pairs:
+                b.add_component(
+                    cname + "_bm",
+                    Var(
+                        b.phase_list,
+                        units=1 / units["density_mole"],
+                        initialize=0.01,
+                    ),
+                )
+                def rule_bm_eqn(m, p):
+                    bm = getattr(m, cname + "_bm")
+                    return bm[p] == rule_bm_default(m, b, p)
+                b.add_component(cname + "_bm_eqn", Constraint(b.phase_list, rule=rule_bm_eqn))
+            else:
+                b.add_component(cname + "_bm", Expression(b.phase_list, rule=rule_bm))
         else:
             raise ConfigurationError(
                 "{} Unrecognized option for Equation of State "
@@ -462,6 +478,9 @@ class Cubic(EoSBase):
             mixing_rule_b = ConfigBlock["mixing_rule_b"]
             b._mixing_rule_a = mixing_rule_a
             b._mixing_rule_b = mixing_rule_b
+            b._replace_expressions_with_var_constraint_pairs = ConfigBlock[
+                "replace_expressions_with_var_constraint_pairs"
+            ]
             return
 
         setattr(param_block, cname + "_eos_options", deepcopy(CubicConfig))
@@ -472,6 +491,9 @@ class Cubic(EoSBase):
         mixing_rule_b = ConfigBlock["mixing_rule_b"]
         b._mixing_rule_a = mixing_rule_a
         b._mixing_rule_b = mixing_rule_b
+        b._replace_expressions_with_var_constraint_pairs = ConfigBlock[
+            "replace_expressions_with_var_constraint_pairs"
+        ]
 
         kappa_data = param_block.config.parameter_data[cname + "_kappa"]
         param_block.add_component(
@@ -506,32 +528,6 @@ class Cubic(EoSBase):
         pobj = b.params.get_phase(p)
         cname = pobj._cubic_type.name
         units = b.params.get_metadata().derived_units
-
-        # b.add_component(
-        #     cname + "_dam_dT",
-        #     Var(
-        #         b.phase_list,
-        #         initialize=1e-4,
-        #         units=units["gas_constant"] / units["density_mole"],
-        #     ),
-        # )
-        #
-        # def rule_dam_dT(m, p):
-        #     daij_dT = getattr(m, cname + "_daij_dT")
-        #     dam_dT = getattr(m, cname + "_dam_dT")
-        #     return dam_dT[p] == sum(
-        #         sum(
-        #             m.mole_frac_phase_comp[p, i]
-        #             * m.mole_frac_phase_comp[p, j]
-        #             * daij_dT[i, j]
-        #             for j in m.components_in_phase(p)
-        #         )
-        #         for i in m.components_in_phase(p)
-        #     )
-        #
-        # b.add_component(
-        #     cname + "_dam_dT_eqn", Constraint(b.phase_list, rule=rule_dam_dT)
-        # )
         def rule_dam_dT(m, p):
             daij_dT = getattr(m, cname + "_daij_dT")
             return sum(
@@ -544,60 +540,32 @@ class Cubic(EoSBase):
                 for i in m.components_in_phase(p)
             )
 
-        b.add_component(
-            cname + "_dam_dT", Expression(b.phase_list, rule=rule_dam_dT)
-        )
+        if pobj._replace_expressions_with_var_constraint_pairs:
+            b.add_component(
+                cname + "_dam_dT",
+                Var(
+                    b.phase_list,
+                    initialize=1e-4,
+                    units=units["gas_constant"] / units["density_mole"],
+                ),
+            )
+
+            def rule_dam_dT_eqn(m, p):
+                dam_dT = getattr(m, cname + "_dam_dT")
+                return dam_dT[p] == rule_dam_dT(m, p)
+
+            b.add_component(
+                cname + "_dam_dT_eqn", Constraint(b.phase_list, rule=rule_dam_dT_eqn)
+            )
+        else:
+            b.add_component(
+                cname + "_dam_dT", Expression(b.phase_list, rule=rule_dam_dT)
+            )
     @staticmethod
     def _build_d2am_dT2(b, p):
         pobj = b.params.get_phase(p)
         cname = pobj._cubic_type.name
         units = b.params.get_metadata().derived_units
-
-        # b.add_component(
-        #     cname + "_d2am_dT2",
-        #     Var(
-        #         b.phase_list,
-        #         initialize=1e-6,
-        #         units=units["gas_constant"]
-        #               / units["density_mole"]
-        #               / units["temperature"],
-        #     ),
-        # )
-        #
-        # def rule_d2am_dT2(m, p):
-        #     k = getattr(m.params, cname + "_kappa")
-        #     a = getattr(m, cname + "_a")
-        #     da_dT = getattr(m, cname + "_da_dT")
-        #     d2a_dT2 = getattr(m, cname + "_d2a_dT2")
-        #     # Placeholders for if temperature dependent k is needed
-        #     dk_dT = 0
-        #     d2k_dT2 = 0
-        #     # Initialize loop variable
-        #     d2am_dT2 = 0
-        #     for i in m.components_in_phase(p):
-        #         for j in m.components_in_phase(p):
-        #             d2aij_dT2 = sqrt(a[i] * a[j]) * (
-        #                     -d2k_dT2
-        #                     - dk_dT * (da_dT[i] / a[i] + da_dT[j] / a[j])
-        #                     + (1 - k[i, j])
-        #                     / 2
-        #                     * (
-        #                             d2a_dT2[i] / a[i]
-        #                             + d2a_dT2[j] / a[j]
-        #                             - 1 / 2 * (da_dT[i] / a[i] - da_dT[j] / a[j]) ** 2
-        #                     )
-        #             )
-        #             d2am_dT2 += (
-        #                     m.mole_frac_phase_comp[p, i]
-        #                     * m.mole_frac_phase_comp[p, j]
-        #                     * d2aij_dT2
-        #             )
-        #     d2am_dT2_Var = getattr(m, cname + "_d2am_dT2")
-        #     return d2am_dT2_Var[p] == d2am_dT2
-        #
-        # b.add_component(
-        #     cname + "_d2am_dT2_eqn", Constraint(b.phase_list, rule=rule_d2am_dT2)
-        # )
         def rule_d2am_dT2(m, p):
             k = getattr(m.params, cname + "_kappa")
             a = getattr(m, cname + "_a")
@@ -628,9 +596,29 @@ class Cubic(EoSBase):
                     )
             return d2am_dT2
 
-        b.add_component(
-            cname + "_d2am_dT2", Expression(b.phase_list, rule=rule_d2am_dT2)
-        )
+        if pobj._replace_expressions_with_var_constraint_pairs:
+            b.add_component(
+                cname + "_d2am_dT2",
+                Var(
+                    b.phase_list,
+                    initialize=1e-6,
+                    units=units["gas_constant"]
+                          / units["density_mole"]
+                          / units["temperature"],
+                ),
+            )
+
+            def rule_d2am_dT2_eqn(m, p):
+                d2am_dT2_Var = getattr(m, cname + "_d2am_dT2")
+                return d2am_dT2_Var[p] == rule_d2am_dT2(m, p)
+
+            b.add_component(
+                cname + "_d2am_dT2_eqn", Constraint(b.phase_list, rule=rule_d2am_dT2_eqn)
+            )
+        else:
+            b.add_component(
+                cname + "_d2am_dT2", Expression(b.phase_list, rule=rule_d2am_dT2)
+            )
 
     def _build_dZ_dT(b, p):
         pobj = b.params.get_phase(p)
@@ -640,45 +628,6 @@ class Cubic(EoSBase):
         if not hasattr(b, cname + "_dam_dT"):
             Cubic._build_dam_dT(b, p)
 
-        # b.add_component(
-        #     "_" + cname + "_dZ_dT",
-        #     Var(
-        #         b.phase_list,
-        #         initialize=0.1,
-        #         units=1 / units["temperature"],
-        #     ),
-        # )
-        # def rule_dZ_dT(blk, p):
-        #     pobj = blk.params.get_phase(p)
-        #     cname = pobj._cubic_type.name
-        #     am = getattr(blk, cname + "_am")[p]
-        #     A = getattr(blk, cname + "_A")[p]
-        #     B = getattr(blk, cname + "_B")[p]
-        #     dam_dT = getattr(blk, cname + "_dam_dT")[p]
-        #     Z = blk.compress_fact_phase[p]
-        #     T = blk.temperature
-        #
-        #     EoS_u = EoS_param[pobj._cubic_type]["u"]
-        #     EoS_w = EoS_param[pobj._cubic_type]["w"]
-        #
-        #     dBdT = -B / T
-        #     dAdT = (A / am) * dam_dT - (2 * A / T)
-        #
-        #     K2 = (EoS_u - 1) * B - 1
-        #     K3 = A - EoS_u * B - (EoS_u - EoS_w) * B ** 2
-        #     K4 = -(A * B + EoS_w * B ** 2 + EoS_w * B ** 3)
-        #
-        #     dK2dT = (EoS_u - 1) * dBdT
-        #     dK3dT = dAdT - EoS_u * dBdT - 2 * (EoS_u - EoS_w) * B * dBdT
-        #     dK4dT = -(A * dBdT + B * dAdT + 2 * EoS_w * B * dBdT + 3 * EoS_w * B ** 2 * dBdT)
-        #
-        #     dZ_dT_Var = getattr(blk, "_" + cname + "_dZ_dT")
-        #
-        #     return dZ_dT_Var[p] == -(Z ** 2 * dK2dT + Z * dK3dT + dK4dT) / (3 * Z ** 2 + 2 * K2 * Z + K3)
-        #
-        # b.add_component(
-        #     "_" + cname + "_dZ_dT_eqn", Constraint(b.phase_list, rule=rule_dZ_dT)
-        # )
         def rule_dZ_dT(blk, p):
             pobj = blk.params.get_phase(p)
             cname = pobj._cubic_type.name
@@ -705,9 +654,28 @@ class Cubic(EoSBase):
 
             return -(Z ** 2 * dK2dT + Z * dK3dT + dK4dT) / (3 * Z ** 2 + 2 * K2 * Z + K3)
 
-        b.add_component(
-            "_" + cname + "_dZ_dT", Expression(b.phase_list, rule=rule_dZ_dT)
-        )
+
+
+        if pobj._replace_expressions_with_var_constraint_pairs:
+            b.add_component(
+                "_" + cname + "_dZ_dT",
+                Var(
+                    b.phase_list,
+                    initialize=0.1,
+                    units=1 / units["temperature"],
+                ),
+            )
+            def rule_dZ_dT_eqn(blk, p):
+                dZ_dT_Var = getattr(blk, "_" + cname + "_dZ_dT")
+                return dZ_dT_Var[p] == rule_dZ_dT(blk, p)
+
+            b.add_component(
+                "_" + cname + "_dZ_dT_eqn", Constraint(b.phase_list, rule=rule_dZ_dT_eqn)
+            )
+        else:
+            b.add_component(
+                "_" + cname + "_dZ_dT", Expression(b.phase_list, rule=rule_dZ_dT)
+            )
 
     @staticmethod
     def compress_fact_phase(b, p):
@@ -1278,7 +1246,7 @@ def _d_log_fug_coeff_dT_phase_comp(blk, p, j):
     delta = getattr(blk, cname + "_delta")[p, j]
 
     Z = blk.compress_fact_phase[p]
-    dZ_dT = getattr(blk, "_" + cname + "_dZ_dT")
+    dZ_dT = getattr(blk, "_" + cname + "_dZ_dT")[p]
     T = blk.temperature
 
     u = EoS_param[pobj._cubic_type]["u"]
@@ -1315,7 +1283,6 @@ def _bubble_dew_log_fug_coeff_method(blk, p, j, pp, pt_var):
 
     # Ditch the m.fs.unit.control_volume...
     short_name = pt_var.name.split(".")[-1]
-    # import pdb; pdb.set_trace()
     if short_name.startswith("temperature"):
         abbrv = "t"
         T = pt_var[pp]

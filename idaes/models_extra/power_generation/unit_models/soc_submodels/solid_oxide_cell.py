@@ -1192,8 +1192,15 @@ class SolidOxideCellData(UnitModelBlockData):
 
     def recursive_scaling(self):
         gsf = iscale.get_scaling_factor
-        ssf = common._set_scaling_factor_if_none
-        cst = iscale.constraint_scaling_transform
+
+        def ssf(c, s):
+            iscale.set_scaling_factor(c, s, overwrite=False)
+
+        sgsf = iscale.set_and_get_scaling_factor
+
+        def cst(c, s):
+            iscale.constraint_scaling_transform(c, s, overwrite=False)
+
         sdf = common._set_default_factor
 
         submodels = [
@@ -1290,7 +1297,6 @@ class SolidOxideCellData(UnitModelBlockData):
                         cst(
                             self.no_heat_flux_fuel_interconnect_eqn[t, iz],
                             sq,
-                            overwrite=False,
                         )
                         sq = gsf(
                             self.contact_interconnect_oxygen_flow_mesh.heat_flux_x1[
@@ -1301,7 +1307,6 @@ class SolidOxideCellData(UnitModelBlockData):
                         cst(
                             self.no_heat_flux_oxygen_interconnect_eqn[t, iz],
                             sq,
-                            overwrite=False,
                         )
                     else:
                         sq = gsf(
@@ -1311,7 +1316,6 @@ class SolidOxideCellData(UnitModelBlockData):
                         cst(
                             self.no_heat_flux_fuel_interconnect_eqn[t, iz],
                             sq,
-                            overwrite=False,
                         )
                         sq = gsf(
                             self.oxygen_channel.heat_flux_x1[t, iz],
@@ -1320,10 +1324,9 @@ class SolidOxideCellData(UnitModelBlockData):
                         cst(
                             self.no_heat_flux_oxygen_interconnect_eqn[t, iz],
                             sq,
-                            overwrite=False,
                         )
         for idx, con in self.mean_temperature_eqn.items():
-            cst(con, 1, overwrite=False)
+            cst(con, 1)
 
         for submodel in submodels:
             submodel.recursive_scaling()

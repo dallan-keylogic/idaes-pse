@@ -277,6 +277,27 @@ class GenericParameterData(PhysicalParameterBlock):
             "scaling factors",
         ),
     )
+    # Property package options
+    CONFIG.declare(
+        "include_enthalpy_of_formation",
+        ConfigValue(
+            default=True,
+            domain=Bool,
+            description="Include enthalpy of formation in property calculations",
+            doc="Flag indicating whether enthalpy of formation should be included"
+                " when calculating specific enthalpies.",
+        ),
+    )
+    CONFIG.declare(
+        "replace_expressions_with_var_constraint_pairs",
+        ConfigValue(
+            default=False,
+            domain=Bool,
+            description="If True, replace some Expressions with Var-Constraint pairs",
+            doc="Flag indicating whether to replace thermophysical property Expressions "
+            "with Var-Constraint pairs where convenient.",
+        ),
+    )
 
     def build(self):
         """
@@ -2162,9 +2183,9 @@ class GenericStateBlockData(StateBlockData):
                     self.cp_mol_phase[p], default=1 / 50, warning=True
                 )
                 iscale.set_scaling_factor(self.cp_mol_phase[p], 1 / 50, overwrite=False)
-                # iscale.constraint_scaling_transform(
-                #     self.cp_mol_phase_eqn[p], sf_cp_mol_phase, overwrite=False
-                # )
+                iscale.constraint_scaling_transform(
+                    self.cp_mol_phase_eqn[p], sf_cp_mol_phase, overwrite=False
+                )
 
         # Phase equilibrium constraint
         if hasattr(self, "equilibrium_constraint"):

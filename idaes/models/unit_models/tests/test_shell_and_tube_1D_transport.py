@@ -84,12 +84,18 @@ solver = get_solver()
 
 # -----------------------------------------------------------------------------
 
-def build_model(eos):
+def build_model(eos, constraint_var_pairs=False):
     m = ConcreteModel()
     m.fs = FlowsheetBlock(dynamic=False)
 
+    config_dict = get_prop({"N2", "O2", "Ar", "H2O", "CO2"}, {"Vap"}, eos=eos)
+
+    if eos == EosType.PR:
+        config_dict["replace_expressions_with_var_constraint_pairs"] = constraint_var_pairs
+        config_dict["phases"]["Vap"]["equation_of_state_options"]["replace_expressions_with_var_constraint_pairs"] = constraint_var_pairs
+
     m.fs.properties = GenericParameterBlock(
-        **get_prop({"N2", "O2", "Ar", "H2O", "CO2"}, {"Vap"}, eos=eos),
+        **config_dict,
         doc="Air property parameters",
     )
     m.fs.properties.set_default_scaling("enth_mol_phase", 1e-1)
@@ -424,6 +430,14 @@ class TestCubicTransportPerformance(PerformanceBaseClass, unittest.TestCase):
     def initialize_model(self, model):
         initialize_model(model)
 
+@pytest.mark.performance
+class TestCubicTransportPerformanceVarConstraintPair(PerformanceBaseClass, unittest.TestCase):
+    def build_model(self):
+        return build_model(EosType.PR, True)
+
+    def initialize_model(self, model):
+        initialize_model(model)
+
 if __name__ == "__main__":
-    m = build_model(EosType.PR)
+    m = build_model(EosType.PR, True)
     initialize_model(m)

@@ -257,7 +257,7 @@ class Cubic(EoSBase):
                 )
                 def rule_am_eqn(b, p):
                     am = getattr(b, cname + "_am")
-                    return am[p] == b.rule_am(b, p)
+                    return am[p] == rule_am(b, p)
                 b.add_component(cname + "_am_eqn", Constraint(b.phase_list, rule=rule_am_eqn))
             else:
                 b.add_component(cname + "_am", Expression(b.phase_list, rule=rule_am))
@@ -307,8 +307,8 @@ class Cubic(EoSBase):
 
         if mixing_rule_b == MixingRuleB.default:
             def rule_bm(m, p):
-                b = getattr(m, cname + "_b")
-                return rule_bm_default(m, b, p)
+                b_ceos = getattr(m, cname + "_b")
+                return rule_bm_default(m, b_ceos, p)
             if var_constraint_pairs:
                 b.add_component(
                     cname + "_bm",
@@ -320,7 +320,7 @@ class Cubic(EoSBase):
                 )
                 def rule_bm_eqn(m, p):
                     bm = getattr(m, cname + "_bm")
-                    return bm[p] == rule_bm_default(m, b, p)
+                    return bm[p] == rule_bm(m, p)
                 b.add_component(cname + "_bm_eqn", Constraint(b.phase_list, rule=rule_bm_eqn))
             else:
                 b.add_component(cname + "_bm", Expression(b.phase_list, rule=rule_bm))

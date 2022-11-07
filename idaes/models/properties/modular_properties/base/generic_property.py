@@ -2484,7 +2484,7 @@ class GenericStateBlockData(StateBlockData):
                 sf_therm_cond = iscale.set_and_get_scaling_factor(
                     self.therm_cond_phase[p], default=sf_default, warning=True
                 )
-                if self.config.replace_expressions_with_var_constraint_pairs:
+                if self.params.config.replace_expressions_with_var_constraint_pairs:
                     try:
                         iscale.constraint_scaling_transform(
                             self.therm_cond_phase_eqn[p], sf_therm_cond, overwrite=False
@@ -2510,7 +2510,7 @@ class GenericStateBlockData(StateBlockData):
                         default=sf_default,
                         warning=True,
                     )
-                    if self.config.replace_expressions_with_var_constraint_pairs:
+                    if self.params.config.replace_expressions_with_var_constraint_pairs:
                         try:
                             iscale.constraint_scaling_transform(
                                 self.therm_cond_phase_comp_eqn[p, j],
@@ -2534,7 +2534,7 @@ class GenericStateBlockData(StateBlockData):
                 sf_visc_d = iscale.set_and_get_scaling_factor(
                     self.visc_d_phase[p], default=sf_default, warning=True
                 )
-                if self.config.replace_expressions_with_var_constraint_pairs:
+                if self.params.config.replace_expressions_with_var_constraint_pairs:
                     try:
                         iscale.constraint_scaling_transform(
                             self.visc_d_phase_eqn[p], sf_visc_d, overwrite=False
@@ -2557,7 +2557,7 @@ class GenericStateBlockData(StateBlockData):
                     sf_visc_d = iscale.set_and_get_scaling_factor(
                         self.visc_d_phase_comp[p, j], default=sf_default, warning=True
                     )
-                    if self.config.replace_expressions_with_var_constraint_pairs:
+                    if self.params.config.replace_expressions_with_var_constraint_pairs:
                         try:
                             iscale.constraint_scaling_transform(
                                 self.visc_d_phase_comp_eqn[p, j],
@@ -2855,7 +2855,7 @@ class GenericStateBlockData(StateBlockData):
                 p_config = b.params.get_phase(p).config
                 return p_config.equation_of_state.cp_mol_phase(b, p)
 
-            if self.config.replace_expressions_with_var_constraint_pairs:
+            if self.params.config.replace_expressions_with_var_constraint_pairs:
                 self.cp_mol_phase = Var(
                     self.phase_list,
                     doc="Specific molar heat capacity at constant pressure",
@@ -3936,7 +3936,7 @@ class GenericStateBlockData(StateBlockData):
                 return None
 
         try:
-            if self.config.replace_expressions_with_var_constraint_pairs:
+            if self.params.config.replace_expressions_with_var_constraint_pairs:
                 self.therm_cond_phase = Var(
                     self.phase_list,
                     doc="Thermal conductivity for each phase",
@@ -3991,7 +3991,7 @@ class GenericStateBlockData(StateBlockData):
                 return None
 
         try:
-            if self.config.replace_expressions_with_var_constraint_pairs:
+            if self.params.config.replace_expressions_with_var_constraint_pairs:
                 self.therm_cond_phase_comp = Var(
                     self.phase_list,
                     self.component_list,
@@ -4038,7 +4038,7 @@ class GenericStateBlockData(StateBlockData):
                 return None
 
         try:
-            if self.config.replace_expressions_with_var_constraint_pairs:
+            if self.params.config.replace_expressions_with_var_constraint_pairs:
                 self.visc_d_phase = Var(
                     self.phase_list,
                     doc="Dynamic viscosity for each phase",
@@ -4094,7 +4094,7 @@ class GenericStateBlockData(StateBlockData):
                 return None
 
         try:
-            if self.config.replace_expressions_with_var_constraint_pairs:
+            if self.params.config.replace_expressions_with_var_constraint_pairs:
                 self.visc_d_phase_comp = Var(
                     self.phase_list,
                     self.component_list,

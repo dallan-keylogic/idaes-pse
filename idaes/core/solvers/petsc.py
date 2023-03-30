@@ -420,7 +420,8 @@ def petsc_dae_by_time_element(
     initial_variables=None,
     detect_initial=True,
     skip_initial=False,
-    snes_options=None,
+    initial_solver="petsc_snes",
+    initial_solver_options=None,
     ts_options=None,
     keepfiles=False,
     symbolic_solver_labels=True,
@@ -497,8 +498,8 @@ def petsc_dae_by_time_element(
         between.construct()
 
     solve_log = idaeslog.getSolveLogger("petsc-dae")
-    regular_vars, time_vars = flatten_dae_components(m, time, pyo.Var)
-    regular_cons, time_cons = flatten_dae_components(m, time, pyo.Constraint)
+    regular_vars, time_vars = flatten_dae_components(m, time, pyo.Var, active=True)
+    regular_cons, time_cons = flatten_dae_components(m, time, pyo.Constraint, active=True)
     tdisc = find_discretization_equations(m, time)
 
     solver_dae = pyo.SolverFactory("petsc_ts", options=ts_options)
@@ -516,8 +517,10 @@ def petsc_dae_by_time_element(
         initial_variables = list(ivset | rvset)
 
     if not skip_initial:
+        if initial_solver_options is None:
+            initial_solver_options = {}
         # Nonlinear equation solver for initial conditions
-        solver_snes = pyo.SolverFactory("petsc_snes", options=snes_options)
+        initial_solver_obj = pyo.SolverFactory(initial_solver, options=initial_solver_options)
         # list of constraints to add to the initial condition problem
         if initial_constraints is None:
             initial_constraints = []
@@ -543,8 +546,9 @@ def petsc_dae_by_time_element(
                 )
                 # set up the scaling factor suffix
                 _sub_problem_scaling_suffix(m, t_block)
+                # return t_block
                 with idaeslog.solver_log(solve_log, idaeslog.INFO) as slc:
-                    res = solver_snes.solve(t_block, tee=slc.tee)
+                    res = initial_solver_obj.solve(t_block, tee=slc.tee)
                 res_list.append(res)
 
     tprev = t0

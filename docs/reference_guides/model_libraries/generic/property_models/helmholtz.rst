@@ -63,6 +63,12 @@ two-phase presentation.  The mixed-phase presentation can be used with most
 standard unit models that do not provide phase separation.  If phase separation
 is required, either use the two-phase presentation or create a custom model.
 
+.. warning::
+    The "has_phase_equilibrium" argument is ignored when constructing Helmholtz
+    property packages using mixed phase presentation. However, setting this to
+    `True` may cause errors in unit models as it is not possible to construct
+    phase equilibrium transfer terms with only one phase present.
+
 The ``PhaseType.LG`` option appears to the IDAES framework to be two phases "Vap"
 and "Liq".  This option requires one of two unit model options to be set.  You
 can use the total material balance option for unit models, to specify that only
@@ -233,7 +239,7 @@ Expression                           Description
 ExternalFunctions
 ~~~~~~~~~~~~~~~~~
 
-This provides a list of ExternalFuctions available in the wrapper.  These
+This provides a list of ExternalFunctions available in the wrapper.  These
 functions do not use SI units and are not usually called directly.  If these
 functions are needed, they should be used with caution. Some of these are used
 in the property expressions, some are just provided to allow easier testing with
@@ -303,6 +309,15 @@ The IAPWS-95 property functions do provide initialization functions for general
 compatibility with the IDAES framework, but as long as the state variables are
 specified to some reasonable value, initialization is not required. All required
 solves are handled by external functions.
+
+However, in order to support a general hierarchical initialization for unit models
+which use Helmholtz equation of state properties, a custom ``Initializer`` for these
+property packages is available.
+
+.. module:: idaes.models.properties.general_helmholtz.helmholtz_state
+
+.. autoclass:: HelmholtzEoSInitializer
+   :members: initialize
 
 References
 ----------

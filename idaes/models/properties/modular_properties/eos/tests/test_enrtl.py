@@ -442,32 +442,32 @@ class TestStateBlockSymmetric(object):
             assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
 
         assert isinstance(model.state[1].Liq_log_gamma_lc_I0, Expression)
-        assert len(model.state[1].Liq_log_gamma_lc_I0) == 4
+        assert len(model.state[1].Liq_log_gamma_lc_I0) == 6
         for k in model.state[1].Liq_log_gamma_lc_I0:
-            assert k in ["Na+", "H+", "Cl-", "OH-"]
-            assert str(model.state[1].Liq_log_gamma_lc_I0[k].expr) != str(
-                model.state[1].Liq_log_gamma_lc_I[k].expr
-            )
+            assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+            if k in ["H2O", "C6H12"]:
+                assert str(model.state[1].Liq_log_gamma_lc_I0[k].expr) == "0.0"
+            else:
+                assert str(model.state[1].Liq_log_gamma_lc_I0[k].expr) != str(
+                    model.state[1].Liq_log_gamma_lc_I[k].expr
+                )
 
         assert isinstance(model.state[1].Liq_log_gamma_lc, Expression)
         assert len(model.state[1].Liq_log_gamma_lc) == 6
         for k in model.state[1].Liq_log_gamma_lc:
             assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
-            if k in ["H2O", "C6H12"]:
-                assert str(model.state[1].Liq_log_gamma_lc[k].expr) == str(
-                    model.state[1].Liq_log_gamma_lc_I[k]
-                )
-            else:
-                assert str(model.state[1].Liq_log_gamma_lc[k].expr) == str(
-                    model.state[1].Liq_log_gamma_lc_I[k]
-                    - model.state[1].Liq_log_gamma_lc_I0[k]
-                )
+            assert str(model.state[1].Liq_log_gamma_lc[k].expr) == str(
+                model.state[1].Liq_log_gamma_lc_I[k]
+                - model.state[1].Liq_log_gamma_lc_I0[k]
+            )
 
         assert isinstance(model.state[1].Liq_log_gamma, Expression)
         assert len(model.state[1].Liq_log_gamma) == 6
         for k, v in model.state[1].Liq_log_gamma.items():
             assert str(model.state[1].Liq_log_gamma[k].expr) == str(
-                model.state[1].Liq_log_gamma_pdh[k] + model.state[1].Liq_log_gamma_lc[k]
+                model.state[1].Liq_log_gamma_pdh[k]
+                + model.state[1].Liq_log_gamma_lc[k]
+                + model.state[1].Liq_log_gamma_born[k]
             )
 
     @pytest.mark.unit

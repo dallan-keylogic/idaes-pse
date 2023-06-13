@@ -107,6 +107,14 @@ class ENRTL(Ideal):
         else:
             DefaultTauRule.build_parameters(b)
 
+        if (
+            b.config.equation_of_state_options is not None
+            and "reference_state" in b.config.equation_of_state_options
+        ):
+            b.config.equation_of_state_options["reference_state"].build_parameters(b)
+        else:
+            DefaultRefState.build_parameters(b)
+
     @staticmethod
     def common(b, pobj):
         pname = pobj.local_name
@@ -145,9 +153,7 @@ class ENRTL(Ideal):
             ref_state = DefaultRefState
 
         # ---------------------------------------------------------------------
-        # Calculate composition terms at both actual and reference state
-        # Calculate reference state mole fractions
-        ref_state.ref_state(b, pname)
+        # Calculate composition terms
 
         # Ionic Strength
         def rule_I(b):  # Eqn 62
@@ -159,18 +165,6 @@ class ENRTL(Ideal):
 
         b.add_component(
             pname + "_ionic_strength", Expression(rule=rule_I, doc="Ionic strength")
-        )
-
-        def rule_I_ref(b):  # Eqn 62 evaluated at reference state
-            x = getattr(b, pname + "_x_ref")
-            return 0.5 * sum(
-                x[c] * b.params.get_component(c).config.charge ** 2
-                for c in b.params.ion_set
-            )
-
-        b.add_component(
-            pname + "_ionic_strength_ref",
-            Expression(rule=rule_I_ref, doc="Ionic strength at reference state"),
         )
 
         # Calculate mixing factors
@@ -190,24 +184,6 @@ class ENRTL(Ideal):
                 b.params.true_species_set,
                 rule=rule_X,
                 doc="Charge x mole fraction term",
-            ),
-        )
-
-        def rule_X_ref(b, j):  # Eqn 21 evaluated at reference state
-            x = getattr(b, pname + "_x_ref")
-            if (pname, j) not in b.params.true_phase_component_set:
-                return Expression.Skip
-            elif j in b.params.cation_set or j in b.params.anion_set:
-                return x[j] * abs(cobj(b, j).config.charge)
-            else:
-                return x[j]
-
-        b.add_component(
-            pname + "_X_ref",
-            Expression(
-                b.params.true_species_set,
-                rule=rule_X_ref,
-                doc="Charge x mole fraction term at reference state",
             ),
         )
 
@@ -306,41 +282,6 @@ class ENRTL(Ideal):
 
         b.add_component(
             pname + "_A_DH", Expression(rule=rule_A_DH, doc="Debye-Huckel parameter")
-        )
-
-        # Long-range (PDH) contribution to activity coefficient
-        def rule_log_gamma_pdh(b, j):
-            A = getattr(b, pname + "_A_DH")
-            Ix = getattr(b, pname + "_ionic_strength")
-            I0 = getattr(b, pname + "_ionic_strength_ref")
-            rho = ClosestApproach
-            if j in molecular_set:
-                # Eqn 69
-                # Note typo in original paper. Correct power for I is (3/2)
-                return 2 * A * Ix ** (3 / 2) / (1 + rho * Ix ** (1 / 2))
-            elif j in b.params.ion_set:
-                # Eqn 70
-                z = abs(cobj(b, j).config.charge)
-                return -A * (
-                    (2 * z**2 / rho)
-                    * log((1 + rho * Ix**0.5) / (1 + rho * I0**0.5))
-                    + (z**2 * Ix**0.5 - 2 * Ix ** (3 / 2)) / (1 + rho * Ix**0.5)
-                    - (2 * Ix * I0**-0.5)
-                    / (1 + rho * I0**0.5)
-                    * ref_state.ndIdn(b, pname, j)
-                )
-            else:
-                raise BurntToast(
-                    "{} eNRTL model encountered unexpected component.".format(b.name)
-                )
-
-        b.add_component(
-            pname + "_log_gamma_pdh",
-            Expression(
-                b.params.true_species_set,
-                rule=rule_log_gamma_pdh,
-                doc="Long-range contribution to activity coefficient",
-            ),
         )
 
         # ---------------------------------------------------------------------
@@ -552,6 +493,43 @@ class ENRTL(Ideal):
                 doc="Binary interaction energy parameters",
             ),
         )
+        # Calculate reference state
+        ref_state.ref_state(b, pname)
+
+        # Long-range (PDH) contribution to activity coefficient
+        def rule_log_gamma_pdh(b, j):
+            A = getattr(b, pname + "_A_DH")
+            Ix = getattr(b, pname + "_ionic_strength")
+            I0 = getattr(b, pname + "_ionic_strength_ref")
+            rho = ClosestApproach
+            if j in molecular_set:
+                # Eqn 69
+                # Note typo in original paper. Correct power for I is (3/2)
+                return 2 * A * Ix ** (3 / 2) / (1 + rho * Ix ** (1 / 2))
+            elif j in b.params.ion_set:
+                # Eqn 70
+                z = abs(cobj(b, j).config.charge)
+                return -A * (
+                    (2 * z**2 / rho)
+                    * log((1 + rho * Ix**0.5) / (1 + rho * I0**0.5))
+                    + (z**2 * Ix**0.5 - 2 * Ix ** (3 / 2)) / (1 + rho * Ix**0.5)
+                    - (2 * Ix * I0**-0.5)
+                    / (1 + rho * I0**0.5)
+                    * ref_state.ndIdn(b, pname, j)
+                )
+            else:
+                raise BurntToast(
+                    "{} eNRTL model encountered unexpected component.".format(b.name)
+                )
+
+        b.add_component(
+            pname + "_log_gamma_pdh",
+            Expression(
+                b.params.true_species_set,
+                rule=rule_log_gamma_pdh,
+                doc="Long-range contribution to activity coefficient",
+            ),
+        )
 
         # Local contribution to activity coefficient
         def rule_log_gamma_lc_I(b, s):
@@ -570,29 +548,10 @@ class ENRTL(Ideal):
             ),
         )
 
-        def rule_log_gamma_lc_I0(b, s):
-            X = getattr(b, pname + "_X_ref")
-            G = getattr(b, pname + "_G")
-            tau = getattr(b, pname + "_tau")
-
-            return log_gamma_lc(b, pname, s, X, G, tau)
-
-        b.add_component(
-            pname + "_log_gamma_lc_I0",
-            Expression(
-                b.params.ion_set,
-                rule=rule_log_gamma_lc_I0,
-                doc="Local contribution at reference state",
-            ),
-        )
-
         def rule_log_gamma_lc(b, s):
             log_gamma_lc_I = getattr(b, pname + "_log_gamma_lc_I")
-            if s in molecular_set:
-                return log_gamma_lc_I[s]
-            else:
-                log_gamma_lc_I0 = getattr(b, pname + "_log_gamma_lc_I0")
-                return log_gamma_lc_I[s] - log_gamma_lc_I0[s]
+            log_gamma_lc_I0 = getattr(b, pname + "_log_gamma_lc_I0")
+            return log_gamma_lc_I[s] - log_gamma_lc_I0[s]
 
         b.add_component(
             pname + "_log_gamma_lc",
@@ -607,7 +566,8 @@ class ENRTL(Ideal):
         def rule_log_gamma(b, j):
             pdh = getattr(b, pname + "_log_gamma_pdh")
             lc = getattr(b, pname + "_log_gamma_lc")
-            return pdh[j] + lc[j]
+            born = getattr(b, pname + "_log_gamma_born")
+            return pdh[j] + lc[j] +born[j]
 
         b.add_component(
             pname + "_log_gamma",

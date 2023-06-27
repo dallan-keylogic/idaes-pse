@@ -283,7 +283,7 @@ def _ref_shebang(b, pname):
         pname + "_log_gamma_born",
         Expression(
             b.params.true_species_set,
-            rule=rule_log_gamma_lc_I0,
+            rule=rule_log_gamma_born,
             doc="Local contribution at reference state",
         )
 

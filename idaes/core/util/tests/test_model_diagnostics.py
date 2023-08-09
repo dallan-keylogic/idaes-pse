@@ -16,8 +16,18 @@ This module contains model diagnostic utility functions for use in IDAES (Pyomo)
 
 import pytest
 
-# Need to update
-import pyomo.environ as pyo
+from pyomo.environ import (
+    Block,
+    ConcreteModel,
+    Constraint,
+    Expression,
+    log,
+    Objective,
+    Set,
+    SolverFactory,
+    units,
+    Var,
+)
 from pyomo.contrib.pynumero.asl import AmplInterface
 import numpy as np
 import idaes.core.util.scaling as iscale
@@ -34,6 +44,7 @@ from pyomo.dae import ContinuousSet, DerivativeVar
 
 # Need to update
 from idaes.core.util.model_diagnostics import (
+    DiagnosticsToolbox,
     DegeneracyHunter,
     get_valid_range_of_component,
     set_bounds_from_valid_range,
@@ -44,13 +55,104 @@ from idaes.core.util.model_diagnostics import (
 __author__ = "Alex Dowling, Douglas Allan"
 
 
+@pytest.mark.integration
+def test_DiagnosticsToolbox():
+    m = ConcreteModel()
+
+    # A var outside the model
+    m.v = Var(units=units.kg)
+
+    # Model to be tested
+    m.b = Block()
+
+    m.b.v1 = Var(units=units.s)
+    m.b.v2 = Var(units=units.s)
+    m.b.v3 = Var(units=units.s)
+    m.b.v4 = Var(units=units.s)
+
+    # Unused var
+    m.b.v5 = Var(units=units.s)
+    m.b.v5.fix(0)
+
+    # Linearly dependent constraints
+    m.b.c1 = Constraint(expr=m.b.v1 + m.b.v2 == 10 * units.s)
+    m.b.c2 = Constraint(expr=2 * m.b.v1 + 2 * m.b.v2 == 20 * units.s)
+    m.b.c3 = Constraint(expr=m.b.v3 + m.b.v4 == 20 * units.s)
+
+    # An inequality
+    m.b.c4 = Constraint(expr=m.b.v1 + m.v >= 10 * units.s)
+
+    # Deactivated constraint
+    m.b.c5 = Constraint(expr=m.b.v1 == 15 * units.s)
+    m.b.c5.deactivate()
+
+    # An objective
+    m.b.o1 = Objective(expr=m.b.v2)
+    # A deactivated objective
+    m.b.o2 = Objective(expr=m.b.v2**2)
+    m.b.o2.deactivate()
+
+    # Create instance of Diagnostics Toolbox
+    dt = DiagnosticsToolbox(model=m.b)
+
+    dt.report_structural_issues()
+
+    m.b.v3.fix(1)
+
+    dt.report_structural_issues()
+
+    dt.display_external_variables()
+
+    # TODO: Current checks do not detect linearly dependent constraints
+    assert False
+
+
+@pytest.mark.integration
+def test_DiagnosticsToolbox2():
+    m = ConcreteModel()
+
+    # A var outside the model
+    m.v = Var(initialize=10, units=units.s, bounds=(0, 1))
+
+    # Model to be tested
+    m.b = Block()
+
+    m.b.v1 = Var(initialize=1, units=units.s)
+    m.b.v2 = Var(initialize=2, units=units.s)
+    m.b.v3 = Var(initialize=3, units=units.s, bounds=(10, 20))
+    m.b.v4 = Var(units=units.s)
+    m.b.v5 = Var(initialize=1e-8, bounds=(0, 1))
+
+    # Equality constraints
+    m.b.c1 = Constraint(expr=2 * m.b.v1 == m.b.v2)  # OK
+    m.b.c2 = Constraint(expr=m.b.v3 == m.v)  # Not Converged
+
+    # Inequality constraints
+    m.b.c3 = Constraint(expr=m.b.v2 <= 10)  # OK
+    m.b.c4 = Constraint(expr=m.b.v2 <= 0)  # Not OK
+
+    # Create instance of Diagnostics Toolbox
+    dt = DiagnosticsToolbox(model=m.b)
+
+    # dt.report_structural_issues()
+
+    dt.report_numerical_issues()
+    dt.display_constraints_with_large_residuals()
+    dt.display_variables_near_bounds()
+
+    help(DiagnosticsToolbox)
+
+    # TODO: Current checks do not detect linearly dependent constraints
+    assert False
+
+
 @pytest.fixture()
 def dummy_problem():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
 
-    m.I = pyo.Set(initialize=[i for i in range(5)])
+    m.I = Set(initialize=[i for i in range(5)])
 
-    m.x = pyo.Var(m.I, initialize=1.0)
+    m.x = Var(m.I, initialize=1.0)
 
     diag = [100, 1, 10, 0.1, 5]
     out = [1, 1, 1, 1, 1]
@@ -59,7 +161,7 @@ def dummy_problem():
     def dummy_eqn(b, i):
         return out[i] == diag[i] * m.x[i]
 
-    m.obj = pyo.Objective(expr=0)
+    m.obj = Objective(expr=0)
     return m
 
 
@@ -208,10 +310,10 @@ def test_sv_value_error(dummy_problem):
 )
 @pytest.mark.unit
 def test_single_eq_error(capsys):
-    m = pyo.ConcreteModel()
-    m.x = pyo.Var(initialize=1)
-    m.con = pyo.Constraint(expr=(2 * m.x == 1))
-    m.obj = pyo.Objective(expr=0)
+    m = ConcreteModel()
+    m.x = Var(initialize=1)
+    m.con = Constraint(expr=(2 * m.x == 1))
+    m.obj = Objective(expr=0)
 
     dh = DegeneracyHunter(m)
     with pytest.raises(
@@ -232,17 +334,17 @@ def test_single_eq_error(capsys):
 # This was from
 # @pytest.fixture()
 def problem1():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
 
-    m.I = pyo.Set(initialize=[i for i in range(5)])
+    m.I = Set(initialize=[i for i in range(5)])
 
-    m.x = pyo.Var(m.I, bounds=(-10, 10), initialize=1.0)
+    m.x = Var(m.I, bounds=(-10, 10), initialize=1.0)
 
-    m.con1 = pyo.Constraint(expr=m.x[0] + m.x[1] - m.x[3] >= 10)
-    m.con2 = pyo.Constraint(expr=m.x[0] * m.x[3] + m.x[1] >= 0)
-    m.con3 = pyo.Constraint(expr=m.x[4] * m.x[3] + m.x[0] * m.x[3] - m.x[4] == 0)
+    m.con1 = Constraint(expr=m.x[0] + m.x[1] - m.x[3] >= 10)
+    m.con2 = Constraint(expr=m.x[0] * m.x[3] + m.x[1] >= 0)
+    m.con3 = Constraint(expr=m.x[4] * m.x[3] + m.x[0] * m.x[3] - m.x[4] == 0)
 
-    m.obj = pyo.Objective(expr=sum(m.x[i] ** 2 for i in m.I))
+    m.obj = Objective(expr=sum(m.x[i] ** 2 for i in m.I))
 
     return m
 
@@ -257,21 +359,21 @@ def example2(with_degenerate_constraint=True):
         m2: Pyomo model
     """
 
-    m2 = pyo.ConcreteModel()
+    m2 = ConcreteModel()
 
-    m2.I = pyo.Set(initialize=[i for i in range(1, 4)])
+    m2.I = Set(initialize=[i for i in range(1, 4)])
 
-    m2.x = pyo.Var(m2.I, bounds=(0, 5), initialize=1.0)
+    m2.x = Var(m2.I, bounds=(0, 5), initialize=1.0)
 
-    m2.con1 = pyo.Constraint(expr=m2.x[1] + m2.x[2] >= 1)
-    m2.con2 = pyo.Constraint(expr=m2.x[1] + m2.x[2] + m2.x[3] == 1)
-    m2.con3 = pyo.Constraint(expr=m2.x[2] - 2 * m2.x[3] <= 1)
-    m2.con4 = pyo.Constraint(expr=m2.x[1] + m2.x[3] >= 1)
+    m2.con1 = Constraint(expr=m2.x[1] + m2.x[2] >= 1)
+    m2.con2 = Constraint(expr=m2.x[1] + m2.x[2] + m2.x[3] == 1)
+    m2.con3 = Constraint(expr=m2.x[2] - 2 * m2.x[3] <= 1)
+    m2.con4 = Constraint(expr=m2.x[1] + m2.x[3] >= 1)
 
     if with_degenerate_constraint:
-        m2.con5 = pyo.Constraint(expr=m2.x[1] + m2.x[2] + m2.x[3] == 1)
+        m2.con5 = Constraint(expr=m2.x[1] + m2.x[2] + m2.x[3] == 1)
 
-    m2.obj = pyo.Objective(expr=sum(m2.x[i] for i in m2.I))
+    m2.obj = Objective(expr=sum(m2.x[i] for i in m2.I))
 
     return m2
 
@@ -297,14 +399,14 @@ def extract_constraint_names(cs):
 @pytest.mark.skipif(
     not AmplInterface.available(), reason="pynumero_ASL is not available"
 )
-@pytest.mark.skipif(not pyo.SolverFactory("ipopt").available(False), reason="no Ipopt")
+@pytest.mark.skipif(not SolverFactory("ipopt").available(False), reason="no Ipopt")
 @pytest.mark.unit
 def test_problem1():
     # Create test problem
     m = problem1()
 
     # Specify Ipopt as the solver
-    opt = pyo.SolverFactory("ipopt")
+    opt = SolverFactory("ipopt")
 
     # Specifying an iteration limit of 0 allows us to inspect the initial point
     opt.options["max_iter"] = 0
@@ -352,14 +454,14 @@ def test_problem1():
 @pytest.mark.skipif(
     not AmplInterface.available(), reason="pynumero_ASL is not available"
 )
-@pytest.mark.skipif(not pyo.SolverFactory("ipopt").available(False), reason="no Ipopt")
+@pytest.mark.skipif(not SolverFactory("ipopt").available(False), reason="no Ipopt")
 @pytest.mark.unit
 def test_problem2_without_degenerate_constraint():
     # Create test problem instance
     m2 = example2(with_degenerate_constraint=False)
 
     # Specify Ipopt as the solver
-    opt = pyo.SolverFactory("ipopt")
+    opt = SolverFactory("ipopt")
 
     # Specifying an iteration limit of 0 allows us to inspect the initial point
     opt.options["max_iter"] = 0
@@ -401,14 +503,14 @@ def test_problem2_without_degenerate_constraint():
 @pytest.mark.skipif(
     not AmplInterface.available(), reason="pynumero_ASL is not available"
 )
-@pytest.mark.skipif(not pyo.SolverFactory("ipopt").available(False), reason="no Ipopt")
+@pytest.mark.skipif(not SolverFactory("ipopt").available(False), reason="no Ipopt")
 @pytest.mark.unit
 def test_problem2_with_degenerate_constraint():
     # Create test problem instance
     m2 = example2(with_degenerate_constraint=True)
 
     # Specify Ipopt as the solver
-    opt = pyo.SolverFactory("ipopt")
+    opt = SolverFactory("ipopt")
 
     # Specifying an iteration limit of 0 allows us to inspect the initial point
     opt.options["max_iter"] = 0
@@ -460,7 +562,7 @@ def test_problem2_with_degenerate_constraint():
 
 @pytest.mark.unit
 def test_get_valid_range_of_component():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -478,7 +580,7 @@ def test_get_valid_range_of_component():
 
 @pytest.mark.unit
 def test_get_valid_range_of_component_no_metadata():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     with pytest.raises(
@@ -489,7 +591,7 @@ def test_get_valid_range_of_component_no_metadata():
 
 @pytest.mark.unit
 def test_get_valid_range_of_component_no_metadata_entry(caplog):
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -506,7 +608,7 @@ def test_get_valid_range_of_component_no_metadata_entry(caplog):
 
 @pytest.mark.unit
 def test_set_bounds_from_valid_range_scalar():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -528,7 +630,7 @@ def test_set_bounds_from_valid_range_scalar():
 
 @pytest.mark.unit
 def test_set_bounds_from_valid_range_indexed():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -553,7 +655,7 @@ def test_set_bounds_from_valid_range_indexed():
 
 @pytest.mark.unit
 def test_set_bounds_from_valid_range_block():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -572,10 +674,10 @@ def test_set_bounds_from_valid_range_block():
 
 @pytest.mark.unit
 def test_set_bounds_from_valid_range_invalid_type():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
-    m.fs.foo = pyo.Expression(expr=1)
+    m.fs.foo = Expression(expr=1)
 
     with pytest.raises(
         TypeError,
@@ -586,7 +688,7 @@ def test_set_bounds_from_valid_range_invalid_type():
 
 @pytest.mark.unit
 def test_list_components_with_values_outside_valid_range_scalar():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -624,7 +726,7 @@ def test_list_components_with_values_outside_valid_range_scalar():
 
 @pytest.mark.unit
 def test_list_components_with_values_outside_valid_range_indexed():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -653,7 +755,7 @@ def test_list_components_with_values_outside_valid_range_indexed():
 
 @pytest.mark.unit
 def test_list_components_with_values_outside_valid_range_block():
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
     m.fs = FlowsheetBlock()
 
     m.fs.params = PhysicalParameterTestBlock()
@@ -683,11 +785,11 @@ def test_list_components_with_values_outside_valid_range_block():
 
 @pytest.mark.component
 def test_ipopt_solve_halt_on_error(capsys):
-    m = pyo.ConcreteModel()
+    m = ConcreteModel()
 
-    m.v = pyo.Var(initialize=-5, bounds=(None, -1))
-    m.e = pyo.Expression(expr=pyo.log(m.v))
-    m.c = pyo.Constraint(expr=m.e == 1)
+    m.v = Var(initialize=-5, bounds=(None, -1))
+    m.e = Expression(expr=log(m.v))
+    m.c = Constraint(expr=m.e == 1)
 
     try:
         results = ipopt_solve_halt_on_error(m)

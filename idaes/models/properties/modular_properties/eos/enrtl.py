@@ -661,6 +661,35 @@ class ENRTL(Ideal):
             v_expr += b.mole_frac_phase_comp_apparent[p, j] * v_comp
 
         return v_expr
+    
+    @staticmethod
+    def enth_mol_phase(b, p):
+        pobj = b.params.get_phase(p)
+        enth_mol_ideal = (
+            sum(
+                b.get_mole_frac(p)[p, j]
+                * get_method(b, "enth_mol_liq_comp", j)(
+                    b, cobj(b, j), b.temperature
+                )
+                for j in b.components_in_phase(p)
+            )
+            + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
+        )
+
+    @staticmethod
+    def enth_mol_phase_excess(b, p):
+        pobj = b.params.get_phase(p)
+        enth_mol_ideal = (
+            sum(
+                b.get_mole_frac(p)[p, j]
+                * get_method(b, "enth_mol_liq_comp", j)(
+                    b, cobj(b, j), b.temperature
+                )
+                for j in b.components_in_phase(p)
+            )
+            + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
+        )
+    
 
 
 def log_gamma_lc(b, pname, s, X, G, tau):

@@ -313,111 +313,154 @@ def test_number_unfixed_variables(m):
 
 
 @pytest.mark.unit
-def test_variables_near_bounds_set(m):
-    tset = variables_near_bounds_set(m)
-    assert len(tset) == 6
-    for i in tset:
-        assert i in ComponentSet(
-            [
-                m.b2["a"].v1,
-                m.b2["b"].v1,
-                m.b2["a"].v2["a"],
-                m.b2["a"].v2["b"],
-                m.b2["b"].v2["a"],
-                m.b2["b"].v2["b"],
-            ]
-        )
+def test_variables_near_bounds_tol_deprecation(m, caplog):
+    variables_near_bounds_set(m, tol=1e-3)
 
-    # No scaling factors set, variable near bound set is the same
-    tset = variables_near_bounds_set(m, relative=True)
-    assert len(tset) == 6
-    for i in tset:
-        assert i in ComponentSet(
-            [
-                m.b2["a"].v1,
-                m.b2["b"].v1,
-                m.b2["a"].v2["a"],
-                m.b2["a"].v2["b"],
-                m.b2["b"].v2["a"],
-                m.b2["b"].v2["b"],
-            ]
-        )
+    msg = (
+        "DEPRECATED: variables_near_bounds_generator has deprecated the tol argument. "
+        "Please set abs_tol and rel_tol arguments instead.  (deprecated in "
+        "2.0.0, will be removed in (or after) 3.0.0)"
+    )
+    assert msg.replace(" ", "") in caplog.records[0].message.replace("\n", "").replace(
+        " ", ""
+    )
 
-    m.b2["a"].v1.value = 1.001
-    tset = variables_near_bounds_set(m)
-    assert len(tset) == 5
-    for i in tset:
-        assert i in ComponentSet(
-            [
-                m.b2["b"].v1,
-                m.b2["a"].v2["a"],
-                m.b2["a"].v2["b"],
-                m.b2["b"].v2["a"],
-                m.b2["b"].v2["b"],
-            ]
-        )
 
-    tset = variables_near_bounds_set(m, tol=1e-3)
-    assert len(tset) == 6
-    for i in tset:
-        assert i in ComponentSet(
-            [
-                m.b2["a"].v1,
-                m.b2["b"].v1,
-                m.b2["a"].v2["a"],
-                m.b2["a"].v2["b"],
-                m.b2["b"].v2["a"],
-                m.b2["b"].v2["b"],
-            ]
-        )
+@pytest.mark.unit
+def test_variables_near_bounds_relative_deprecation(m, caplog):
+    variables_near_bounds_set(m, relative=False)
 
-    m.b2["a"].v1.setlb(None)
-    tset = variables_near_bounds_set(m)
-    assert len(tset) == 5
-    for i in tset:
-        assert i in ComponentSet(
-            [
-                m.b2["b"].v1,
-                m.b2["a"].v2["a"],
-                m.b2["a"].v2["b"],
-                m.b2["b"].v2["a"],
-                m.b2["b"].v2["b"],
-            ]
-        )
+    msg = (
+        "DEPRECATED: variables_near_bounds_generator has deprecated the relative argument. "
+        "Please set abs_tol and rel_tol arguments instead.  (deprecated in "
+        "2.0.0, will be removed in (or after) 3.0.0)"
+    )
+    assert msg.replace(" ", "") in caplog.records[0].message.replace("\n", "").replace(
+        " ", ""
+    )
 
-    m.b2["a"].v2["a"].setub(None)
-    tset = variables_near_bounds_set(m)
-    assert len(tset) == 4
-    for i in tset:
-        assert i in ComponentSet(
-            [m.b2["b"].v1, m.b2["a"].v2["b"], m.b2["b"].v2["a"], m.b2["b"].v2["b"]]
-        )
-    # Without scaling factors, nothing changes
-    tset = variables_near_bounds_set(m, relative=True)
-    assert len(tset) == 4
-    for i in tset:
-        assert i in ComponentSet(
-            [m.b2["b"].v1, m.b2["a"].v2["b"], m.b2["b"].v2["a"], m.b2["b"].v2["b"]]
-        )
 
-    # When the scaling factor is added the absolute set doesn't change
-    iscale.set_scaling_factor(m.v, 1e-6)
-    tset = variables_near_bounds_set(m, relative=False)
-    assert len(tset) == 4
-    for i in tset:
-        assert i in ComponentSet(
-            [m.b2["b"].v1, m.b2["a"].v2["b"], m.b2["b"].v2["a"], m.b2["b"].v2["b"]]
-        )
+@pytest.mark.unit
+def test_variables_near_bounds_set():
+    m = ConcreteModel()
+    m.v = Var(initialize=0.5, bounds=(0, 1))
 
-    tset = variables_near_bounds_set(m, relative=True)
-    assert len(tset) == 15
-    for i in tset:
-        assert i in ComponentSet(
-            [var for var in m.v.values()]
-            + [m.b2["b"].v1, m.b2["a"].v2["b"], m.b2["b"].v2["a"], m.b2["b"].v2["b"]]
-        )
-    # Clean up
-    iscale.unset_scaling_factor(m.v)
+    # Small value, both bounds
+    # Away from bounds
+    vset = variables_near_bounds_set(m)
+    assert len(vset) == 0
+
+    # Near lower bound, relative
+    m.v.set_value(1e-6)
+    vset = variables_near_bounds_set(m, abs_tol=1e-8, rel_tol=1e-4)
+    assert len(vset) == 1
+
+    # Near lower bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1e-4, rel_tol=1e-8)
+    assert len(vset) == 1
+
+    # Near upper bound, relative
+    m.v.set_value(1 - 1e-6)
+    vset = variables_near_bounds_set(m, abs_tol=1e-8, rel_tol=1e-4)
+    assert len(vset) == 1
+
+    # Near upper bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1e-4, rel_tol=1e-8)
+    assert len(vset) == 1
+
+    # Small value, lower bound
+    # Away from bounds
+    m.v.set_value(0.5)
+    m.v.setub(None)
+    vset = variables_near_bounds_set(m)
+    assert len(vset) == 0
+
+    # Near lower bound, relative
+    m.v.set_value(1e-6)
+    vset = variables_near_bounds_set(m, abs_tol=1e-8, rel_tol=1e-4)
+    # Lower bound of 0 means relative tolerance is 0
+    assert len(vset) == 0
+
+    # Near lower bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1e-4, rel_tol=1e-8)
+    assert len(vset) == 1
+
+    # Small value, upper bound
+    # Away from bounds
+    m.v.set_value(0.5)
+    m.v.setub(1)
+    m.v.setlb(None)
+    vset = variables_near_bounds_set(m)
+    assert len(vset) == 0
+
+    # Near upper bound, relative
+    m.v.set_value(1 - 1e-6)
+    vset = variables_near_bounds_set(m, abs_tol=1e-8, rel_tol=1e-4)
+    assert len(vset) == 1
+
+    # Near upper bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1e-4, rel_tol=1e-8)
+    assert len(vset) == 1
+
+    # Large value, both bounds
+    # Relative tolerance based on magnitude of 100
+    m.v.setlb(450)
+    m.v.setub(550)
+    m.v.set_value(500)
+    vset = variables_near_bounds_set(m)
+    assert len(vset) == 0
+
+    # Near lower bound, relative
+    m.v.set_value(451)
+    vset = variables_near_bounds_set(m, rel_tol=1e-2)
+    assert len(vset) == 1
+
+    # Near lower bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1)
+    assert len(vset) == 1
+
+    # Near upper bound, relative
+    m.v.set_value(549)
+    vset = variables_near_bounds_set(m, rel_tol=1e-2)
+    assert len(vset) == 1
+
+    # Near upper bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1)
+    assert len(vset) == 1
+
+    # Large value, lower bound
+    # Relative tolerance based on magnitude of 450
+    m.v.setlb(450)
+    m.v.setub(None)
+    m.v.set_value(500)
+    vset = variables_near_bounds_set(m)
+    assert len(vset) == 0
+
+    # Near lower bound, relative
+    m.v.set_value(451)
+    vset = variables_near_bounds_set(m, rel_tol=1e-2)
+    assert len(vset) == 1
+
+    # Near lower bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1)
+    assert len(vset) == 1
+
+    # Large value, upper bound
+    # Relative tolerance based on magnitude of 550
+    m.v.setlb(None)
+    m.v.setub(550)
+    m.v.set_value(500)
+    vset = variables_near_bounds_set(m)
+    assert len(vset) == 0
+
+    # Near upper bound, relative
+    m.v.set_value(549)
+    vset = variables_near_bounds_set(m, rel_tol=1e-2)
+    assert len(vset) == 1
+
+    # Near upper bound, absolute
+    vset = variables_near_bounds_set(m, abs_tol=1)
+    assert len(vset) == 1
 
 
 @pytest.mark.unit

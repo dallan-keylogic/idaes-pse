@@ -36,7 +36,7 @@ from idaes.models.properties.modular_properties.examples.enrtl_NaBr_mixed_solven
     configuration,
 )
 from idaes.models.properties.modular_properties.eos.enrtl_reference_states import (
-    InfiniteDilutionAqueous,
+    InfiniteDilutionSingleSolvent,
     Unsymmetric,
     Symmetric
 )
@@ -182,7 +182,10 @@ class TestInfiniteDilutionAqueousNaBr:
 if __name__ == "__main__":
     m = ConcreteModel()
     config = deepcopy(configuration)
-    config["phases"]["Liq"]["equation_of_state_options"] = {"reference_state": InfiniteDilutionAqueous}
+    config["phases"]["Liq"]["equation_of_state_options"] = {
+        "reference_state": InfiniteDilutionSingleSolvent,
+        "reference_component": "H2O"
+    }
     # Taken from Table III from
     # Rashin and Honig, Reevaluation of the Born Model of Ion Hydration, J. Phys. Chem., 1985, 89, 5588-5593
     config["components"]["Na+"]["parameter_data"] = {"born_radius": (1.680, pyunits.angstrom)}
@@ -220,6 +223,7 @@ if __name__ == "__main__":
             + log(value(m.state[1].mole_frac_phase_comp["Liq", "Br-"]))
         ))
 
+    print(value(m.state[1].enth_mol_phase_comp["Liq","H2O"]))
     import numpy as np
     import matplotlib.pyplot as plt
     x_vec = np.array([x for x in data.keys()])

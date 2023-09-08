@@ -345,6 +345,7 @@ class GenericParameterData(PhysicalParameterBlock):
 
         # Check if we need to create electrolyte component lists
         if self._electrolyte:
+            # TODO these sets should be created on a phase-by-phase basis
             self.add_component(
                 "anion_set",
                 Set(ordered=True, doc="Set of anions present in aqueous phase"),

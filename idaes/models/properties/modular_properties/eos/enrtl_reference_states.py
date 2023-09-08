@@ -30,7 +30,7 @@ The Journal of Physical Chemistry, 89(26), 5588–5593.
 # TODO: Missing docstrings
 # pylint: disable=missing-function-docstring
 
-from pyomo.environ import Expression, Var
+from pyomo.environ import Expression, Param, Var
 
 from idaes.core.util.exceptions import BurntToast, ConfigurationError
 from idaes.core.util.constants import Constants
@@ -56,11 +56,18 @@ class Unsymmetric(object):
     """
     @staticmethod
     def build_parameters(b):
-        pass
+        b.eps_eNRTL = Param(initialize=EPS, mutable=True)
 
     @staticmethod
     def ref_state(b, pname):
+        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
+        b.add_component(
+            pname + "_dimensionless_zero",
+            dimensionless_zero,
+        )
         def rule_x_ref(b, i):
+            pobj = b.params.get_phase(pname)
+            eps = getattr(pobj, "eps_eNRTL")
             if i in b.params.solvent_set or i in b.params.solute_set:
                 # Eqn 66
                 return b.mole_frac_phase_comp_true[pname, i] / sum(
@@ -68,7 +75,7 @@ class Unsymmetric(object):
                     for j in b.params.solvent_set | b.params.solute_set
                 )
             else:
-                return EPS
+                return eps
 
         b.add_component(
             pname + "_x_ref", Expression(b.params.true_species_set, rule=rule_x_ref)
@@ -77,8 +84,9 @@ class Unsymmetric(object):
 
     @staticmethod
     def ndIdn(b, pname, i):
+        dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
         # Eqn 71
-        return 0.0
+        return dimensionless_zero
 
 
 class Symmetric(object):
@@ -91,6 +99,11 @@ class Symmetric(object):
 
     @staticmethod
     def ref_state(b, pname):
+        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
+        b.add_component(
+            pname + "_dimensionless_zero",
+            dimensionless_zero,
+        )
         def rule_x_ref(b, i):
             if i in b.params.ion_set:
                 # Eqn 66
@@ -98,7 +111,7 @@ class Symmetric(object):
                     b.mole_frac_phase_comp_true[pname, j] for j in b.params.ion_set
                 )
             else:
-                return 0.0
+                return dimensionless_zero
 
         b.add_component(
             pname + "_x_ref", Expression(b.params.true_species_set, rule=rule_x_ref)
@@ -113,9 +126,9 @@ class Symmetric(object):
             for j in b.params.ion_set
         )
 
-class InfiniteDilutionAqueous(object):
+class InfiniteDilutionSingleSolvent(object):
     """
-    Sub-methods for the symmetric (fused-salt) reference state
+    Sub-methods for the infinite dilution single solvent reference state
     """
     @staticmethod
     def build_parameters(b):
@@ -133,12 +146,28 @@ class InfiniteDilutionAqueous(object):
                     units=units["length"],
                 )
                 set_param_from_config(cobj, param="born_radius")
+        
+        ref_comp = b.config["equation_of_state_options"]["reference_component"]
+        if ref_comp not in params.component_list:
+            return ConfigurationError(
+                f"Specified component for infinite dilution reference state {ref_comp} is not a component in the mixture. "
+                "Check if it is misspelled."
+            )
+        if ref_comp not in params.solvent_set:
+            return ConfigurationError(f"Specified component for infinite dilution reference state {ref_comp} is not a solvent.")
+        b.ref_comp = ref_comp
 
     @staticmethod
     def ref_state(b, pname):
         # No ions at infinite dilution, ionic strength is zero
+        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
+        b.add_component(
+            pname + "_dimensionless_zero",
+            dimensionless_zero,
+        )
+
         def rule_I_ref(b):
-            return 0
+            return dimensionless_zero
         
         b.add_component(
             pname + "_ionic_strength_ref",
@@ -146,25 +175,25 @@ class InfiniteDilutionAqueous(object):
         )
 
         def rule_log_gamma_born(b, s):
+            pobj = b.params.get_phase(pname)
+            ref_comp = pobj.ref_comp
+
             if not s in b.params.ion_set:
-                return 0
+                return dimensionless_zero
             if len(b.params.solvent_set) == 1:
-                if "H2O" in b.params.solvent_set:
-                    return 0
-                else:
-                    return ConfigurationError("Cannot use an infinite dilution aqueous reference state if H2O is not a solvent component.")
+                return dimensionless_zero
             q_e = Constants.elemental_charge
             k_b = Constants.boltzmann_constant
             eps_vacuum = Constants.vacuum_electric_permittivity
             pi = Constants.pi
-            eps_H2O =  get_method(b, "relative_permittivity_liq_comp", "H2O")(
-                b, cobj(b, "H2O"), b.temperature
+            eps_ref_comp =  get_method(b, "relative_permittivity_liq_comp", ref_comp)(
+                b, cobj(b, ref_comp), b.temperature
             )
             eps_solvent = getattr(b, pname + "_relative_permittivity_solvent")
             z = abs(cobj(b, s).config.charge)
             r = cobj(b, s).born_radius
 
-            return (z*q_e)**2/(8 * pi *eps_vacuum * k_b * b.temperature * r) * (1/eps_solvent - 1/eps_H2O)
+            return (z*q_e)**2/(8 * pi *eps_vacuum * k_b * b.temperature * r) * (1/eps_solvent - 1/eps_ref_comp)
         
         b.add_component(
             pname + "_log_gamma_born",
@@ -176,6 +205,9 @@ class InfiniteDilutionAqueous(object):
         )
 
         def rule_log_gamma_lc_I0(b, s):
+            pobj = b.params.get_phase(pname)
+            ref_comp = pobj.ref_comp
+
             G = getattr(b, pname + "_G")
             tau = getattr(b, pname + "_tau")
             if s in b.params.ion_set:
@@ -185,11 +217,11 @@ class InfiniteDilutionAqueous(object):
                 # is probably a bad thing, but everyone else calculates things this way so we might
                 # as well calculate things this way too.
                 Z = abs(b.params.get_component(s).config.charge)
-                return Z * (G[s, "H2O"]*tau[s, "H2O"] + tau["H2O", s])
+                return Z * (G[s, ref_comp]*tau[s, ref_comp] + tau[ref_comp, s])
             elif s in b.params.solute_set:
-                return G[s, "H2O"]*tau[s, "H2O"] + tau["H2O", s]
+                return G[s, ref_comp]*tau[s, ref_comp] + tau[ref_comp, s]
             elif s in b.params.solvent_set:
-                return 0
+                return dimensionless_zero
             else:
                 raise BurntToast(
                     f"{s} eNRTL model encountered unexpected component."
@@ -205,8 +237,9 @@ class InfiniteDilutionAqueous(object):
         )
     @staticmethod
     def ndIdn(b, pname, i):
+        dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
         # Eqn 71
-        return 0.0
+        return dimensionless_zero
 
 
 def ndxdn(b, pname, i, j):
@@ -228,7 +261,10 @@ def _ref_shebang(b, pname):
     Construct expressions necessary to evaluate activity coefficients at reference state
     """
     # Defer import to avoid circular import
-    from idaes.models.properties.modular_properties.eos.enrtl import log_gamma_lc   
+    from idaes.models.properties.modular_properties.eos.enrtl import log_gamma_lc
+
+    dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
+
     def rule_I_ref(b):  # Eqn 62 evaluated at reference state
         x = getattr(b, pname + "_x_ref")
         return 0.5 * sum(
@@ -264,7 +300,7 @@ def _ref_shebang(b, pname):
         G = getattr(b, pname + "_G")
         tau = getattr(b, pname + "_tau")
         if not s in b.params.ion_set:
-            return 0
+            return dimensionless_zero
         else:
             return log_gamma_lc(b, pname, s, X, G, tau)
 
@@ -278,7 +314,7 @@ def _ref_shebang(b, pname):
     )
 
     def rule_log_gamma_born(b, s):
-        return 0
+        return dimensionless_zero
     b.add_component(
         pname + "_log_gamma_born",
         Expression(

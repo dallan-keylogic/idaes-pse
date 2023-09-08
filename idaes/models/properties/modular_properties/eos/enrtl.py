@@ -32,7 +32,8 @@ ionic charge.
 # TODO: Look into protected access issues
 # pylint: disable=protected-access
 
-from pyomo.environ import Expression, exp, log, Set, units as pyunits
+from pyomo.environ import Expression, exp, log, Param, Set, units as pyunits
+from pyomo.core.expr.calculus.derivatives import Modes, differentiate
 
 from idaes.models.properties.modular_properties.base.utility import (
     get_method,
@@ -111,9 +112,12 @@ class ENRTL(Ideal):
             b.config.equation_of_state_options is not None
             and "reference_state" in b.config.equation_of_state_options
         ):
-            b.config.equation_of_state_options["reference_state"].build_parameters(b)
+            b._reference_state_enrtl = b.config.equation_of_state_options["reference_state"]
         else:
-            DefaultRefState.build_parameters(b)
+            b._reference_state_enrtl = DefaultRefState
+        
+        b._reference_state_enrtl.build_parameters(b)
+
 
     @staticmethod
     def common(b, pobj):
@@ -289,8 +293,15 @@ class ENRTL(Ideal):
         # For the symmetric state, all of these are independent of composition
         # TODO: For the unsymmetric state, it may be necessary to recalculate
         # Calculate alphas for all true species pairings
+        b.add_component(
+            pname + "_alpha_default",
+            Param(initialize=0.2, mutable=False, doc="Constant value of Alpha used in eNRTL"),
+        )
+
         def rule_alpha_expr(b, i, j):
             Y = getattr(b, pname + "_Y")
+            alpha_default = getattr(b, pname + "_alpha_default")
+
             if (pname, i) not in b.params.true_phase_component_set or (
                 pname,
                 j,
@@ -334,7 +345,7 @@ class ENRTL(Ideal):
                         for k in b.params.cation_set
                     )
                 else:
-                    return 0.2
+                    return alpha_default
             elif i in b.params.anion_set and j in b.params.cation_set:
                 # Eqn 35
                 if len(b.params.anion_set) > 1:
@@ -346,7 +357,7 @@ class ENRTL(Ideal):
                         for k in b.params.anion_set
                     )
                 else:
-                    return 0.2
+                    return alpha_default
             elif (i in b.params.cation_set and j in b.params.cation_set) or (
                 i in b.params.anion_set and j in b.params.anion_set
             ):
@@ -368,10 +379,16 @@ class ENRTL(Ideal):
                 doc="Non-randomness parameters",
             ),
         )
-
+        
         # Calculate G terms
+        b.add_component(
+            pname + "_G_default",
+            Param(initialize=1.0, mutable=False, doc="Constant value of G used in eNRTL"),
+        )
+
         def rule_G_expr(b, i, j):
             Y = getattr(b, pname + "_Y")
+            G_default = getattr(b, pname + "_G_default")
 
             def _G_appr(b, pobj, i, j, T):  # Eqn 23
                 if i != j:
@@ -379,7 +396,7 @@ class ENRTL(Ideal):
                         -alpha_rule(b, pobj, i, j, T) * tau_rule(b, pobj, i, j, T)
                     )
                 else:
-                    return 1.0
+                    return G_default
 
             if (pname, i) not in b.params.true_phase_component_set or (
                 pname,
@@ -426,7 +443,7 @@ class ENRTL(Ideal):
                 else:
                     # This term does not exist for single cation systems
                     # However, need a valid result to calculate tau
-                    return 1.0
+                    return G_default
             elif i in b.params.anion_set and j in b.params.cation_set:
                 # Eqn 43
                 if len(b.params.anion_set) > 1:
@@ -440,7 +457,7 @@ class ENRTL(Ideal):
                 else:
                     # This term does not exist for single anion systems
                     # However, need a valid result to calculate tau
-                    return 1.0
+                    return G_default
             elif (i in b.params.cation_set and j in b.params.cation_set) or (
                 i in b.params.anion_set and j in b.params.anion_set
             ):
@@ -507,16 +524,24 @@ class ENRTL(Ideal):
                 # Note typo in original paper. Correct power for I is (3/2)
                 return 2 * A * Ix ** (3 / 2) / (1 + rho * Ix ** (1 / 2))
             elif j in b.params.ion_set:
-                # Eqn 70
                 z = abs(cobj(b, j).config.charge)
-                return -A * (
-                    (2 * z**2 / rho)
-                    * log((1 + rho * Ix**0.5) / (1 + rho * I0**0.5))
-                    + (z**2 * Ix**0.5 - 2 * Ix ** (3 / 2)) / (1 + rho * Ix**0.5)
-                    - (2 * Ix * I0**-0.5)
-                    / (1 + rho * I0**0.5)
-                    * ref_state.ndIdn(b, pname, j)
-                )
+                if pobj._reference_state_enrtl is Symmetric:
+                    # Eqn 70
+                    return -A * (
+                        (2 * z**2 / rho)
+                        * log((1 + rho * Ix**0.5) / (1 + rho * I0**0.5))
+                        + (z**2 * Ix**0.5 - 2 * Ix ** (3 / 2)) / (1 + rho * Ix**0.5)
+                        - (2 * Ix * I0**-0.5)
+                        / (1 + rho * I0**0.5)
+                        * ref_state.ndIdn(b, pname, j)
+                    )
+                else:
+                    # Need to explicitly remove I0**-0.5 so it doesn't get evaluated for I0=0
+                    return -A * (
+                        (2 * z**2 / rho)
+                        * log((1 + rho * Ix**0.5))
+                        + (z**2 * Ix**0.5 - 2 * Ix ** (3 / 2)) / (1 + rho * Ix**0.5)
+                    )
             else:
                 raise BurntToast(
                     "{} eNRTL model encountered unexpected component.".format(b.name)
@@ -663,32 +688,60 @@ class ENRTL(Ideal):
         return v_expr
     
     @staticmethod
-    def enth_mol_phase(b, p):
-        pobj = b.params.get_phase(p)
-        enth_mol_ideal = (
-            sum(
-                b.get_mole_frac(p)[p, j]
-                * get_method(b, "enth_mol_liq_comp", j)(
-                    b, cobj(b, j), b.temperature
-                )
-                for j in b.components_in_phase(p)
-            )
-            + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
+    def enth_mol_phase_comp_excess(b, p, j):
+        dact_dT = differentiate(
+            expr=b.act_coeff_phase_comp_true[p, j],
+            wrt=b.temperature,
+            mode=Modes.reverse_symbolic
         )
-
+        return -ENRTL.gas_constant(b) * b.temperature ** 2 *dact_dT
+    
     @staticmethod
-    def enth_mol_phase_excess(b, p):
-        pobj = b.params.get_phase(p)
-        enth_mol_ideal = (
-            sum(
-                b.get_mole_frac(p)[p, j]
-                * get_method(b, "enth_mol_liq_comp", j)(
-                    b, cobj(b, j), b.temperature
-                )
-                for j in b.components_in_phase(p)
-            )
-            + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
-        )
+    def enth_mol_phase_comp_ideal(b, p, j):
+        return Ideal.enth_mol_phase_comp(b, p, j)
+
+    # @staticmethod
+    # def enth_mol_phase_comp(b, p, j):
+    #     try:
+    #         act = b.act_coeff_phase_comp_true[p, j]
+    #         dact_dT = differentiate(
+    #             expr=b.act_coeff_phase_comp_true[p, j],
+    #             wrt=b.temperature,
+    #             mode=Modes.reverse_symbolic
+    #         )
+    #         return -ENRTL.gas_constant(b) * b.temperature ** 2 *dact_dT
+    #     except AttributeError:
+    #         print("Debug message")
+    #         b.del_component(b.enth_mol_phase_comp)
+    #         raise
+
+    # @staticmethod
+    # def enth_mol_phase(b, p):
+    #     pobj = b.params.get_phase(p)
+    #     enth_mol_ideal = (
+    #         sum(
+    #             b.get_mole_frac(p)[p, j]
+    #             * get_method(b, "enth_mol_liq_comp", j)(
+    #                 b, cobj(b, j), b.temperature
+    #             )
+    #             for j in b.components_in_phase(p)
+    #         )
+    #         + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
+    #     )
+
+    # @staticmethod
+    # def enth_mol_phase_excess(b, p):
+    #     pobj = b.params.get_phase(p)
+    #     enth_mol_ideal = (
+    #         sum(
+    #             b.get_mole_frac(p)[p, j]
+    #             * get_method(b, "enth_mol_liq_comp", j)(
+    #                 b, cobj(b, j), b.temperature
+    #             )
+    #             for j in b.components_in_phase(p)
+    #         )
+    #         + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
+    #     )
     
 
 
@@ -839,3 +892,4 @@ def log_gamma_lc(b, pname, s, X, G, tau):
                 for a in b.params.anion_set
             )
         )
+

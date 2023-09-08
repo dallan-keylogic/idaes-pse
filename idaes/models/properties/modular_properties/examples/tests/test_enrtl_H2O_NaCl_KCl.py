@@ -43,7 +43,7 @@ from idaes.models.properties.modular_properties.base.generic_property import (
 from idaes.models.properties.modular_properties.examples.enrtl_H2O_NaCl_KCl import (
     configuration,
 )
-from idaes.models.properties.modular_properties.eos.enrtl_reference_states import InfiniteDilutionAqueous
+from idaes.models.properties.modular_properties.eos.enrtl_reference_states import InfiniteDilutionSingleSolvent
 
 # Data digitized from Fig 6 [1]
 log_gamma_lc = {
@@ -360,7 +360,8 @@ class TestAqueous_0KCl:
     def model(self):
         m = ConcreteModel()
         config = deepcopy(configuration)
-        config["phases"]["Liq"]["equation_of_state_options"]["reference_state"] = InfiniteDilutionAqueous
+        config["phases"]["Liq"]["equation_of_state_options"]["reference_state"] = InfiniteDilutionSingleSolvent
+        config["phases"]["Liq"]["equation_of_state_options"]["reference_component"] = "H2O"
         # Since the phase is water, these numbers don't actually matter, but they're taken from Table III from
         # Rashin and Honig, Reevaluation of the Born Model of Ion Hydration, J. Phys. Chem., 1985, 89, 5588-5593
         config["components"]["Na+"]["parameter_data"] = {"born_radius": (1.680, pyunits.angstrom)}

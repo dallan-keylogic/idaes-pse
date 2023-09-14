@@ -106,11 +106,19 @@ def henry_pressure(b, p, j, T=None):
 def log_henry_pressure(b, p, j, T=None):
     henry_def = b.params.get_component(j).config.henry_component[p]
 
-    # TODO: Should use a log henry var/expression
-    if T is None:
-        henry = b.henry[p, j]
+    if not hasattr(henry_def["method"], "return_log_expression"):
+        # TODO add deprecation warning for not implementing return_log_expression
+        if T is None:
+            log_henry = log(b.henry[p, j])
+        else:
+            log_henry = log(henry_def["method"].return_expression(b, p, j, T))
+
+        return log_h_press
     else:
-        henry = henry_def["method"].return_expression(b, p, j, T)
+        if T is None:
+            log_henry = b.log_henry[p, j]
+        else:
+            log_henry = henry_def["method"].return_log_expression(b, p, j, T) 
 
     # Need to get the appropriate concentration term
     # TODO: Add support for true and apparent bases
@@ -119,14 +127,12 @@ def log_henry_pressure(b, p, j, T=None):
 
     if henry_def["type"].value <= 50:
         # H = c/P type
-        log_h_press = h_conc - log(henry)
+        log_h_press = h_conc - log_henry
     elif henry_def["type"].value <= 100:
         # K = P/c type
-        log_h_press = h_conc + log(henry)
+        log_h_press = h_conc + log_henry
     else:
         _raise_henry_type_error(henry_def["type"])
-
-    return log_h_press
 
 
 def henry_equilibrium_ratio(b, p, j):
@@ -212,7 +218,12 @@ class ConstantH:
 
         return H
 
-    # TODO: Need a return log expression method too
+    @staticmethod
+    def return_log_expression(b, p, j, T=None):
+        cobj = b.params.get_component(j)
+        H = getattr(cobj, "henry_ref_" + p)
+
+        return log(H)
 
     @staticmethod
     def dT_expression(b, p, j, T=None):

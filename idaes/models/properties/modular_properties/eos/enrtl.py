@@ -32,6 +32,8 @@ ionic charge.
 # TODO: Look into protected access issues
 # pylint: disable=protected-access
 
+from enum import Enum
+
 from pyomo.environ import Expression, exp, log, Param, Set, units as pyunits
 from pyomo.core.expr.calculus.derivatives import Modes, differentiate
 
@@ -41,7 +43,7 @@ from idaes.models.properties.modular_properties.base.utility import (
 )
 from idaes.models.properties.modular_properties.base.generic_property import StateIndex
 from idaes.core.util.constants import Constants
-from idaes.core.util.exceptions import BurntToast
+from idaes.core.util.exceptions import ConfigurationError, BurntToast
 import idaes.logger as idaeslog
 
 from .ideal import Ideal
@@ -56,6 +58,14 @@ _log = idaeslog.getLogger(__name__)
 DefaultAlphaRule = ConstantAlpha
 DefaultTauRule = ConstantTau
 DefaultRefState = Symmetric
+
+class EnthMolPhaseBasis(Enum):
+    """Enum for method of calculating enth_mol_phase"""
+
+    # Rule to calculate am for cubic equations of state
+    true = 0
+    apparent = 1
+
 
 # Closest approach parameter - implemented as a global constant for now
 # This is not something the user should be changing in most cases
@@ -700,34 +710,49 @@ class ENRTL(Ideal):
     def enth_mol_phase_comp_ideal(b, p, j):
         return Ideal.enth_mol_phase_comp(b, p, j)
 
-    # @staticmethod
-    # def enth_mol_phase_comp(b, p, j):
-    #     try:
-    #         act = b.act_coeff_phase_comp_true[p, j]
-    #         dact_dT = differentiate(
-    #             expr=b.act_coeff_phase_comp_true[p, j],
-    #             wrt=b.temperature,
-    #             mode=Modes.reverse_symbolic
-    #         )
-    #         return -ENRTL.gas_constant(b) * b.temperature ** 2 *dact_dT
-    #     except AttributeError:
-    #         print("Debug message")
-    #         b.del_component(b.enth_mol_phase_comp)
-    #         raise
+    @staticmethod
+    def enth_mol_phase_comp(b, p, j):
+        pobj = b.params.get_phase(p)
 
-    # @staticmethod
-    # def enth_mol_phase(b, p):
-    #     pobj = b.params.get_phase(p)
-    #     enth_mol_ideal = (
-    #         sum(
-    #             b.get_mole_frac(p)[p, j]
-    #             * get_method(b, "enth_mol_liq_comp", j)(
-    #                 b, cobj(b, j), b.temperature
-    #             )
-    #             for j in b.components_in_phase(p)
-    #         )
-    #         + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
-    #     )
+        if pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.true:
+            return b.enth_mol_phase_comp_ideal[p, j] + b.enth_mol_phase_comp_excess[p, j]
+        elif pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.apparent:
+            raise AttributeError("Partial molar enthalpy is not well-defined when using apparent species as basis.")
+        else:
+            raise ConfigurationError
+
+    @staticmethod
+    def enth_mol_phase(b, p):
+        pobj = b.params.get_phase(p)
+
+        if pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.true:
+            enth_mol_ideal = sum(
+                b.mole_frac_phase_comp_true[p, j]
+                * b.enth_mol_phase_comp[p, j]
+                for j in b.components_in_phase(p, true_basis=True)
+            )
+            
+        elif pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.apparent:
+            enth_mol_ideal = (
+                sum(
+                    b.mole_frac_phase_comp_apparent[p, j]
+                    * b.enth_mol_phase_comp[p, j]
+                    for j in b.components_in_phase(p, true_basis=False)
+                )
+                + sum(
+                    b.apparent_inherent_reaction_extent[r]
+                    * b.dh_rxn[r]
+                    for r in b.params.inherent_reaction_idx
+                )
+            )
+        else:
+            raise ConfigurationError
+        enth_mol_ideal += (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
+        return enth_mol_ideal + sum(
+            b.mole_frac_phase_comp_true[p, j]
+            * b.enth_mol_phase_comp_excess[p, j]
+            for j in b.components_in_phase(p, true_basis=True)
+        )
 
     # @staticmethod
     # def enth_mol_phase_excess(b, p):

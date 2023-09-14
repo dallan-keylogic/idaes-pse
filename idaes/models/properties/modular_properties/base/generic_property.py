@@ -1160,6 +1160,7 @@ class GenericParameterData(PhysicalParameterBlock):
                 "log_conc_mol_phase_comp_true": {
                     "method": "_log_conc_mol_phase_comp_true"
                 },
+                "log_henry": {"method": "_log_henry"},
                 "log_mass_frac_phase_comp": {"method": "_log_mass_frac_phase_comp"},
                 "log_mass_frac_phase_comp_apparent": {
                     "method": "_log_mass_frac_phase_comp_apparent"
@@ -2866,7 +2867,7 @@ class GenericStateBlockData(StateBlockData):
                     self.visc_d_phase[p], sf_default, overwrite=False
                 )
 
-    def components_in_phase(self, phase):
+    def components_in_phase(self, phase, true_basis=None):
         """
         Generator method which yields components present in a given phase.
         As this method is used only for property calculations, it should use the
@@ -2874,6 +2875,8 @@ class GenericStateBlockData(StateBlockData):
 
         Args:
             phase - phase for which to yield components
+            true_basis - whether to return true or apparent basis. If None, use
+            default for property package
 
         Yields:
             components present in phase.
@@ -2883,16 +2886,23 @@ class GenericStateBlockData(StateBlockData):
             pc_set = self.phase_component_set
         else:
             config = self.params.get_phase(phase).config
-            if (
-                config.equation_of_state_options is not None
-                and "property_basis" in config.equation_of_state_options
-                and config.equation_of_state_options["property_basis"] == "apparent"
-            ):
-                component_list = self.params.apparent_species_set
-                pc_set = self.params.apparent_phase_component_set
-            else:
+            if true_basis is None:
+                if (
+                    config.equation_of_state_options is not None
+                    and "property_basis" in config.equation_of_state_options
+                    and config.equation_of_state_options["property_basis"] == "apparent"
+                ):
+                    component_list = self.params.apparent_species_set
+                    pc_set = self.params.apparent_phase_component_set
+                else:
+                    component_list = self.params.true_species_set
+                    pc_set = self.params.true_phase_component_set
+            elif true_basis:
                 component_list = self.params.true_species_set
                 pc_set = self.params.true_phase_component_set
+            else:
+                component_list = self.params.apparent_species_set
+                pc_set = self.params.apparent_phase_component_set
 
         for j in component_list:
             if (phase, j) in pc_set:
@@ -3850,6 +3860,26 @@ class GenericStateBlockData(StateBlockData):
             self.henry = Expression(self.phase_component_set, rule=henry_rule)
         except AttributeError:
             self.del_component(self.henry)
+            raise
+
+    def _log_henry(self):
+        try:
+
+            def log_henry_rule(b, p, j):
+                cobj = b.params.get_component(j)
+                if (
+                    cobj.config.henry_component is not None
+                    and p in cobj.config.henry_component
+                ):
+                    return cobj.config.henry_component[p]["method"].return_log_expression(
+                        b, p, j, b.temperature
+                    )
+                else:
+                    return Expression.Skip
+
+            self.henry = Expression(self.phase_component_set, rule=log_henry_rule)
+        except AttributeError:
+            self.del_component(self.log_henry_rule)
             raise
 
     def _mass_frac_phase_comp(self):

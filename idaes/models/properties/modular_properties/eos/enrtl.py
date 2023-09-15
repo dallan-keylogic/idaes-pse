@@ -42,6 +42,7 @@ from idaes.models.properties.modular_properties.base.utility import (
     get_component_object as cobj,
 )
 from idaes.models.properties.modular_properties.base.generic_property import StateIndex
+from idaes.models.properties.modular_properties.phase_equil.henry import HenryType
 from idaes.core.util.constants import Constants
 from idaes.core.util.exceptions import ConfigurationError, BurntToast
 import idaes.logger as idaeslog
@@ -754,6 +755,59 @@ class ENRTL(Ideal):
             for j in b.components_in_phase(p, true_basis=True)
         )
 
+    @staticmethod
+    def fug_phase_comp(b, p, j):
+        T = b.temperature
+        if (
+            cobj(b, j).config.henry_component is not None
+            and p in cobj(b, j).config.henry_component
+        ):
+            # Use Henry's Law
+            return b.act_coeff_phase_comp_true[p, j] * henry_pressure(b, p, j, T)
+        elif cobj(b, j).config.has_vapor_pressure:
+            # Use Raoult's Law
+            return b.get_mole_frac(p)[p, j] * get_method(b, "pressure_sat_comp", j)(
+                b, cobj(b, j), T
+            )
+        else:
+            return Expression.Skip
+
+    @staticmethod
+    def fug_phase_comp_eq(b, p, j, pp):
+        # Don't have a method to evaluate activity at other temperatures
+        raise PropertyNotSupportedError(
+            "Phase equilibrium calculations using eNRTL is not supported at this time."
+        )
+        
+
+    @staticmethod
+    def log_fug_phase_comp(b, p, j):
+        T = b.temperature
+        if pobj.is_liquid_phase():
+            if (
+                cobj(b, j).config.henry_component is not None
+                and p in cobj(b, j).config.henry_component
+            ):
+                # Use Henry's Law
+                return log_act_coeff[j] + log_henry_pressure(b, p, j, b.temperature)
+            elif cobj(b, j).config.has_vapor_pressure:
+                # Use Raoult's Law
+                return log_act_coeff[j] + b.log_mole_frac_phase_comp_true[p, j] + log(
+                    get_method(b, "pressure_sat_comp", j)(b, cobj(b, j), b.temperature)
+                )
+            else:
+                return Expression.Skip
+        else:
+            raise PropertyNotSupportedError(_invalid_phase_msg(b.name, p))
+
+    @staticmethod
+    def log_fug_phase_comp_eq(b, p, j, pp):
+        # Don't have a method to evaluate activity at other temperatures
+        raise PropertyNotSupportedError(
+            "Phase equilibrium calculations using eNRTL is not supported at this time."
+            )
+
+
     # @staticmethod
     # def enth_mol_phase_excess(b, p):
     #     pobj = b.params.get_phase(p)
@@ -917,4 +971,3 @@ def log_gamma_lc(b, pname, s, X, G, tau):
                 for a in b.params.anion_set
             )
         )
-

@@ -768,6 +768,11 @@ class StandardPropertySet(PropertySetBase):
         units=pyunits.dimensionless,
         # TODO: Units are an issue here, as there are multiple ways to define this
     )
+    log_henry = PropertyMetadata(
+        name="log_henry",
+        doc="Logarithm of Henry Constant",
+        units=pyunits.dimensionless,
+    )
     mass_frac = PropertyMetadata(
         name="mass_frac",
         doc="Mass Fraction",

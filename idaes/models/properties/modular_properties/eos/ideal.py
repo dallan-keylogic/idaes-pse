@@ -246,6 +246,8 @@ class Ideal(EoSBase):
     def fug_phase_comp_eq(b, p, j, pp):
         return _fug_phase_comp(b, p, j, b._teq[pp])
 
+    # TODO add log fugacity
+
     @staticmethod
     def log_fug_phase_comp_eq(b, p, j, pp):
         pobj = b.params.get_phase(p)

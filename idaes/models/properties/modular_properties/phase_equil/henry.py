@@ -134,6 +134,8 @@ def log_henry_pressure(b, p, j, T=None):
     else:
         _raise_henry_type_error(henry_def["type"])
 
+    return log_h_press
+
 
 def henry_equilibrium_ratio(b, p, j):
     """

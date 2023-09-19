@@ -1160,6 +1160,7 @@ class GenericParameterData(PhysicalParameterBlock):
                 "log_conc_mol_phase_comp_true": {
                     "method": "_log_conc_mol_phase_comp_true"
                 },
+                "log_fug_phase_comp": {"method": "_log_fug_phase_comp"},
                 "log_henry": {"method": "_log_henry"},
                 "log_mass_frac_phase_comp": {"method": "_log_mass_frac_phase_comp"},
                 "log_mass_frac_phase_comp_apparent": {
@@ -3862,26 +3863,6 @@ class GenericStateBlockData(StateBlockData):
             self.del_component(self.henry)
             raise
 
-    def _log_henry(self):
-        try:
-
-            def log_henry_rule(b, p, j):
-                cobj = b.params.get_component(j)
-                if (
-                    cobj.config.henry_component is not None
-                    and p in cobj.config.henry_component
-                ):
-                    return cobj.config.henry_component[p]["method"].return_log_expression(
-                        b, p, j, b.temperature
-                    )
-                else:
-                    return Expression.Skip
-
-            self.henry = Expression(self.phase_component_set, rule=log_henry_rule)
-        except AttributeError:
-            self.del_component(self.log_henry_rule)
-            raise
-
     def _mass_frac_phase_comp(self):
         # If this doesn't exist yet, assume it needs to be built from mole_frac
         try:
@@ -4527,6 +4508,40 @@ class GenericStateBlockData(StateBlockData):
         except AttributeError:
             self.del_component(self.log_conc_mol_phase_comp_true)
             self.del_component(self.log_conc_mol_phase_comp_true_eq)
+            raise
+
+    def _log_fug_phase_comp(self):
+        try:
+
+            def rule_log_fug_phase_comp(b, p, j):
+                p_config = b.params.get_phase(p).config
+                return p_config.equation_of_state.log_fug_phase_comp(b, p, j)
+
+            self.log_fug_phase_comp = Expression(
+                self.phase_component_set, rule=rule_log_fug_phase_comp
+            )
+        except AttributeError:
+            self.del_component(self.log_fug_phase_comp)
+            raise
+
+    def _log_henry(self):
+        try:
+
+            def log_henry_rule(b, p, j):
+                cobj = b.params.get_component(j)
+                if (
+                    cobj.config.henry_component is not None
+                    and p in cobj.config.henry_component
+                ):
+                    return cobj.config.henry_component[p]["method"].return_log_expression(
+                        b, p, j, b.temperature
+                    )
+                else:
+                    return Expression.Skip
+
+            self.henry = Expression(self.phase_component_set, rule=log_henry_rule)
+        except AttributeError:
+            self.del_component(self.log_henry_rule)
             raise
 
     def _log_mass_frac_phase_comp(self):

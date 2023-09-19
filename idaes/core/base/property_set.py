@@ -768,11 +768,6 @@ class StandardPropertySet(PropertySetBase):
         units=pyunits.dimensionless,
         # TODO: Units are an issue here, as there are multiple ways to define this
     )
-    log_henry = PropertyMetadata(
-        name="log_henry",
-        doc="Logarithm of Henry Constant",
-        units=pyunits.dimensionless,
-    )
     mass_frac = PropertyMetadata(
         name="mass_frac",
         doc="Mass Fraction",
@@ -916,6 +911,16 @@ class StandardPropertySet(PropertySetBase):
     log_conc_mol = PropertyMetadata(
         name="log_conc_mol",
         doc="Log of Molar Concentration",
+        units=pyunits.dimensionless,
+    )
+    log_pressure = PropertyMetadata(
+        name="log_fug",
+        doc="Log of Fugacity",
+        units=pyunits.dimensionless,
+    )
+    log_henry = PropertyMetadata(
+        name="log_henry",
+        doc="Log of Henry Constant",
         units=pyunits.dimensionless,
     )
     log_mass_frac = PropertyMetadata(

@@ -47,6 +47,11 @@ from idaes.core.util.constants import Constants
 from idaes.core.util.exceptions import ConfigurationError, BurntToast
 import idaes.logger as idaeslog
 
+from idaes.models.properties.modular_properties.phase_equil.henry import (
+    henry_pressure,
+    log_henry_pressure,
+)
+
 from .ideal import Ideal
 from .enrtl_reference_states import Symmetric
 from .enrtl_parameters import ConstantAlpha, ConstantTau
@@ -766,8 +771,12 @@ class ENRTL(Ideal):
             return b.act_coeff_phase_comp_true[p, j] * henry_pressure(b, p, j, T)
         elif cobj(b, j).config.has_vapor_pressure:
             # Use Raoult's Law
-            return b.get_mole_frac(p)[p, j] * get_method(b, "pressure_sat_comp", j)(
-                b, cobj(b, j), T
+            return (
+                b.act_coeff_phase_comp_true[p, j]
+                * b.get_mole_frac(p)[p, j]
+                * get_method(b, "pressure_sat_comp", j)(
+                    b, cobj(b, j), T
+                )
             )
         else:
             return Expression.Skip
@@ -782,23 +791,23 @@ class ENRTL(Ideal):
 
     @staticmethod
     def log_fug_phase_comp(b, p, j):
+        pobj = b.params.get_phase(p)
+        pname = pobj.local_name
+        log_gamma = getattr(b, f"{pname}_log_gamma")
         T = b.temperature
-        if pobj.is_liquid_phase():
-            if (
-                cobj(b, j).config.henry_component is not None
-                and p in cobj(b, j).config.henry_component
-            ):
-                # Use Henry's Law
-                return log_act_coeff[j] + log_henry_pressure(b, p, j, b.temperature)
-            elif cobj(b, j).config.has_vapor_pressure:
-                # Use Raoult's Law
-                return log_act_coeff[j] + b.log_mole_frac_phase_comp_true[p, j] + log(
-                    get_method(b, "pressure_sat_comp", j)(b, cobj(b, j), b.temperature)
-                )
-            else:
-                return Expression.Skip
+        if (
+            cobj(b, j).config.henry_component is not None
+            and p in cobj(b, j).config.henry_component
+        ):
+            # Use Henry's Law
+            return log_gamma[j] + log_henry_pressure(b, p, j, T)
+        elif cobj(b, j).config.has_vapor_pressure:
+            # Use Raoult's Law
+            return log_gamma[j] + b.log_mole_frac_phase_comp_true[p, j] + log(
+                get_method(b, "pressure_sat_comp", j)(b, cobj(b, j), T)
+            )
         else:
-            raise PropertyNotSupportedError(_invalid_phase_msg(b.name, p))
+            return Expression.Skip
 
     @staticmethod
     def log_fug_phase_comp_eq(b, p, j, pp):

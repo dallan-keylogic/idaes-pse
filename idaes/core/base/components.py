@@ -588,5 +588,47 @@ class ApparentData(SoluteData):
         parent = self.parent_block()
         parent._apparent_set.add(self.local_name)  # pylint: disable=protected-access
 
+@declare_process_block_class("Zwitterion", block_class=Component)
+class ZwitterionData(SoluteData):
+    """
+    Component type for uncharged zwitterion species (zwitterions with a net
+    charge should be classified as a Cation or Anion). These can exist only
+    in AqueousPhases, and are always solutes.
+    """
 
-__all_components__ = [Component, Solute, Solvent, Ion, Anion, Cation, Apparent]
+    CONFIG = SoluteData.CONFIG()
+
+    # Remove valid_phase_types argument, as ions are aqueous phase only
+    CONFIG.__delitem__("valid_phase_types")
+    # Set as not having a vapor pressure
+    has_psat = CONFIG.get("has_vapor_pressure")
+    has_psat.set_value(False)
+    has_psat.set_default_value(False)
+    has_psat.set_domain(In([False]))
+
+    def _is_phase_valid(self, phase):
+        return phase.is_aqueous_phase()
+
+    def _is_aqueous_phase_valid(self):
+        return True
+
+    def _add_to_component_list(self):
+        """
+        Ions should not be used outside of electrolyte property methods
+        """
+        raise PropertyPackageError(
+            "{} Ion Component types should only be used with Aqueous "
+            "Phases".format(self.name)
+        )
+    
+    def _add_to_electrolyte_component_list(self):
+        """
+        Special case method for adding references to new Component in
+        component_lists for electrolyte systems,
+
+        New Component types should overload this method
+        """
+        parent = self.parent_block()
+        parent.zwitterion_set.add(self.local_name)
+
+__all_components__ = [Component, Solute, Solvent, Ion, Anion, Cation, Apparent, Zwitterion]

@@ -355,6 +355,10 @@ class GenericParameterData(PhysicalParameterBlock):
                 Set(ordered=True, doc="Set of cations present in aqueous phase"),
             )
             self.add_component(
+                "zwitterion_set",
+                Set(ordered=True, doc="Set of neutral zwitterions present in aqueous phase"),
+            )
+            self.add_component(
                 "solvent_set",
                 Set(ordered=True, doc="Set of solvent species in aqueous phase"),
             )
@@ -410,6 +414,9 @@ class GenericParameterData(PhysicalParameterBlock):
                 true_species.append(j)
                 all_species.append(j)
             for j in self.cation_set:
+                true_species.append(j)
+                all_species.append(j)
+            for j in self.zwitterion_set:
                 true_species.append(j)
                 all_species.append(j)
             for j in self.solvent_set:
@@ -1195,6 +1202,7 @@ class GenericParameterData(PhysicalParameterBlock):
                 "log_pressure_phase_comp_true": {
                     "method": "_log_pressure_phase_comp_true"
                 },
+                "log_pressure_sat_comp": {"method": "_log_pressure_sat_comp"},
                 "log_k_eq": {"method": "_log_k_eq"},
             }
         )
@@ -2678,33 +2686,15 @@ class GenericStateBlockData(StateBlockData):
         # Activity is generally of similar order to mole fractions
         if self.is_property_constructed("log_act_phase_comp"):
             for (p, j), v in self.log_act_phase_comp_eq.items():
-                sf_x = iscale.get_scaling_factor(
-                    self.mole_frac_phase_comp[p, j],
-                    default=1e-3,
-                    warning=True,
-                    hint="for log_mole_frac_phase_comp",
-                )
-                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+                iscale.constraint_scaling_transform(v, 1, overwrite=False)
 
         if self.is_property_constructed("log_act_phase_comp_apparent"):
             for (p, j), v in self.log_act_phase_comp_apparent_eq.items():
-                sf_x = iscale.get_scaling_factor(
-                    self.mole_frac_phase_comp_apparent[p, j],
-                    default=1e-3,
-                    warning=True,
-                    hint="for log_mole_frac_phase_comp_apparent",
-                )
-                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+                iscale.constraint_scaling_transform(v, 1, overwrite=False)
 
         if self.is_property_constructed("log_act_phase_comp_true"):
             for (p, j), v in self.log_act_phase_comp_true_eq.items():
-                sf_x = iscale.get_scaling_factor(
-                    self.mole_frac_phase_comp_true[p, j],
-                    default=1e-3,
-                    warning=True,
-                    hint="for log_mole_frac_phase_comp_true",
-                )
-                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+                iscale.constraint_scaling_transform(v, 1, overwrite=False)
 
         if (
             self.is_property_constructed("log_act_phase_solvents")
@@ -4356,9 +4346,7 @@ class GenericStateBlockData(StateBlockData):
 
             def rule_log_act_phase_comp(b, p, j):
                 p_config = b.params.get_phase(p).config
-                return exp(
-                    b.log_act_phase_comp[p, j]
-                ) == p_config.equation_of_state.act_phase_comp(b, p, j)
+                return b.log_act_phase_comp[p, j] == p_config.equation_of_state.log_act_phase_comp(b, p, j)
 
             self.log_act_phase_comp_eq = Constraint(
                 self.phase_component_set,
@@ -4418,9 +4406,7 @@ class GenericStateBlockData(StateBlockData):
 
             def rule_log_act_phase_comp_true(b, p, j):
                 p_config = b.params.get_phase(p).config
-                return exp(
-                    b.log_act_phase_comp_true[p, j]
-                ) == p_config.equation_of_state.act_phase_comp_true(b, p, j)
+                return b.log_act_phase_comp_true[p, j] == p_config.equation_of_state.log_act_phase_comp_true(b, p, j)
 
             self.log_act_phase_comp_true_eq = Constraint(
                 self.params.true_phase_component_set,
@@ -4444,9 +4430,7 @@ class GenericStateBlockData(StateBlockData):
 
             def rule_log_act_phase_comp_apparent(b, p, j):
                 p_config = b.params.get_phase(p).config
-                return exp(
-                    b.log_act_phase_comp_apparent[p, j]
-                ) == p_config.equation_of_state.act_phase_comp_apparent(b, p, j)
+                return b.log_act_phase_comp_apparent[p, j] == p_config.equation_of_state.log_act_phase_comp_apparent(b, p, j)
 
             self.log_act_phase_comp_apparent_eq = Constraint(
                 self.params.apparent_phase_component_set,
@@ -4880,6 +4864,34 @@ class GenericStateBlockData(StateBlockData):
             self.del_component(self.log_pressure_phase_comp_true)
             self.del_component(self.log_pressure_phase_comp_true_eq)
             raise
+
+    def _log_pressure_sat_comp(self):
+        try:
+
+            def log_pressure_sat_comp_rule(b, j):
+                cobj = b.params.get_component(j)
+                if cobj.config["pressure_sat_comp"] is None:
+                    if cobj.config.henry_component is not None:
+                        # Assume it is a Henry component and skip
+                        _log.debug(
+                            "{} Component {} does not have a method for"
+                            " pressure_sat_comp, but is marked as being"
+                            " Henry component in at least one phase. "
+                            "It will be assumed that saturation "
+                            "pressure is not required for this "
+                            "component.".format(b.name, j)
+                        )
+                        return Expression.Skip
+                    else:
+                        raise
+                
+                return cobj.config["pressure_sat_comp"].return_log_expression(b, cobj, b.temperature)
+                    
+
+            self.log_pressure_sat_comp = Expression(self.component_list, rule=log_pressure_sat_comp_rule)
+        except AttributeError:
+            self.del_component(self.log_pressure_sat_comp)
+            raise     
 
     def _log_k_eq(self):
         try:

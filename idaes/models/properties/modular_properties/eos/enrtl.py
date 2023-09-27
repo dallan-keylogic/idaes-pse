@@ -664,6 +664,20 @@ class ENRTL(Ideal):
     def act_phase_comp_appr(b, p, j):
         ln_gamma = getattr(b, p + "_log_gamma_appr")
         return b.mole_frac_phase_comp_apparent[p, j] * exp(ln_gamma[j])
+    
+    @staticmethod
+    def log_act_phase_comp(b, p, j):
+        return b.log_mole_frac_phase_comp[p, j] + b.act_coeff_phase_comp[p, j]
+
+    @staticmethod
+    def log_act_phase_comp_true(b, p, j):
+        ln_gamma = getattr(b, p + "_log_gamma")
+        return b.log_mole_frac_phase_comp_true[p, j] + ln_gamma[j]
+
+    @staticmethod
+    def log_act_phase_comp_appr(b, p, j):
+        ln_gamma = getattr(b, p + "_log_gamma_appr")
+        return b.log_mole_frac_phase_comp_apparent[p, j] + ln_gamma[j]
 
     @staticmethod
     def act_coeff_phase_comp(b, p, j):
@@ -682,6 +696,24 @@ class ENRTL(Ideal):
     def act_coeff_phase_comp_appr(b, p, j):
         ln_gamma = getattr(b, p + "_log_gamma_appr")
         return exp(ln_gamma[j])
+    
+    @staticmethod
+    def log_act_coeff_phase_comp(b, p, j):
+        if b.params.config.state_components == StateIndex.true:
+            ln_gamma = getattr(b, p + "_log_gamma")
+        else:
+            ln_gamma = getattr(b, p + "_log_gamma_appr")
+        return ln_gamma[j]
+
+    @staticmethod
+    def log_act_coeff_phase_comp_true(b, p, j):
+        ln_gamma = getattr(b, p + "_log_gamma")
+        return ln_gamma[j]
+
+    @staticmethod
+    def log_act_coeff_phase_comp_appr(b, p, j):
+        ln_gamma = getattr(b, p + "_log_gamma_appr")
+        return ln_gamma[j]
 
     @staticmethod
     def pressure_osm_phase(b, p):
@@ -803,9 +835,7 @@ class ENRTL(Ideal):
             return log_gamma[j] + log_henry_pressure(b, p, j, T)
         elif cobj(b, j).config.has_vapor_pressure:
             # Use Raoult's Law
-            return log_gamma[j] + b.log_mole_frac_phase_comp_true[p, j] + log(
-                get_method(b, "pressure_sat_comp", j)(b, cobj(b, j), T)
-            )
+            return log_gamma[j] + b.log_mole_frac_phase_comp_true[p, j] + b.log_pressure_sat_comp[j]
         else:
             return Expression.Skip
 

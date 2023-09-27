@@ -963,6 +963,11 @@ class StandardPropertySet(PropertySetBase):
         doc="Log of Pressure",
         units=pyunits.dimensionless,
     )
+    log_pressure_sat = PropertyMetadata(
+        name="log_pressure_sat",
+        doc="Log of Saturation Pressure",
+        units=pyunits.dimensionless,
+    )
 
     # Reaction Properties
     # TODO: Units are also problematic here - no single definition

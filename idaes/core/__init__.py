@@ -41,7 +41,7 @@ from .base.phases import (
     PhaseType,
     AqueousPhase,
 )
-from .base.components import Component, Solvent, Solute, Ion, Cation, Anion, Apparent
+from .base.components import Component, Solvent, Solute, Ion, Cation, Anion, Apparent, Zwitterion
 from .base.costing_base import (
     FlowsheetCostingBlock,
     FlowsheetCostingBlockData,

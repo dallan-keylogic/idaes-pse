@@ -1110,6 +1110,7 @@ class GenericParameterData(PhysicalParameterBlock):
                 },
                 "enth_mol": {"method": "_enth_mol"},
                 "enth_mol_phase": {"method": "_enth_mol_phase"},
+                "enth_mol_phase_excess": {"method": "_enth_mol_phase_excess"},
                 "enth_mol_phase_comp": {"method": "_enth_mol_phase_comp"},
                 "entr_mol": {"method": "_entr_mol"},
                 "entr_mol_phase": {"method": "_entr_mol_phase"},
@@ -3430,6 +3431,18 @@ class GenericStateBlockData(StateBlockData):
             self.enth_mol_phase = Expression(self.phase_list, rule=rule_enth_mol_phase)
         except AttributeError:
             self.del_component(self.enth_mol_phase)
+            raise
+
+    def _enth_mol_phase_excess(self):
+        try:
+
+            def rule_enth_mol_phase_excess(b, p):
+                p_config = b.params.get_phase(p).config
+                return p_config.equation_of_state.enth_mol_phase_excess(b, p)
+
+            self.enth_mol_phase_excess = Expression(self.phase_list, rule=rule_enth_mol_phase_excess)
+        except AttributeError:
+            self.del_component(self.enth_mol_phase_excess)
             raise
 
     def _enth_mol_phase_comp(self):

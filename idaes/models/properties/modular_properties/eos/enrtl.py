@@ -33,6 +33,7 @@ ionic charge.
 # pylint: disable=protected-access
 
 from enum import Enum
+from functools import partial
 
 from pyomo.environ import Expression, exp, log, Param, Set, units as pyunits
 from pyomo.core.expr.calculus.derivatives import Modes, differentiate
@@ -737,23 +738,26 @@ class ENRTL(Ideal):
     
     @staticmethod
     def enth_mol_phase_comp_excess(b, p, j):
-        dact_dT = differentiate(
-            expr=b.act_coeff_phase_comp_true[p, j],
-            wrt=b.temperature,
-            mode=Modes.reverse_symbolic
-        )
-        return -ENRTL.gas_constant(b) * b.temperature ** 2 *dact_dT
+        if not hasattr(b, f"{p}_d_log_gamma_dT"):
+            b._create_d_log_gamma_dT(b, p)
+        d_log_gamma_dT = getattr(b, f"{p}_d_log_gamma_dT")
+        return -ENRTL.gas_constant(b) * b.temperature ** 2 * d_log_gamma_dT[j]
+
+    # These methods probably shouldn't exist    
+    # @staticmethod
+    # def enth_mol_phase_comp_ideal(b, p, j):
+    #     return Ideal.enth_mol_phase_comp(b, p, j)
     
-    @staticmethod
-    def enth_mol_phase_comp_ideal(b, p, j):
-        return Ideal.enth_mol_phase_comp(b, p, j)
+    # @staticmethod
+    # def cp_mol_phase_comp_ideal(b, p, j):
+    #     return Ideal.cp_mol_phase_comp(b, p, j)
 
     @staticmethod
     def enth_mol_phase_comp(b, p, j):
         pobj = b.params.get_phase(p)
 
         if pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.true:
-            return b.enth_mol_phase_comp_ideal[p, j] + b.enth_mol_phase_comp_excess[p, j]
+            return b.enth_mol_phase_comp_ideal[p, j] + ENRTL.enth_mol_phase_comp_excess(b, p, j)
         elif pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.apparent:
             raise AttributeError("Partial molar enthalpy is not well-defined when using apparent species as basis.")
         else:
@@ -774,7 +778,7 @@ class ENRTL(Ideal):
             enth_mol_ideal = (
                 sum(
                     b.mole_frac_phase_comp_apparent[p, j]
-                    * b.enth_mol_phase_comp[p, j]
+                    * Ideal.enth_mol_phase_comp(b, p, j)
                     for j in b.components_in_phase(p, true_basis=False)
                 )
                 + sum(
@@ -788,7 +792,7 @@ class ENRTL(Ideal):
         enth_mol_ideal += (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
         return enth_mol_ideal + sum(
             b.mole_frac_phase_comp_true[p, j]
-            * b.enth_mol_phase_comp_excess[p, j]
+            * ENRTL.enth_mol_phase_comp_excess(b, p, j)
             for j in b.components_in_phase(p, true_basis=True)
         )
 
@@ -847,20 +851,34 @@ class ENRTL(Ideal):
             )
 
 
-    # @staticmethod
-    # def enth_mol_phase_excess(b, p):
-    #     pobj = b.params.get_phase(p)
-    #     enth_mol_ideal = (
-    #         sum(
-    #             b.get_mole_frac(p)[p, j]
-    #             * get_method(b, "enth_mol_liq_comp", j)(
-    #                 b, cobj(b, j), b.temperature
-    #             )
-    #             for j in b.components_in_phase(p)
-    #         )
-    #         + (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
-    #     )
+    @staticmethod
+    def enth_mol_phase_excess(b, p):
+        pobj = b.params.get_phase(p)
+        return sum(
+            b.mole_frac_phase_comp_true[p, j]
+            * ENRTL.enth_mol_phase_comp_excess(b, p, j)   
+            for j in b.components_in_phase(p, true_basis=True)
+        )
     
+    @staticmethod
+    def _create_d_log_gamma_dT(b, p):
+        pobj = b.params.get_phase(p)
+        pname = pobj.local_name
+        def rule_d_log_gamma_dT(b, j, pname):
+            log_gamma = getattr(b, f"{pname}_log_gamma")
+            return differentiate(
+                expr=log_gamma[j],
+                wrt=b.temperature,
+                mode=Modes.reverse_symbolic
+            )
+        b.add_component(
+            pname + "_d_log_gamma_dT",
+            Expression(
+                b.params.true_species_set,
+                rule=partial(rule_d_log_gamma_dT, pname=pname),
+                doc=f"Temperature derivative of {pname} activity coefficient",
+            ),
+        )
 
 
 def log_gamma_lc(b, pname, s, X, G, tau):

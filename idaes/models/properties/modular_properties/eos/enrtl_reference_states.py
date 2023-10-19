@@ -60,11 +60,6 @@ class Unsymmetric(object):
 
     @staticmethod
     def ref_state(b, pname):
-        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
-        b.add_component(
-            pname + "_dimensionless_zero",
-            dimensionless_zero,
-        )
         def rule_x_ref(b, i):
             pobj = b.params.get_phase(pname)
             eps = getattr(pobj, "eps_eNRTL")
@@ -99,12 +94,8 @@ class Symmetric(object):
 
     @staticmethod
     def ref_state(b, pname):
-        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
-        b.add_component(
-            pname + "_dimensionless_zero",
-            dimensionless_zero,
-        )
         def rule_x_ref(b, i):
+            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
             if i in b.params.ion_set:
                 # Eqn 66
                 return b.mole_frac_phase_comp_true[pname, i] / sum(
@@ -160,13 +151,9 @@ class InfiniteDilutionSingleSolvent(object):
     @staticmethod
     def ref_state(b, pname):
         # No ions at infinite dilution, ionic strength is zero
-        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
-        b.add_component(
-            pname + "_dimensionless_zero",
-            dimensionless_zero,
-        )
 
         def rule_I_ref(b):
+            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
             return dimensionless_zero
         
         b.add_component(
@@ -177,6 +164,7 @@ class InfiniteDilutionSingleSolvent(object):
         def rule_log_gamma_born(b, s):
             pobj = b.params.get_phase(pname)
             ref_comp = pobj.ref_comp
+            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
 
             if not s in b.params.ion_set:
                 return dimensionless_zero
@@ -207,6 +195,7 @@ class InfiniteDilutionSingleSolvent(object):
         def rule_log_gamma_lc_I0(b, s):
             pobj = b.params.get_phase(pname)
             ref_comp = pobj.ref_comp
+            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
 
             G = getattr(b, pname + "_G")
             tau = getattr(b, pname + "_tau")

@@ -38,6 +38,7 @@ from functools import partial
 from pyomo.environ import Expression, exp, log, Param, Set, units as pyunits
 from pyomo.core.expr.calculus.derivatives import Modes, differentiate
 
+from idaes.core.util.exceptions import PropertyNotSupportedError
 from idaes.models.properties.modular_properties.base.utility import (
     get_method,
     get_component_object as cobj,
@@ -175,14 +176,22 @@ class ENRTL(Ideal):
 
         # ---------------------------------------------------------------------
         # Calculate composition terms
-
+        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
+        b.add_component(
+            pname + "_dimensionless_zero",
+            dimensionless_zero,
+        )
         # Ionic Strength
         def rule_I(b):  # Eqn 62
-            return 0.5 * sum(
-                b.mole_frac_phase_comp_true[pname, c]
-                * b.params.get_component(c).config.charge ** 2
-                for c in b.params.ion_set
-            )
+            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
+            if len(b.params.ion_set) > 0:
+                return 0.5 * sum(
+                    b.mole_frac_phase_comp_true[pname, c]
+                    * b.params.get_component(c).config.charge ** 2
+                    for c in b.params.ion_set
+                ) 
+            else:
+                return dimensionless_zero # TODO get rid of this once Pyomo fixes their AD
 
         b.add_component(
             pname + "_ionic_strength", Expression(rule=rule_I, doc="Ionic strength")
@@ -739,7 +748,7 @@ class ENRTL(Ideal):
     @staticmethod
     def enth_mol_phase_comp_excess(b, p, j):
         if not hasattr(b, f"{p}_d_log_gamma_dT"):
-            b._create_d_log_gamma_dT(b, p)
+            ENRTL._create_d_log_gamma_dT(b, p)
         d_log_gamma_dT = getattr(b, f"{p}_d_log_gamma_dT")
         return -ENRTL.gas_constant(b) * b.temperature ** 2 * d_log_gamma_dT[j]
 

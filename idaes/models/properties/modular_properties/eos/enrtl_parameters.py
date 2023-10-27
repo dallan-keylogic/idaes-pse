@@ -35,6 +35,7 @@ class ConstantAlpha(object):
         param_block = b.parent_block()
 
         # Get user provided values for alpha (if present)
+        # TODO why is this looking on the parent block and not the phase block?
         try:
             alpha_data = param_block.config.parameter_data[b.local_name + "_alpha"]
         except KeyError:

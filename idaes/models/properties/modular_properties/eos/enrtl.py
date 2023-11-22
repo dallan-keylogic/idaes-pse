@@ -96,7 +96,7 @@ class ENRTL(Ideal):
                 ion_pair.append(i + ", " + j)
         b.ion_pair_set = Set(initialize=ion_pair)
 
-        comps = pblock.solvent_set | pblock.solute_set | b.ion_pair_set
+        comps = pblock.solvent_set | pblock.solute_set | b.ion_pair_set | pblock.zwitterion_set
         comp_pairs = []
         comp_pairs_sym = []
         for i in comps:
@@ -141,7 +141,8 @@ class ENRTL(Ideal):
     def common(b, pobj):
         pname = pobj.local_name
 
-        molecular_set = b.params.solvent_set | b.params.solute_set
+        # For the purposes of eNRTL, zwitterions are "molecules" not "ions"
+        molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
 
         # Check options for alpha rule
         if (
@@ -897,7 +898,8 @@ def log_gamma_lc(b, pname, s, X, G, tau):
 
     # Indices in expressions use same names as source paper
     # mp = m'
-    molecular_set = b.params.solvent_set | b.params.solute_set
+    # For the purposes of eNRTL, zwitterions are "molecules"
+    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
     aqu_species = b.params.true_species_set - b.params._non_aqueous_set
 
     if (pname, s) not in b.params.true_phase_component_set:

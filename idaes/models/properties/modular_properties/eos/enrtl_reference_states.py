@@ -209,7 +209,7 @@ class InfiniteDilutionSingleSolvent(object):
                 return Z * (G[s, ref_comp]*tau[s, ref_comp] + tau[ref_comp, s])
             elif s in b.params.solute_set:
                 return G[s, ref_comp]*tau[s, ref_comp] + tau[ref_comp, s]
-            elif s in b.params.solvent_set:
+            elif s in b.params.solvent_set or s in b.params.zwitterion_set:
                 return dimensionless_zero
             else:
                 raise BurntToast(

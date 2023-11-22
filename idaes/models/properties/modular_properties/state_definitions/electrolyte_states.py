@@ -27,7 +27,7 @@ from idaes.models.properties.modular_properties.base.utility import (
 )
 from idaes.core.util.exceptions import BurntToast
 from idaes.core.util.misc import add_object_reference
-from idaes.core.base.components import IonData, ApparentData
+from idaes.core.base.components import IonData, ApparentData, Zwitterion
 import idaes.logger as idaeslog
 import idaes.core.util.scaling as iscale
 
@@ -103,7 +103,7 @@ def _apparent_species_state(b):
         pobj = b.params.get_phase(p)
         cobj = b.params.get_component(j)
         if pobj.is_aqueous_phase:
-            if isinstance(cobj, IonData):
+            if isinstance(cobj, IonData) or isinstance(cobj, Zwitterion):
                 e = 0
                 for a in b.params._apparent_set:
                     aobj = b.params.get_component(a)
@@ -166,7 +166,7 @@ def _apparent_species_scaling(b):
         # they'll be well-scaled in this equation. If they are consumed to "exhaustion"
         # (several orders of magnitude below apparent concentration), then their concentration
         # will decouple from this equation and will be given by equilibrium equation instead
-        if pobj.is_aqueous_phase and not isinstance(cobj, IonData):
+        if pobj.is_aqueous_phase and not isinstance(cobj, IonData) and not isinstance(cobj, Zwitterion):
             sf_apparent = iscale.get_scaling_factor(
                 b.flow_mol_phase_comp_apparent[p, j], default=1, warning=True
             )

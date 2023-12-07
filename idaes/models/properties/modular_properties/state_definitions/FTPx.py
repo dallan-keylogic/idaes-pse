@@ -383,6 +383,10 @@ def state_initialization(b):
     else:
         _pe_pairs = b.params._pe_pairs
 
+    if len(b.phase_list) == 1:
+        # Only one phase, set phase flow rate to the overall molar flow
+        b.flow_mol_phase[b.phase_list.at(1)].value = b.flow_mol.value
+
     vl_comps = []
     henry_comps = []
     init_VLE = False

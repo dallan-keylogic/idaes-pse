@@ -2013,6 +2013,9 @@ class _GenericStateBlock(StateBlock):
                 "Property initialization: {}.".format(idaeslog.condition(res))
             )
 
+        if res is not None and not check_optimal_termination(res):
+            print("hello")
+
         # ---------------------------------------------------------------------
         # Return constraints to initial state
         for k in blk.values():

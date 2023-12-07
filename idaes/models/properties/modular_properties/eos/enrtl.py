@@ -807,6 +807,10 @@ class ENRTL(Ideal):
         )
 
     @staticmethod
+    def energy_internal_mol_phase(b, p):
+        return  b.enth_mol_phase[p] - b.pressure / b.dens_mol_phase[p]
+
+    @staticmethod
     def fug_phase_comp(b, p, j):
         T = b.temperature
         if (

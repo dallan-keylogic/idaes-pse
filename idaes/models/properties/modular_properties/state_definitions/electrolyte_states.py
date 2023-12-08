@@ -205,9 +205,6 @@ def _apparent_species_scaling(b):
             )
 
 
-        
-
-
 def _true_species_state(b):
     # Create references to base state vars
     add_object_reference(b, "flow_mol_true", b.flow_mol)

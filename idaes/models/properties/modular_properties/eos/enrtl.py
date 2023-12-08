@@ -794,6 +794,10 @@ class ENRTL(Ideal):
                 + sum(
                     b.apparent_inherent_reaction_extent[r]
                     * b.dh_rxn[r]
+                    # This flow_mol needs to be apparent for get_enthalpy_flow_terms
+                    # to be correct. flow_mol_phase might be more correct, but
+                    # right now inherent reactions are broken for multiphase systems
+                    / b.flow_mol # TODO Fix later
                     for r in b.params.inherent_reaction_idx
                 )
             )

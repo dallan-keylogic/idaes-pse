@@ -326,6 +326,15 @@ class GenericParameterData(PhysicalParameterBlock):
                     )
                 )
             elif ptype is AqueousPhase:
+                if self._electrolyte == True:
+                    # If this flag has been toggled, there's already an aqueous
+                    # phase. The modular property framework does not support
+                    # nonmiscible aqueous phases (if such things even exist)
+                    raise ConfigurationError(
+                        f"Multiple aqueous phases were detected in {self.name}. "
+                        "The modular property framework only supports a single "
+                        "aqeuous phase per property block."
+                    )
                 # If there is an aqueous phase, set _electrolyte = True
                 self._electrolyte = True
                 # Check that specified property package supports electrolytes

@@ -253,6 +253,7 @@ class Ideal(EoSBase):
         pobj = b.params.get_phase(p)
 
         if pobj.is_vapor_phase():
+            # TODO revise to use log form variables
             return log(b.get_mole_frac(p)[p, j]) + log(b.pressure)
         elif pobj.is_liquid_phase():
             if (

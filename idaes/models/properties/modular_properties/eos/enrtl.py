@@ -139,6 +139,11 @@ class ENRTL(Ideal):
 
     @staticmethod
     def common(b, pobj):
+        # For nonaqueous phases, we don't want to build all the eNRTL infrastructure
+        # Theoretically in the future we could use NRTL for organic phases
+        if not pobj.is_aqueous_phase():
+            Ideal.common(b, pobj)
+            return
         pname = pobj.local_name
 
         # For the purposes of eNRTL, zwitterions are "molecules" not "ions"
@@ -660,6 +665,8 @@ class ENRTL(Ideal):
 
     @staticmethod
     def calculate_scaling_factors(b, pobj):
+        if not pobj.is_aqueous_phase():
+            Ideal.calculate_scaling_factors(b, pobj)
         pass
 
     @staticmethod
@@ -763,8 +770,34 @@ class ENRTL(Ideal):
     #     return Ideal.cp_mol_phase_comp(b, p, j)
 
     @staticmethod
+    def cp_mol_phase(b, p):
+        raise NotImplementedError(
+            "Heat capacity deliberately left unimplemented due to complications with inherent reactions"
+        )
+
+    @staticmethod
+    def cp_mol_phase_comp(b, p, j):
+        raise NotImplementedError(
+            "Heat capacity deliberately left unimplemented due to complications with inherent reactions"
+        )
+    
+    @staticmethod
+    def cv_mol_phase(b, p):
+        raise NotImplementedError(
+            "Heat capacity deliberately left unimplemented due to complications with inherent reactions"
+        )
+
+    @staticmethod
+    def cv_mol_phase_comp(b, p, j):
+        raise NotImplementedError(
+            "Heat capacity deliberately left unimplemented due to complications with inherent reactions"
+        )
+
+    @staticmethod
     def enth_mol_phase_comp(b, p, j):
         pobj = b.params.get_phase(p)
+        if not pobj.is_aqueous_phase():
+            return Ideal.enth_mol_phase_comp(b, p, j)
 
         if pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.true:
             return b.enth_mol_phase_comp_ideal[p, j] + ENRTL.enth_mol_phase_comp_excess(b, p, j)
@@ -776,6 +809,8 @@ class ENRTL(Ideal):
     @staticmethod
     def enth_mol_phase(b, p):
         pobj = b.params.get_phase(p)
+        if not pobj.is_aqueous_phase():
+            return Ideal.enth_mol_phase(b, p, j)
 
         if pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.true:
             enth_mol_ideal = sum(
@@ -812,6 +847,8 @@ class ENRTL(Ideal):
 
     @staticmethod
     def energy_internal_mol_phase(b, p):
+        if not pobj.is_aqueous_phase():
+            return Ideal.energy_internal_mol_phase(b, p, j)
         return  b.enth_mol_phase[p] - b.pressure / b.dens_mol_phase[p]
 
     @staticmethod
@@ -846,6 +883,9 @@ class ENRTL(Ideal):
     @staticmethod
     def log_fug_phase_comp(b, p, j):
         pobj = b.params.get_phase(p)
+        if not pobj.is_aqueous_phase():
+            return Ideal.log_fug_phase_comp(b, p, j)
+
         pname = pobj.local_name
         log_gamma = getattr(b, f"{pname}_log_gamma")
         T = b.temperature
@@ -872,6 +912,10 @@ class ENRTL(Ideal):
     @staticmethod
     def enth_mol_phase_excess(b, p):
         pobj = b.params.get_phase(p)
+        if not pobj.is_aqueous_phase():
+            # TODO Fix this if/when we implement NRTL for organic phases
+            units = b.params.get_metadata().derived_units
+            return 0 * units.ENERGY_MOLE
         return sum(
             b.mole_frac_phase_comp_true[p, j]
             * ENRTL.enth_mol_phase_comp_excess(b, p, j)   

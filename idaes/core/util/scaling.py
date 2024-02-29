@@ -208,7 +208,7 @@ def calculate_scaling_factors(blk):
     cs(blk)
     # If a scale factor is set for an indexed component, propagate it to the
     # component data if a scale factor hasn't already been explicitly set
-    propagate_indexed_component_scaling_factors(blk)
+    # propagate_indexed_component_scaling_factors(blk)
     # Use the variable scaling factors to scale the arc constraints.
     scale_arc_constraints(blk)
 
@@ -226,6 +226,9 @@ def set_scaling_factor(c, v, data_objects=True, overwrite=True):
         None
     """
     if isinstance(c, (float, int)):
+        # TODO this is almost certainly not how we want to handle things
+        # Strictly speaking, 0 has a scaling factor of inf
+
         # property packages can return 0 for material balance terms on components
         # doesn't exist.  This handles the case where you get a constant 0 and
         # need its scale factor to scale the mass balance.
@@ -273,6 +276,10 @@ def get_scaling_factor(c, default=None, warning=False, exception=False, hint=Non
     Returns:
         scaling factor (float)
     """
+    if c.is_indexed():
+        raise AttributeError(
+            f"Ambiguous which scaling factor to return for indexed component {c.name}."
+        )
     try:
         sf = c.parent_block().scaling_factor[c]
     except (AttributeError, KeyError):

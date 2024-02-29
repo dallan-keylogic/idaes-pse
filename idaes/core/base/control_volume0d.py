@@ -1728,7 +1728,7 @@ class ControlVolume0DBlockData(ControlVolumeBlockData):
         # If the parent component of an indexed component has a scale factor,
         # but some of the data objects don't, propagate the indexed component
         # scale factor to the missing scaling factors.
-        iscale.propagate_indexed_component_scaling_factors(self)
+        # iscale.propagate_indexed_component_scaling_factors(self)
 
         phase_list = self.properties_in.phase_list
         phase_component_set = self.properties_in.phase_component_set
@@ -1889,22 +1889,6 @@ class ControlVolume0DBlockData(ControlVolumeBlockData):
                         self.properties_out[t].get_enthalpy_flow_terms(p),
                         default=1,
                         warning=True,
-                    )
-                    iscale.set_scaling_factor(v, sf)
-
-        if hasattr(self, "heat"):
-            for v in self.heat.values():
-                if iscale.get_scaling_factor(v) is None:
-                    sf = iscale.get_scaling_factor(
-                        self.heat, default=1e-6, warning=True
-                    )
-                    iscale.set_scaling_factor(v, sf)
-
-        if hasattr(self, "work"):
-            for v in self.work.values():
-                if iscale.get_scaling_factor(v) is None:
-                    sf = iscale.get_scaling_factor(
-                        self.work, default=1e-6, warning=True
                     )
                     iscale.set_scaling_factor(v, sf)
 

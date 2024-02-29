@@ -2353,22 +2353,6 @@ argument).""",
                     )
                     iscale.set_scaling_factor(v, sf)
 
-        if hasattr(self, "heat"):
-            for v in self.heat.values():
-                if iscale.get_scaling_factor(v) is None:
-                    sf = iscale.get_scaling_factor(
-                        self.heat, default=1e-6, warning=True
-                    )
-                    iscale.set_scaling_factor(v, sf)
-
-        if hasattr(self, "work"):
-            for v in self.work.values():
-                if iscale.get_scaling_factor(v) is None:
-                    sf = iscale.get_scaling_factor(
-                        self.work, default=1e-6, warning=True
-                    )
-                    iscale.set_scaling_factor(v, sf)
-
         if hasattr(self, "enthalpy_transfer"):
             for (t, x), v in self.enthalpy_transfer.items():
                 if iscale.get_scaling_factor(v) is None:

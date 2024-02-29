@@ -2149,7 +2149,7 @@ argument).""",
         # If the parent component of an indexed component has a scale factor,
         # but some of the data objects don't, propagate the indexed component
         # scale factor to the missing scaling factors.
-        iscale.propagate_indexed_component_scaling_factors(self)
+        # iscale.propagate_indexed_component_scaling_factors(self)
 
         # Set scaling for geometry variables
         if hasattr(self, "area"):

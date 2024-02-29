@@ -817,7 +817,7 @@ class SolidOxideCellData(UnitModelBlockData):
                 def total_heat_loss_eqn(b, t, iz):
                     # Equal heat loss flux across the entire surface
                     # Sign change in order to make "heat loss" positive
-                    return b.total_heat_loss == (
+                    return b.total_heat_loss[t] == (
                         -b.heat_loss_flux[t, iz] 
                         / b.length_y
                         / b.length_z
@@ -1172,7 +1172,7 @@ class SolidOxideCellData(UnitModelBlockData):
             for t in self.flowsheet().time:
                 for iz in self.iznodes:
                     self.heat_loss_flux[t, iz].set_value(
-                        pyo.value(self.total_heat_loss/self.length_y/self.length_z)
+                        pyo.value(self.dz[iz]*self.total_heat_loss[t]/self.length_y/self.length_z)
                     )
 
         init_log.info_high("Solving cell with fixed current density")
@@ -1342,12 +1342,13 @@ class SolidOxideCellData(UnitModelBlockData):
             self.total_current,
             1 / self.length_z.value * 1 / self.length_y.value * 1 / 4000,
         )
-        sdf(
-            self.total_heat_loss,
-            1/3,
-        )
+        if self.config.has_heat_loss_term:
+            sdf(
+                self.total_heat_loss,
+                1/3,
+            )
 
-        iscale.propagate_indexed_component_scaling_factors(self)
+        # iscale.propagate_indexed_component_scaling_factors(self)
 
         # Need to scale material_flux_xes by component because inerts have much smaller
         # fluxes than actively reacting species.
@@ -1459,7 +1460,7 @@ class SolidOxideCellData(UnitModelBlockData):
                         default=s_q_flux,
                     )
                     sq = min(sq1, sq2)
-                    ssf(self.heat_loss_flux[t, iz])
+                    ssf(self.heat_loss_flux[t, iz], sq)
                     cst(
                         self.heat_loss_eqn[t, iz],
                         sq,

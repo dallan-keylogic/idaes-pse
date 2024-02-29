@@ -297,17 +297,17 @@ class SolidOxideModuleSimpleData(UnitModelBlockData):
                 b.total_current[t]
                 == b.solid_oxide_cell.total_current[t] * b.number_cells
             )
-        
-        self.total_heat_loss = pyo.Var(
-            tset,
-            units=pyo.units.W,
-            doc="Total heat loss from module (positive means heat leaving module)",
-            initialize=0,
-        )
+        if self.config.has_heat_loss_term:
+            self.total_heat_loss = pyo.Var(
+                tset,
+                units=pyo.units.W,
+                doc="Total heat loss from module (positive means heat leaving module)",
+                initialize=0,
+            )
 
-        @self.Constraint(tset)
-        def total_heat_loss_eqn(b, t):
-            return b.total_heat_loss[t] == b.solid_oxide_cell.total_heat_loss[t] * b.number_cells
+            @self.Constraint(tset)
+            def total_heat_loss_eqn(b, t):
+                return b.total_heat_loss[t] == b.solid_oxide_cell.total_heat_loss[t] * b.number_cells
             
 
     def initialize_build(
@@ -405,7 +405,7 @@ class SolidOxideModuleSimpleData(UnitModelBlockData):
         for t in self.flowsheet().time:
             if not potential_cell_fixed[t]:
                 self.potential_cell[t].unfix()
-            if not total_heat_loss_fixed[t]:
+            if self.config.has_heat_loss_term and not total_heat_loss_fixed[t]:
                 self.total_heat_loss[t].unfix()
 
     def calculate_scaling_factors(self):
@@ -465,10 +465,11 @@ class SolidOxideModuleSimpleData(UnitModelBlockData):
             sf_tot_current = gsf(self.total_current[t])
             cst(self.total_current_eqn[t], sf_tot_current)
             
-            sf_total_heat_loss = gsf(self.solid_oxide_cell.total_heat_loss[t])
-            ssf(self.total_heat_loss[t], sf_total_heat_loss * s_num_cells)
-            sf_total_heat_loss = gsf(self.total_heat_loss[t])
-            cst(self.total_heat_loss_eqn[t], sf_total_heat_loss)
+            if self.config.has_heat_loss_term:
+                sf_total_heat_loss = gsf(self.solid_oxide_cell.total_heat_loss[t])
+                ssf(self.total_heat_loss[t], sf_total_heat_loss * s_num_cells)
+                sf_total_heat_loss = gsf(self.total_heat_loss[t])
+                cst(self.total_heat_loss_eqn[t], sf_total_heat_loss)
 
     def model_check(self):
         pass

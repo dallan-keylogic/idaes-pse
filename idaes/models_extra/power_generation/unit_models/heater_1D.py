@@ -74,8 +74,8 @@ class Heater1DData(UnitModelBlockData):
     """Standard Heat Exchanger Cross Flow Unit Model Class."""
 
     # Template for config arguments for shell and tube side
-    _SideTemplate = ConfigBlock()
-    _SideTemplate.declare(
+    CONFIG = ConfigBlock()
+    CONFIG.declare(
         "dynamic",
         ConfigValue(
             default=useDefault,
@@ -89,7 +89,7 @@ class Heater1DData(UnitModelBlockData):
 **False** - set as a steady-state model.}""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "has_holdup",
         ConfigValue(
             default=False,
@@ -103,20 +103,19 @@ Must be True if dynamic = True,
 **False** - do not construct holdup terms}""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "has_fluid_holdup",
         ConfigValue(
             default=False,
-            domain=In([True, False]),
+            domain=In([False]),
             description="Holdup construction flag",
             doc="""Indicates whether holdup terms for the fluid should be constructed or not.
             **default** - False.
             **Valid values:** {
-            **True** - construct holdup terms,
             **False** - do not construct holdup terms}""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "material_balance_type",
         ConfigValue(
             default=MaterialBalanceType.componentTotal,
@@ -132,7 +131,7 @@ Must be True if dynamic = True,
 **MaterialBalanceType.total** - use total material balance.}""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "energy_balance_type",
         ConfigValue(
             default=EnergyBalanceType.enthalpyTotal,
@@ -148,7 +147,7 @@ Must be True if dynamic = True,
 **EnergyBalanceType.energyPhase** - energy balances for each phase.}""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "momentum_balance_type",
         ConfigValue(
             default=MomentumBalanceType.pressureTotal,
@@ -164,7 +163,7 @@ Must be True if dynamic = True,
 **MomentumBalanceType.momentumPhase** - momentum balances for each phase.}""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "has_pressure_change",
         ConfigValue(
             default=False,
@@ -178,18 +177,7 @@ constructed,
 **False** - exclude pressure change terms.}""",
         ),
     )
-    _SideTemplate.declare(
-        "has_phase_equilibrium",
-        ConfigValue(
-            default=False,
-            domain=In([True, False]),
-            description="Phase equilibrium term construction flag",
-            doc="""Argument to enable phase equilibrium on the shell side.
-- True - include phase equilibrium term
-- False - do not include phase equilibrium term""",
-        ),
-    )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "property_package",
         ConfigValue(
             domain=is_physical_parameter_block,
@@ -200,7 +188,7 @@ constructed,
 - a ParameterBlock object""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "property_package_args",
         ConfigValue(
             default=None,
@@ -212,9 +200,7 @@ and used when constructing these
 - a dict (see property package for documentation)""",
         ),
     )
-    # TODO : We should probably think about adding a consistency check for the
-    # TODO : discretization methods as well.
-    _SideTemplate.declare(
+    CONFIG.declare(
         "transformation_method",
         ConfigValue(
             default=useDefault,
@@ -223,7 +209,7 @@ and used when constructing these
 documentation for supported transformations.""",
         ),
     )
-    _SideTemplate.declare(
+    CONFIG.declare(
         "transformation_scheme",
         ConfigValue(
             default=useDefault,
@@ -233,7 +219,7 @@ documentation for supported schemes.""",
         ),
     )
 
-    CONFIG = _SideTemplate
+    CONFIG = CONFIG
 
     # Common config args for both sides
     CONFIG.declare(
@@ -252,8 +238,8 @@ domain (default=5). Should set to the number of tube rows""",
             default=3,
             domain=int,
             description="Number of collocation points per finite element",
-            doc="""Number of collocation points to use per finite element when
-discretizing length domain (default=3)""",
+            doc="""If using collocation, number of collocation points to use 
+            per finite element when discretizing length domain (default=3)""",
         ),
     )
     CONFIG.declare(
@@ -263,15 +249,6 @@ discretizing length domain (default=3)""",
             domain=In(["in-line", "staggered"]),
             description="tube configuration",
             doc="tube arrangement could be in-line or staggered",
-        ),
-    )
-    CONFIG.declare(
-        "has_radiation",
-        ConfigValue(
-            default=False,
-            domain=In([False, True]),
-            description="Has side 2 gas radiation",
-            doc="define if shell side gas radiation is to be considered",
         ),
     )
 
@@ -294,7 +271,7 @@ discretizing length domain (default=3)""",
         if self.config.transformation_method is useDefault:
             self.config.transformation_method = "dae.finite_difference"
         if self.config.transformation_scheme is useDefault:
-            self.config.transformation_scheme = "FORWARD"
+            self.config.transformation_scheme = "BACKWARD"
 
         if self.config.property_package_args is None:
             self.config.property_package_args = {}
@@ -381,7 +358,7 @@ discretizing length domain (default=3)""",
             self.flowsheet().config.time,
             initialize=1e6,
             units=pyunits.W,
-            doc="Heat duty provided to heater " "through resistive heating",
+            doc="Heat duty provided to heater through resistive heating",
         )
         units = self.config.property_package.get_metadata().derived_units
         _make_performance_common(
@@ -437,7 +414,9 @@ discretizing length domain (default=3)""",
             return (
                 b.hconv_shell_total[t, x]
                 * (b.control_volume.properties[t, x].temperature - b.temp_wall_shell[t, x])
-                * (b.thickness_tube / b.therm_cond_wall + b.rfouling_shell)
+                # Divide thickness by 2 in order to represent center of hollow tube instead of
+                # interior edge of hollow tube
+                * (b.thickness_tube / (2 * b.therm_cond_wall) + b.rfouling_shell)
                 == b.temp_wall_shell[t, x] - b.temp_wall_center[t, x]
             )
 
@@ -452,6 +431,7 @@ discretizing length domain (default=3)""",
             )
 
     def set_initial_condition(self):
+        # TODO how to deal with holdup for fluid side?
         if self.config.dynamic is True:
             self.heat_accumulation[:, :].value = 0
             self.heat_accumulation[0, :].fix(0)
@@ -574,23 +554,12 @@ discretizing length domain (default=3)""",
                 sf_hconv_conv = gsf(self.hconv_shell_conv[t, z])
                 cst(self.hconv_shell_conv_eqn[t, z], sf_hconv_conv * sf_d_tube)
 
-                if self.config.has_radiation:
-                    sf_hconv_rad = 1  # FIXME Placeholder
-                    sf_hconv_total = 1 / (1 / sf_hconv_conv + 1 / sf_hconv_rad)
-                else:
-                    sf_hconv_total = sf_hconv_conv
-
-                # FIXME try to do this rigorously later on
                 sf_T = gsf(self.control_volume.properties[t, z].temperature)
                 ssf(self.temp_wall_shell[t, z], sf_T)
                 ssf(self.temp_wall_center[t, z], sf_T)
 
-                sf_area_per_length = value(
-                    self.length_flow_shell / self.total_heat_transfer_area
-                )
-                s_Q = sgsf(
-                    self.control_volume.heat[t, z],
-                    sf_hconv_total * sf_area_per_length * sf_T,
+                s_Q = gsf(
+                    self.control_volume.heat[t, z]
                 )
                 ssf(self.electric_heat_duty[t], s_Q / value(self.length_flow_shell))
                 cst(self.heat_shell_eqn[t, z], s_Q * value(self.length_flow_shell))
@@ -600,17 +569,11 @@ discretizing length domain (default=3)""",
 
     def _get_performance_contents(self, time_point=0):
         var_dict = {}
-        # var_dict = {
-        #     "HX Coefficient": self.overall_heat_transfer_coefficient[time_point]
-        # }
-        # var_dict["HX Area"] = self.area
+        var_dict["Electric Heat Duty"] = self.electric_heat_duty[time_point]
         # var_dict["Heat Duty"] = self.heat_duty[time_point]
-        # if self.config.flow_pattern == HeatExchangerFlowPattern.crossflow:
-        #     var_dict = {"Crossflow Factor": self.crossflow_factor[time_point]}
 
         expr_dict = {}
         expr_dict["HX Area"] = self.total_heat_transfer_area
-        expr_dict["Electric Heat Duty"] = self.electric_heat_duty[time_point]
 
         return {"vars": var_dict, "exprs": expr_dict}
 

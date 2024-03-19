@@ -20,7 +20,7 @@ import idaes.core.util.scaling as iscale
 from idaes.models.unit_models import HeatExchangerFlowPattern
 from idaes.models.properties.modular_properties import GenericParameterBlock
 from idaes.models_extra.power_generation.properties.natural_gas_PR import get_prop, EosType
-from idaes.models_extra.power_generation.unit_models import CrossFlowHeatExchanger1D
+from idaes.models_extra.power_generation.unit_models import Heater1D
 import idaes.core.util.model_statistics as mstat
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.core.solvers import get_solver
@@ -45,30 +45,17 @@ def _create_model(pressure_drop):
         **get_prop(["H2", "H2O", "Ar", "N2"], {"Vap"}, eos=EosType.IDEAL),
         doc="H2O + H2 gas property parameters",
     )
-    m.fs.heat_exchanger = CrossFlowHeatExchanger1D(
-        has_holdup=True,
-        dynamic=False,
-        cold_side={
-            "property_package": m.fs.h2_side_prop_params,
-            "has_holdup": False,
-            "dynamic": False,
-            "has_pressure_change": pressure_drop,
-            "transformation_method": "dae.finite_difference",
-            "transformation_scheme": "FORWARD",
-        },
-        hot_side={
-            "property_package": m.fs.h2_side_prop_params,
-            "has_holdup": False,
-            "dynamic": False,
-            "has_pressure_change": pressure_drop,
-            "transformation_method": "dae.finite_difference",
-            "transformation_scheme": "BACKWARD",
-        },
-        shell_is_hot=True,
-        flow_type=HeatExchangerFlowPattern.countercurrent,
-        finite_elements=12,
-        tube_arrangement="staggered",
-    )
+    m.fs.feed_heater = Heater1D(
+            property_package=m.fs.h2_side_prop_params,
+            has_holdup=True,
+            dynamic=False,
+            has_fluid_holdup=False,
+            has_pressure_change=pressure_drop,
+            finite_elements=4,
+            tube_arrangement="in-line",
+            transformation_method="dae.finite_difference",
+            transformation_scheme="BACKWARD",
+        )
 
     hx = m.fs.heat_exchanger
 

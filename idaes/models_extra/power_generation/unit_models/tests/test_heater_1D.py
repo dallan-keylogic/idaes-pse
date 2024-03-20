@@ -17,7 +17,6 @@ from pyomo.util.check_units import assert_units_consistent
 
 from idaes.core import FlowsheetBlock
 import idaes.core.util.scaling as iscale
-from idaes.models.unit_models import HeatExchangerFlowPattern
 from idaes.models.properties.modular_properties import GenericParameterBlock
 from idaes.models_extra.power_generation.properties.natural_gas_PR import (
     get_prop,
@@ -107,7 +106,7 @@ def _create_model(pressure_drop):
     shell = heater.control_volume
     iscale.set_scaling_factor(shell.area, 1e-1)
     iscale.set_scaling_factor(shell.heat, 1e-6)
-    iscale.set_scaling_factor(shell._enthalpy_flow, 1e-8)
+    iscale.set_scaling_factor(shell._enthalpy_flow, 1e-8)  # pylint: disable=W0212
     iscale.set_scaling_factor(shell.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(heater.heat_holdup, 1e-8)
 

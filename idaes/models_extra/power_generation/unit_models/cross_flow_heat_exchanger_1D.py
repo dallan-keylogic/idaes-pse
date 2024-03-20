@@ -15,60 +15,30 @@
 
 Discretization based on tube rows
 """
-from __future__ import division
 
-# Import Python libraries
-import math
-
-import pyomo.common.config
-import pyomo.opt
 
 # Import Pyomo libraries
 from pyomo.environ import (
-    SolverFactory,
-    Var,
-    Param,
-    Constraint,
     value,
-    TerminationCondition,
-    exp,
-    sqrt,
     log,
-    sin,
-    cos,
-    SolverStatus,
     units as pyunits,
 )
-from pyomo.common.config import ConfigBlock, ConfigValue, In, Bool
+import pyomo.common.config
+import pyomo.opt
+from pyomo.common.config import ConfigValue, In, Bool
+from pyomo.network import Port
 
 # Import IDAES cores
-from idaes.core import (
-    ControlVolume1DBlock,
-    UnitModelBlockData,
-    declare_process_block_class,
-    MaterialBalanceType,
-    EnergyBalanceType,
-    MomentumBalanceType,
-    FlowDirection,
-    UnitModelBlockData,
-    useDefault,
-)
+from idaes.core import declare_process_block_class
 from idaes.core.util.constants import Constants as const
 import idaes.core.util.scaling as iscale
-from pyomo.dae import DerivativeVar
-from pyomo.network import Port
 from idaes.core.solvers import get_solver
-from idaes.core.util.config import is_physical_parameter_block
 from idaes.core.util.misc import add_object_reference
 from idaes.core.util.exceptions import ConfigurationError, BurntToast
 import idaes.logger as idaeslog
 from idaes.core.util.tables import create_stream_table_dataframe
-
-from idaes.models.unit_models.heater import _make_heater_config_block
 from idaes.models.unit_models.heat_exchanger import (
     HeatExchangerFlowPattern,
-    hx_process_config,
-    add_hx_references,
 )
 from idaes.models.unit_models.heat_exchanger_1D import HeatExchanger1DData
 from idaes.models_extra.power_generation.unit_models import heat_exchanger_common
@@ -178,8 +148,12 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
         add_object_reference(self, "area_flow_tube", tube.area)
         # total tube length of flow path
         add_object_reference(self, "length_flow_tube", tube.length)
-        heat_exchanger_common._make_geometry_common(self, shell_units=shell_units)
-        heat_exchanger_common._make_geometry_tube(self, shell_units=shell_units)
+        heat_exchanger_common._make_geometry_common(
+            self, shell_units=shell_units
+        )  # pylint: disable=W0212
+        heat_exchanger_common._make_geometry_tube(
+            self, shell_units=shell_units
+        )  # pylint: disable=W0212
 
     def _make_performance(self):
         """
@@ -257,7 +231,7 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                 add_object_reference(self, "deltaP_tube", tube.deltaP)
                 tube_has_pressure_change = True
 
-        heat_exchanger_common._make_performance_common(
+        heat_exchanger_common._make_performance_common(  # pylint: disable=W0212
             self,
             shell=shell,
             shell_units=shell_units,
@@ -265,7 +239,7 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
             make_reynolds=True,
             make_nusselt=True,
         )
-        heat_exchanger_common._make_performance_tube(
+        heat_exchanger_common._make_performance_tube(  # pylint: disable=W0212
             self,
             tube=tube,
             tube_units=tube_units,
@@ -523,7 +497,7 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
 
         # Set tube thermal conductivity to a small value to avoid IPOPT unable to solve initially
         therm_cond_wall_save = blk.therm_cond_wall.value
-        blk.therm_cond_wall = 0.05
+        blk.therm_cond_wall.set_value(0.05)
         # In Step 2, fix tube metal temperatures fix fluid state variables (enthalpy/temperature and pressure)
         # calculate maximum heat duty assuming infinite area and use half of the maximum duty as initial guess to calculate outlet temperature
 

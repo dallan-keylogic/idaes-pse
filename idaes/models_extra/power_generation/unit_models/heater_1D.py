@@ -15,34 +15,19 @@
 
 Discretization based on tube rows
 """
-from __future__ import division
-
-# Import Python libraries
-import math
-
 # Import Pyomo libraries
 from pyomo.environ import (
     assert_optimal_termination,
-    SolverFactory,
     Var,
-    Param,
-    Constraint,
     value,
-    TerminationCondition,
-    exp,
-    sqrt,
-    log,
-    sin,
-    cos,
-    SolverStatus,
     units as pyunits,
 )
 from pyomo.common.config import ConfigBlock, ConfigValue, In
+from pyomo.util.calc_var_value import calculate_variable_from_constraint
 
 # Import IDAES cores
 from idaes.core import (
     ControlVolume1DBlock,
-    UnitModelBlockData,
     declare_process_block_class,
     MaterialBalanceType,
     EnergyBalanceType,
@@ -51,26 +36,20 @@ from idaes.core import (
     UnitModelBlockData,
     useDefault,
 )
-from idaes.core.util.constants import Constants as const
 import idaes.core.util.scaling as iscale
-from pyomo.dae import DerivativeVar
 from idaes.core.solvers import get_solver
-from pyomo.util.calc_var_value import calculate_variable_from_constraint
 from idaes.core.util.config import is_physical_parameter_block
 from idaes.core.util.misc import add_object_reference
 import idaes.logger as idaeslog
 from idaes.core.util.tables import create_stream_table_dataframe
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.models_extra.power_generation.unit_models.heat_exchanger_common import (
-    _make_geometry_common,
-    _make_performance_common,
-    _scale_common,
+    _make_geometry_common,  # pylint: disable=W0212
+    _make_performance_common,  # pylint: disable=W0212
+    _scale_common,  # pylint: disable=W0212
 )
 
 __author__ = "Jinliang Ma, Douglas Allan"
-
-# Set up logger
-_log = idaeslog.getLogger(__name__)
 
 
 @declare_process_block_class("Heater1D")
@@ -267,7 +246,7 @@ domain (default=5). Should set to the number of tube rows""",
             None
         """
         # Call UnitModel.build to setup dynamics
-        super(Heater1DData, self).build()
+        super().build()
 
         # Set flow directions for the control volume blocks and specify
         # dicretization if not specified.
@@ -532,8 +511,7 @@ domain (default=5). Should set to the number of tube rows""",
         with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
             res = opt.solve(blk, tee=slc.tee)
 
-        assert res.solver.termination_condition == TerminationCondition.optimal
-        assert res.solver.status == SolverStatus.ok
+        assert_optimal_termination(res)
 
         init_log.info_high("Initialization Step 3 Complete.")
 
@@ -548,8 +526,6 @@ domain (default=5). Should set to the number of tube rows""",
 
         def cst(con, sf):
             iscale.constraint_scaling_transform(con, sf, overwrite=False)
-
-        sgsf = iscale.set_and_get_scaling_factor
 
         _scale_common(
             self,
@@ -582,7 +558,6 @@ domain (default=5). Should set to the number of tube rows""",
     def _get_performance_contents(self, time_point=0):
         var_dict = {}
         var_dict["Electric Heat Duty"] = self.electric_heat_duty[time_point]
-        # var_dict["Heat Duty"] = self.heat_duty[time_point]
 
         expr_dict = {}
         expr_dict["HX Area"] = self.total_heat_transfer_area

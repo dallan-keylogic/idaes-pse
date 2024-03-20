@@ -15,57 +15,25 @@
 
 Discretization based on tube rows
 """
-from __future__ import division
-
-# Import Python libraries
-import math
 
 # Import Pyomo libraries
 from pyomo.environ import (
-    SolverFactory,
     Var,
     Param,
-    Constraint,
     value,
-    TerminationCondition,
-    exp,
-    sqrt,
-    log,
-    sin,
-    cos,
-    SolverStatus,
     units as pyunits,
 )
-from pyomo.common.config import ConfigBlock, ConfigValue, In
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
 
 from pyomo.dae import DerivativeVar
 
 # Import IDAES cores
-from idaes.core import (
-    ControlVolume1DBlock,
-    UnitModelBlockData,
-    declare_process_block_class,
-    MaterialBalanceType,
-    EnergyBalanceType,
-    MomentumBalanceType,
-    FlowDirection,
-    UnitModelBlockData,
-    useDefault,
-)
 from idaes.core.util.exceptions import ConfigurationError
 from idaes.core.util.constants import Constants as const
 import idaes.core.util.scaling as iscale
-from idaes.core.solvers import get_solver
-from idaes.core.util.config import is_physical_parameter_block
 from idaes.core.util.misc import add_object_reference
-import idaes.logger as idaeslog
-from idaes.core.util.tables import create_stream_table_dataframe
 
 __author__ = "Jinliang Ma, Douglas Allan"
-
-# Set up logger
-_log = idaeslog.getLogger(__name__)
 
 
 def _make_geometry_common(blk, shell_units):
@@ -372,7 +340,6 @@ def _make_performance_common(
 
     if shell_has_pressure_change:
         # Friction factor on shell side
-        # TODO does this have units?
         blk.friction_factor_shell = Var(
             blk.flowsheet().config.time,
             shell.length_domain,
@@ -421,7 +388,7 @@ def _make_performance_common(
                 * shell.properties[t, x].mw
             )
 
-    if shell_has_pressure_change == True:
+    if shell_has_pressure_change:
         # Friction factor on shell side
         if blk.config.tube_arrangement == "in-line":
 
@@ -571,9 +538,8 @@ def _make_performance_tube(
             doc="Reynolds number on tube side",
             bounds=(1e-7, None),
         )
-    if tube_has_pressure_change == True:
+    if tube_has_pressure_change:
         # Friction factor on tube side
-        # TODO does this have units?
         blk.friction_factor_tube = Var(
             blk.flowsheet().config.time,
             tube.length_domain,
@@ -776,7 +742,9 @@ def _scale_common(blk, shell, shell_has_pressure_change, make_reynolds, make_nus
                 cst(blk.heat_holdup_eqn[t, z], s_U_holdup)
 
 
-def _scale_tube(blk, tube, tube_has_presure_change, make_reynolds, make_nusselt):
+def _scale_tube(
+    blk, tube, tube_has_presure_change, make_reynolds, make_nusselt
+):  # pylint: disable=W0613
     def gsf(obj):
         return iscale.get_scaling_factor(obj, default=1, warning=True)
 
@@ -789,7 +757,6 @@ def _scale_tube(blk, tube, tube_has_presure_change, make_reynolds, make_nusselt)
     sgsf = iscale.set_and_get_scaling_factor
 
     sf_di_tube = iscale.get_scaling_factor(blk.do_tube, default=1 / value(blk.di_tube))
-    sf_do_tube = iscale.get_scaling_factor(blk.do_tube, default=1 / value(blk.do_tube))
 
     for t in blk.flowsheet().time:
         for z in tube.length_domain:

@@ -136,8 +136,8 @@ def _create_model(pressure_drop):
     # ssf(hx.shell.heat, 1e-6)
     iscale.set_scaling_factor(tube.area, 1)
     # ssf(hx.tube.heat, 1e-6)
-    iscale.set_scaling_factor(shell._enthalpy_flow, 1e-8)
-    iscale.set_scaling_factor(tube._enthalpy_flow, 1e-8)
+    iscale.set_scaling_factor(shell._enthalpy_flow, 1e-8)  # pylint: disable=W0212
+    iscale.set_scaling_factor(tube._enthalpy_flow, 1e-8)  # pylint: disable=W0212
     iscale.set_scaling_factor(shell.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(tube.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(hx.heat_holdup, 1e-8)

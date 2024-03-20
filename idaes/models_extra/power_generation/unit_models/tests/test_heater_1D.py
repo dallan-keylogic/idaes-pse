@@ -19,24 +19,28 @@ from idaes.core import FlowsheetBlock
 import idaes.core.util.scaling as iscale
 from idaes.models.unit_models import HeatExchangerFlowPattern
 from idaes.models.properties.modular_properties import GenericParameterBlock
-from idaes.models_extra.power_generation.properties.natural_gas_PR import get_prop, EosType
+from idaes.models_extra.power_generation.properties.natural_gas_PR import (
+    get_prop,
+    EosType,
+)
 from idaes.models_extra.power_generation.unit_models import Heater1D
 import idaes.core.util.model_statistics as mstat
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.core.solvers import get_solver
 
 # Set up solver
-optarg={
+optarg = {
     # 'bound_push' : 1e-6,
-    'constr_viol_tol': 1e-8,
-    'nlp_scaling_method': 'user-scaling',
-    'linear_solver': 'ma57',
-    'OF_ma57_automatic_scaling': 'yes',
-    'max_iter': 350,
-    'tol': 1e-8,
-    'halt_on_ampl_error': 'no',
+    "constr_viol_tol": 1e-8,
+    "nlp_scaling_method": "user-scaling",
+    "linear_solver": "ma57",
+    "OF_ma57_automatic_scaling": "yes",
+    "max_iter": 350,
+    "tol": 1e-8,
+    "halt_on_ampl_error": "no",
 }
 solver = get_solver("ipopt", options=optarg)
+
 
 def _create_model(pressure_drop):
     m = pyo.ConcreteModel()
@@ -46,16 +50,16 @@ def _create_model(pressure_drop):
         doc="H2O + H2 gas property parameters",
     )
     m.fs.heater = Heater1D(
-            property_package=m.fs.h2_side_prop_params,
-            has_holdup=True,
-            dynamic=False,
-            has_fluid_holdup=False,
-            has_pressure_change=pressure_drop,
-            finite_elements=4,
-            tube_arrangement="in-line",
-            transformation_method="dae.finite_difference",
-            transformation_scheme="BACKWARD",
-        )
+        property_package=m.fs.h2_side_prop_params,
+        has_holdup=True,
+        dynamic=False,
+        has_fluid_holdup=False,
+        has_pressure_change=pressure_drop,
+        finite_elements=4,
+        tube_arrangement="in-line",
+        transformation_method="dae.finite_difference",
+        transformation_scheme="BACKWARD",
+    )
 
     heater = m.fs.heater
 
@@ -81,7 +85,7 @@ def _create_model(pressure_drop):
 
     heater.ncol_tube.fix(40)
     heater.nrow_inlet.fix(40)
-    heater.electric_heat_duty.fix(3.6504e+06)
+    heater.electric_heat_duty.fix(3.6504e06)
 
     pp = m.fs.h2_side_prop_params
     pp.set_default_scaling("enth_mol_phase", 1e-3)
@@ -99,7 +103,7 @@ def _create_model(pressure_drop):
         pp.set_default_scaling("mole_frac_comp", s, index=comp)
         pp.set_default_scaling("mole_frac_phase_comp", s, index=("Vap", comp))
         pp.set_default_scaling("flow_mol_phase_comp", s * 1e-3, index=("Vap", comp))
-    
+
     shell = heater.control_volume
     iscale.set_scaling_factor(shell.area, 1e-1)
     iscale.set_scaling_factor(shell.heat, 1e-6)
@@ -110,6 +114,7 @@ def _create_model(pressure_drop):
     iscale.calculate_scaling_factors(m)
 
     return m
+
 
 def _check_model_statistics(m, deltaP):
     fixed_unused_var_set = {
@@ -139,7 +144,7 @@ def _check_model_statistics(m, deltaP):
     }
     if not deltaP:
         fixed_unused_var_set.add("fs.heater.delta_elevation")
-    
+
     for var in mstat.fixed_unused_variables_set(m):
         assert var.name in fixed_unused_var_set
 
@@ -163,10 +168,12 @@ def _check_model_statistics(m, deltaP):
 
     assert len(mstat.deactivated_constraints_set(m)) == 0
 
+
 @pytest.fixture
 def model_no_dP():
     m = _create_model(pressure_drop=False)
     return m
+
 
 @pytest.mark.component
 def test_initialization(model_no_dP):
@@ -179,9 +186,8 @@ def test_initialization(model_no_dP):
 
     assert degrees_of_freedom(m) == 0
     _check_model_statistics(m, deltaP=False)
-    assert (
-        pyo.value(m.fs.heater.outlet.temperature[0])
-        == pytest.approx(959.55, abs=1e-1)
+    assert pyo.value(m.fs.heater.outlet.temperature[0]) == pytest.approx(
+        959.55, abs=1e-1
     )
 
 
@@ -190,11 +196,11 @@ def test_units(model_no_dP):
     assert_units_consistent(model_no_dP.fs.heater)
 
 
-
 @pytest.fixture
 def model_dP():
     m = _create_model(pressure_drop=True)
     return m
+
 
 @pytest.mark.component
 def test_initialization_dP(model_dP):
@@ -208,14 +214,10 @@ def test_initialization_dP(model_dP):
     assert degrees_of_freedom(m) == 0
     _check_model_statistics(m, deltaP=True)
 
-    assert (
-        pyo.value(m.fs.heater.outlet.temperature[0])
-        == pytest.approx(959.55, abs=1e-1)
+    assert pyo.value(m.fs.heater.outlet.temperature[0]) == pytest.approx(
+        959.55, abs=1e-1
     )
-    assert (
-        pyo.value(m.fs.heater.outlet.pressure[0])
-        == pytest.approx(119762.3, abs=1)
-    )
+    assert pyo.value(m.fs.heater.outlet.pressure[0]) == pytest.approx(119762.3, abs=1)
 
 
 @pytest.mark.integration

@@ -219,7 +219,7 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                 f"phases on the hot side and {len(self.config.cold_side.property_package.phase_list)} "
                 "phases on the cold side."
             )
-        
+
         p_hot = self.config.hot_side.property_package.phase_list.at(1)
         pobj_hot = self.config.hot_side.property_package.get_phase(p_hot)
         p_cold = self.config.cold_side.property_package.phase_list.at(1)
@@ -316,12 +316,11 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
         def heat_tube_eqn(b, t, x):
             return b.heat_tube[t, x] == (
                 b.hconv_tube[t, x]
-                * const.pi 
+                * const.pi
                 * pyunits.convert(b.di_tube, to_units=tube_units["length"])
-                * b.nrow_inlet 
-                * b.ncol_tube * (
-                    b.temp_wall_tube[t, x] - tube.properties[t, x].temperature
-                )
+                * b.nrow_inlet
+                * b.ncol_tube
+                * (b.temp_wall_tube[t, x] - tube.properties[t, x].temperature)
             )
 
         # Heat to wall per length on shell side
@@ -331,11 +330,8 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
             doc="heat per length on shell side",
         )
         def heat_shell_eqn(b, t, x):
-            return b.heat_shell[
-                t, x
-            ] * b.length_flow_shell == pyunits.convert(
-                b.length_flow_tube,
-                to_units=shell_units["length"]
+            return b.heat_shell[t, x] * b.length_flow_shell == pyunits.convert(
+                b.length_flow_tube, to_units=shell_units["length"]
             ) * b.hconv_shell_total[
                 t, x
             ] * const.pi * b.do_tube * b.nrow_inlet * b.ncol_tube * (
@@ -350,19 +346,18 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
             doc="tube side wall temperature",
         )
         def temp_wall_tube_eqn(b, t, x):
-            return (
-                b.hconv_tube[t, x]
-                * (tube.properties[t, x].temperature - b.temp_wall_tube[t, x])
-                * (
-                    pyunits.convert(
-                        b.thickness_tube / 2 / b.therm_cond_wall,
-                        to_units=1 / tube_units["heat_transfer_coefficient"]
-                    ) + b.rfouling_tube
+            return b.hconv_tube[t, x] * (
+                tube.properties[t, x].temperature - b.temp_wall_tube[t, x]
+            ) * (
+                pyunits.convert(
+                    b.thickness_tube / 2 / b.therm_cond_wall,
+                    to_units=1 / tube_units["heat_transfer_coefficient"],
                 )
-                == b.temp_wall_tube[t, x] - pyunits.convert(
-                    b.temp_wall_center[t, x],
-                    to_units=tube_units["temperature"]
-                )
+                + b.rfouling_tube
+            ) == b.temp_wall_tube[
+                t, x
+            ] - pyunits.convert(
+                b.temp_wall_center[t, x], to_units=tube_units["temperature"]
             )
 
         # Shell side wall temperature
@@ -390,13 +385,12 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
             # control volumes (and out of the wall), hence the negative sign
             # on heat_accumulation_term
             return -heat_accumulation_term(b, t, x) == (
-                b.heat_shell[t, x] * b.length_flow_shell / pyunits.convert(
-                    b.length_flow_tube,
-                    to_units=shell_units["length"]
-                )
+                b.heat_shell[t, x]
+                * b.length_flow_shell
+                / pyunits.convert(b.length_flow_tube, to_units=shell_units["length"])
                 + pyunits.convert(
                     b.heat_tube[t, x],
-                    to_units=shell_units["power"]/shell_units["length"]
+                    to_units=shell_units["power"] / shell_units["length"],
                 )
             )
 
@@ -410,25 +404,19 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                 enth_out = b.hot_side.properties[t, z1].get_enthalpy_flow_terms(p_hot)
 
                 return pyunits.convert(
-                    enth_in - enth_out, # Hot side loses enthalpy
-                    to_units=shell_units["power"] # Hot side isn't always the shell
+                    enth_in - enth_out,  # Hot side loses enthalpy
+                    to_units=shell_units["power"],  # Hot side isn't always the shell
                 )
 
             @self.Expression(self.flowsheet().config.time)
             def log_mean_delta_temperature(b, t):
-                dT0 = (
-                    b.hot_side.properties[t, z0].temperature
-                    - pyunits.convert(
-                        b.cold_side.properties[t, z0].temperature,
-                        to_units=shell_units["temperature"]
-                    )
+                dT0 = b.hot_side.properties[t, z0].temperature - pyunits.convert(
+                    b.cold_side.properties[t, z0].temperature,
+                    to_units=shell_units["temperature"],
                 )
-                dT1 = (
-                    b.hot_side.properties[t, z1].temperature
-                    - pyunits.convert(
-                        b.cold_side.properties[t, z1].temperature,
-                        to_units=shell_units["temperature"]
-                    )
+                dT1 = b.hot_side.properties[t, z1].temperature - pyunits.convert(
+                    b.cold_side.properties[t, z1].temperature,
+                    to_units=shell_units["temperature"],
                 )
                 return (dT0 - dT1) / log(dT0 / dT1)
 
@@ -540,78 +528,76 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
         # calculate maximum heat duty assuming infinite area and use half of the maximum duty as initial guess to calculate outlet temperature
 
         for t in blk.flowsheet().config.time:
-            # TODO we first access cp during initialization. That could pose a problem if it is 
+            # TODO we first access cp during initialization. That could pose a problem if it is
             # converted to a Var-Constraint pair instead of being a giant Expression like it is
             # presently.
             mcp_hot_side = value(
                 pyunits.convert(
-                    hot_side.properties[t, 0].flow_mol * hot_side.properties[t, 0].cp_mol,
-                    to_units=shell_units["power"]/shell_units["temperature"]
+                    hot_side.properties[t, 0].flow_mol
+                    * hot_side.properties[t, 0].cp_mol,
+                    to_units=shell_units["power"] / shell_units["temperature"],
                 )
             )
             T_in_hot_side = value(
                 pyunits.convert(
                     hot_side.properties[t, 0].temperature,
-                    to_units=shell_units["temperature"]
+                    to_units=shell_units["temperature"],
                 )
             )
             P_in_hot_side = value(hot_side.properties[t, 0].pressure)
             if blk.config.flow_type == HeatExchangerFlowPattern.cocurrent:
                 mcp_cold_side = value(
                     pyunits.convert(
-                        cold_side.properties[t, 0].flow_mol * cold_side.properties[t, 0].cp_mol,
-                        to_units=shell_units["power"]/shell_units["temperature"]
+                        cold_side.properties[t, 0].flow_mol
+                        * cold_side.properties[t, 0].cp_mol,
+                        to_units=shell_units["power"] / shell_units["temperature"],
                     )
                 )
                 T_in_cold_side = value(
                     pyunits.convert(
                         cold_side.properties[t, 0].temperature,
-                        to_units=shell_units["temperature"]
+                        to_units=shell_units["temperature"],
                     )
                 )
                 P_in_cold_side = value(cold_side.properties[t, 0].pressure)
 
                 T_out_max = (
-                    mcp_cold_side * T_in_cold_side
-                    + mcp_hot_side * T_in_hot_side
+                    mcp_cold_side * T_in_cold_side + mcp_hot_side * T_in_hot_side
                 ) / (mcp_cold_side + mcp_hot_side)
 
                 q_guess = mcp_cold_side * (T_out_max - T_in_cold_side) / 2
 
-                temp_out_cold_side_guess = (
-                    T_in_cold_side + q_guess / mcp_cold_side
-                )
+                temp_out_cold_side_guess = T_in_cold_side + q_guess / mcp_cold_side
 
                 cold_side.properties[t, 1].temperature.fix(
                     pyunits.convert_value(
                         temp_out_cold_side_guess,
                         from_units=shell_units["temperature"],
-                        to_units=cold_units["temperature"]
+                        to_units=cold_units["temperature"],
                     )
                 )
 
-                temp_out_hot_side_guess = (
-                    T_in_cold_side - q_guess / mcp_hot_side
-                )
+                temp_out_hot_side_guess = T_in_cold_side - q_guess / mcp_hot_side
                 hot_side.properties[t, 1].temperature.fix(
                     pyunits.convert_value(
                         temp_out_hot_side_guess,
                         from_units=shell_units["temperature"],
-                        to_units=hot_units["temperature"]
+                        to_units=hot_units["temperature"],
                     )
                 )
 
             elif blk.config.flow_type == HeatExchangerFlowPattern.countercurrent:
                 mcp_cold_side = value(
                     pyunits.convert(
-                        cold_side.properties[t, 1].flow_mol * cold_side.properties[t, 1].cp_mol,
-                        to_units=shell_units["power"]/shell_units["temperature"]
+                        cold_side.properties[t, 1].flow_mol
+                        * cold_side.properties[t, 1].cp_mol,
+                        to_units=shell_units["power"] / shell_units["temperature"],
                     )
                 )
                 T_in_cold_side = value(
                     pyunits.convert(
                         cold_side.properties[t, 1].temperature,
-                        to_units=shell_units["temperature"]
+                        to_units=shell_units["temperature"],
                     )
                 )
                 P_in_cold_side = value(cold_side.properties[t, 1].pressure)
@@ -620,26 +606,22 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                     q_guess = mcp_cold_side * (T_in_hot_side - T_in_cold_side) / 2
                 else:
                     q_guess = mcp_hot_side * (T_in_hot_side - T_in_cold_side) / 2
-                
-                temp_out_cold_side_guess = (
-                    T_in_cold_side + q_guess / mcp_cold_side
-                )
+
+                temp_out_cold_side_guess = T_in_cold_side + q_guess / mcp_cold_side
                 cold_side.properties[t, 0].temperature.fix(
                     pyunits.convert_value(
                         temp_out_cold_side_guess,
                         from_units=shell_units["temperature"],
-                        to_units=cold_units["temperature"]
+                        to_units=cold_units["temperature"],
                     )
                 )
 
-                temp_out_hot_side_guess = (
-                    T_in_hot_side - q_guess / mcp_hot_side
-                )
+                temp_out_hot_side_guess = T_in_hot_side - q_guess / mcp_hot_side
                 hot_side.properties[t, 1].temperature.fix(
                     pyunits.convert_value(
                         temp_out_hot_side_guess,
                         from_units=shell_units["temperature"],
-                        to_units=hot_units["temperature"]
+                        to_units=hot_units["temperature"],
                     )
                 )
 
@@ -649,7 +631,7 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                     "or countercurrent flow by parent model. Please open an "
                     "issue on the IDAES Github so this error can be fixed."
                 )
-        
+
             for z in cold_side.length_domain:
                 hot_side.properties[t, z].temperature.fix(
                     value(
@@ -667,13 +649,14 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                     value(
                         pyunits.convert(
                             hot_side.properties[t, z].temperature,
-                            to_units=shell_units["temperature"]
+                            to_units=shell_units["temperature"],
                         )
                         + pyunits.convert(
                             cold_side.properties[t, z].temperature,
-                            to_units=shell_units["temperature"]
+                            to_units=shell_units["temperature"],
                         )
-                    ) / 2
+                    )
+                    / 2
                 )
 
                 blk.temp_wall_shell[t, z].set_value(blk.temp_wall_center[t, z].value)
@@ -681,7 +664,7 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                     pyunits.convert_value(
                         blk.temp_wall_center[t, z].value,
                         from_units=shell_units["temperature"],
-                        to_units=tube_units["temperature"]
+                        to_units=tube_units["temperature"],
                     )
                 )
 
@@ -789,23 +772,16 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
             shell,
             shell_has_pressure_change,
             make_reynolds=True,
-            make_nusselt=True
+            make_nusselt=True,
         )
         heat_exchanger_common._scale_tube(
-            self,
-            tube,
-            tube_has_pressure_change,
-            make_reynolds=True,
-            make_nusselt=True
+            self, tube, tube_has_pressure_change, make_reynolds=True, make_nusselt=True
         )
 
         sf_area_per_length_shell = value(
             self.length_flow_shell
             / (
-                pyunits.convert(
-                    self.length_flow_tube,
-                    to_units=shell_units["length"]
-                )
+                pyunits.convert(self.length_flow_tube, to_units=shell_units["length"])
                 * const.pi
                 * self.do_tube
                 * self.nrow_inlet
@@ -826,16 +802,17 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
                 ssf(self.temp_wall_shell[t, z], sf_T_shell)
                 cst(self.temp_wall_shell_eqn[t, z], sf_T_shell)
 
-
                 sf_hconv_shell_conv = gsf(self.hconv_shell_conv[t, z])
                 s_Q_shell = sgsf(
                     shell.heat[t, z],
                     sf_hconv_shell_conv * sf_area_per_length_shell * sf_T_shell,
                 )
-                cst(self.heat_shell_eqn[t, z], s_Q_shell * value(self.length_flow_shell))
+                cst(
+                    self.heat_shell_eqn[t, z], s_Q_shell * value(self.length_flow_shell)
+                )
                 # Geometric mean is overkill for most reasonable cases, but it mitigates
                 # damage done when one stream has an unset scaling factor
-                ssf(self.temp_wall_center[t, z], (sf_T_shell * sf_T_tube)**0.5)
+                ssf(self.temp_wall_center[t, z], (sf_T_shell * sf_T_tube) ** 0.5)
                 cst(self.temp_wall_center_eqn[t, z], (sf_Q_tube * s_Q_shell) ** 0.5)
 
     def _get_performance_contents(self, time_point=0):
@@ -852,7 +829,9 @@ class CrossFlowHeatExchanger1DData(HeatExchanger1DData):
         expr_dict["HX Area"] = self.total_heat_transfer_area
         expr_dict["Delta T Driving"] = self.log_mean_delta_temperature[time_point]
         expr_dict["Total Heat Duty"] = self.total_heat_duty[time_point]
-        expr_dict["Average HX Coefficient"] = self.overall_heat_transfer_coefficient[time_point]
+        expr_dict["Average HX Coefficient"] = self.overall_heat_transfer_coefficient[
+            time_point
+        ]
 
         return {"vars": var_dict, "exprs": expr_dict}
 

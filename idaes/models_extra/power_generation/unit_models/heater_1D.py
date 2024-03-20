@@ -62,9 +62,9 @@ import idaes.logger as idaeslog
 from idaes.core.util.tables import create_stream_table_dataframe
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.models_extra.power_generation.unit_models.heat_exchanger_common import (
-     _make_geometry_common,
-     _make_performance_common,
-     _scale_common
+    _make_geometry_common,
+    _make_performance_common,
+    _scale_common,
 )
 
 __author__ = "Jinliang Ma, Douglas Allan"
@@ -341,12 +341,12 @@ domain (default=5). Should set to the number of tube rows""",
         add_object_reference(self, "area_flow_shell", self.control_volume.area)
         add_object_reference(self, "length_flow_shell", self.control_volume.length)
         _make_geometry_common(self, shell_units=units)
+
         @self.Expression(
             doc="Common performance equations expect this expression to be here"
         )
         def length_flow_tube(b):
             return b.nseg_tube * b.length_tube_seg
-
 
     def _make_performance(self):
         """
@@ -405,7 +405,10 @@ domain (default=5). Should set to the number of tube rows""",
             return b.control_volume.heat[t, x] * b.length_flow_shell == (
                 b.hconv_shell_total[t, x]
                 * b.total_heat_transfer_area
-                * (b.temp_wall_shell[t, x] - b.control_volume.properties[t, x].temperature)
+                * (
+                    b.temp_wall_shell[t, x]
+                    - b.control_volume.properties[t, x].temperature
+                )
             )
 
         # Shell side wall temperature
@@ -417,7 +420,10 @@ domain (default=5). Should set to the number of tube rows""",
         def temp_wall_shell_eqn(b, t, x):
             return (
                 b.hconv_shell_total[t, x]
-                * (b.control_volume.properties[t, x].temperature - b.temp_wall_shell[t, x])
+                * (
+                    b.control_volume.properties[t, x].temperature
+                    - b.temp_wall_shell[t, x]
+                )
                 # Divide thickness by 2 in order to represent center of hollow tube instead of
                 # interior edge of hollow tube
                 * (b.thickness_tube / (2 * b.therm_cond_wall) + b.rfouling_shell)
@@ -431,7 +437,8 @@ domain (default=5). Should set to the number of tube rows""",
         )
         def temp_wall_center_eqn(b, t, x):
             return heat_accumulation_term(b, t, x) == (
-                -b.control_volume.heat[t, x] + b.electric_heat_duty[t] / b.length_flow_shell
+                -b.control_volume.heat[t, x]
+                + b.electric_heat_duty[t] / b.length_flow_shell
             )
 
     def set_initial_condition(self):
@@ -520,7 +527,6 @@ domain (default=5). Should set to the number of tube rows""",
             blk.control_volume.pressure.unfix()
             blk.control_volume.pressure[:, 0].fix()
 
-
         assert degrees_of_freedom(blk) == 0
 
         with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
@@ -550,7 +556,7 @@ domain (default=5). Should set to the number of tube rows""",
             self.control_volume,
             self.config.has_pressure_change,
             make_reynolds=True,
-            make_nusselt=True
+            make_nusselt=True,
         )
 
         sf_d_tube = iscale.get_scaling_factor(
@@ -566,9 +572,7 @@ domain (default=5). Should set to the number of tube rows""",
                 ssf(self.temp_wall_shell[t, z], sf_T)
                 ssf(self.temp_wall_center[t, z], sf_T)
 
-                s_Q = gsf(
-                    self.control_volume.heat[t, z]
-                )
+                s_Q = gsf(self.control_volume.heat[t, z])
                 ssf(self.electric_heat_duty[t], s_Q / value(self.length_flow_shell))
                 cst(self.heat_shell_eqn[t, z], s_Q * value(self.length_flow_shell))
                 ssf(self.temp_wall_center[t, z], sf_T)

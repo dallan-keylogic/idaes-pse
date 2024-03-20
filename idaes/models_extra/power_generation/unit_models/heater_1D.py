@@ -22,6 +22,7 @@ import math
 
 # Import Pyomo libraries
 from pyomo.environ import (
+    assert_optimal_termination,
     SolverFactory,
     Var,
     Param,
@@ -60,8 +61,11 @@ from idaes.core.util.misc import add_object_reference
 import idaes.logger as idaeslog
 from idaes.core.util.tables import create_stream_table_dataframe
 from idaes.core.util.model_statistics import degrees_of_freedom
-
-from heat_exchanger_common import _make_geometry_common, _make_performance_common, _scale_common
+from idaes.models_extra.power_generation.unit_models.heat_exchanger_common import (
+     _make_geometry_common,
+     _make_performance_common,
+     _scale_common
+)
 
 __author__ = "Jinliang Ma, Douglas Allan"
 
@@ -292,13 +296,13 @@ domain (default=5). Should set to the number of tube rows""",
 
         self.control_volume.add_state_blocks(
             information_flow=set_direction_shell,
-            has_phase_equilibrium=self.config.has_phase_equilibrium,
+            has_phase_equilibrium=False,
         )
 
         # Populate shell
         self.control_volume.add_material_balances(
             balance_type=self.config.material_balance_type,
-            has_phase_equilibrium=self.config.has_phase_equilibrium,
+            has_phase_equilibrium=False,
         )
 
         self.control_volume.add_energy_balances(
@@ -489,13 +493,16 @@ domain (default=5). Should set to the number of tube rows""",
                 blk.control_volume.heat[t, x].fix(
                     value(blk.electric_heat_duty[t] / blk.length_flow_shell)
                 )
+
+        if blk.config.has_pressure_change:
+            blk.control_volume.pressure.fix()
+
         blk.control_volume.length.fix()
         assert degrees_of_freedom(blk.control_volume) == 0
         with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
             res = opt.solve(blk.control_volume, tee=slc.tee)
 
-        assert res.solver.termination_condition == TerminationCondition.optimal
-        assert res.solver.status == SolverStatus.ok
+        assert_optimal_termination(res)
 
         init_log.info_high("Initialization Step 2 Complete.")
         blk.control_volume.length.unfix()
@@ -509,9 +516,10 @@ domain (default=5). Should set to the number of tube rows""",
                 calc_var(blk.heat_holdup[t, x], blk.heat_holdup_eqn[t, x])
                 blk.temp_wall_center[t, x].unfix()
 
-                # fixed = blk.control_volume.temperature[t,x].fixed
-                # blk.control_volume.temperature[t,x].fix()
-                # calc_var()
+        if blk.config.has_pressure_change:
+            blk.control_volume.pressure.unfix()
+            blk.control_volume.pressure[:, 0].fix()
+
 
         assert degrees_of_freedom(blk) == 0
 

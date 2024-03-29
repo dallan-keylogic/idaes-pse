@@ -838,8 +838,13 @@ class ENRTL(Ideal):
             )
         else:
             raise ConfigurationError
-        enth_mol_ideal += (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
-        return enth_mol_ideal + sum(
+        # I think the PV term is included in the ideal contribution
+        # enth_mol_ideal += (b.pressure - b.params.pressure_ref) / b.dens_mol_phase[p]
+        flow_true = sum(
+            b.flow_mol_phase_comp_true[p, j] 
+            for j in b.components_in_phase(p, true_basis=True)
+        )
+        return enth_mol_ideal + flow_true / b.flow_mol * sum( # TODO fix later
             b.mole_frac_phase_comp_true[p, j]
             * ENRTL.enth_mol_phase_comp_excess(b, p, j)
             for j in b.components_in_phase(p, true_basis=True)
@@ -847,6 +852,7 @@ class ENRTL(Ideal):
 
     @staticmethod
     def energy_internal_mol_phase(b, p):
+        pobj = b.params.get_phase(p)
         if not pobj.is_aqueous_phase():
             return Ideal.energy_internal_mol_phase(b, p, j)
         return  b.enth_mol_phase[p] - b.pressure / b.dens_mol_phase[p]

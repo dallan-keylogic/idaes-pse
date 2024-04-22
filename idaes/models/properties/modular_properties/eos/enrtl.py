@@ -69,8 +69,6 @@ DefaultRefState = Symmetric
 
 class EnthMolPhaseBasis(Enum):
     """Enum for method of calculating enth_mol_phase"""
-
-    # Rule to calculate am for cubic equations of state
     true = 0
     apparent = 1
 

@@ -96,13 +96,26 @@ class ConstantAlpha(object):
         )
 
     @staticmethod
-    def return_expression(b, pobj, i, j, T):
+    def return_alpha_expression(b, pobj, i, j, T):
         if (i, j) in pobj.alpha:
             return pobj.alpha[i, j]
         elif (j, i) in pobj.alpha:
             return pobj.alpha[j, i]
         elif i == j:
             return 0.2
+        else:
+            raise BurntToast(
+                "{} alpha rule encountered unexpected index {}. Please contact"
+                "the IDAES Developers with this bug.".format(b.name, (i, j))
+            )
+    @staticmethod
+    def return_dalpha_dT_expression(b, pobj, i, j, T):
+        if (i, j) in pobj.alpha:
+            return 0
+        elif (j, i) in pobj.alpha:
+            return 0
+        elif i == j:
+            return 0
         else:
             raise BurntToast(
                 "{} alpha rule encountered unexpected index {}. Please contact"
@@ -152,11 +165,25 @@ class ConstantTau(object):
         )
 
     @staticmethod
-    def return_expression(b, pobj, i, j, T):
+    def return_tau_expression(b, pobj, i, j, T):
         if (i, j) in pobj.tau:
             return pobj.tau[i, j]
         elif (j, i) in pobj.tau:
             return pobj.tau[j, i]
+        elif i == j:
+            return 0
+        else:
+            raise BurntToast(
+                "{} tau rule encountered unexpected index {}. Please contact"
+                "the IDAES Developers with this bug.".format(b.name, (i, j))
+            )
+        
+    @staticmethod
+    def return_dtau_dT_expression(b, pobj, i, j, T):
+        if (i, j) in pobj.tau:
+            return 0
+        elif (j, i) in pobj.tau:
+            return 0
         elif i == j:
             return 0
         else:

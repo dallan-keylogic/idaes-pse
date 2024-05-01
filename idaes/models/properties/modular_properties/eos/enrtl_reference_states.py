@@ -30,7 +30,7 @@ The Journal of Physical Chemistry, 89(26), 5588–5593.
 # TODO: Missing docstrings
 # pylint: disable=missing-function-docstring
 
-from pyomo.environ import Expression, Param, Var
+from pyomo.environ import Expression, Param, units as pyunits, Var
 
 from idaes.core.util.exceptions import BurntToast, ConfigurationError
 from idaes.core.util.constants import Constants
@@ -191,6 +191,34 @@ class InfiniteDilutionSingleSolvent(object):
                 doc="Born term contribution to activity coefficient"
             ),
         )
+        def rule_enth_mol_excess_born(b):
+            units = b.params.get_metadata().derived_units
+            q_e = Constants.elemental_charge
+            eps_vacuum = Constants.vacuum_electric_permittivity
+            pi = Constants.pi
+            N_A = Constants.avogadro_number
+            eps_solvent = getattr(b, pname + "_relative_permittivity_solvent")
+            d_eps_solvent_dT = getattr(b, pname + "_d_relative_permittivity_solvent_dT")
+
+            return pyunits.convert(
+                N_A * (q_e)**2/(8 * pi * eps_vacuum * eps_solvent)
+                * (1 + b.temperature / eps_solvent * d_eps_solvent_dT)
+                * sum(
+                    b.mole_frac_phase_comp_true[pname, s]
+                    * abs(cobj(b, s).config.charge) ** 2
+                    / cobj(b, s).born_radius
+                    for s in b.params.ion_set
+                ),
+                to_units=units.ENERGY/units.AMOUNT
+            )
+        
+        b.add_component(
+            pname + "_enth_mol_excess_born",
+            Expression(
+                rule=rule_enth_mol_excess_born,
+                doc="Excess enthalpy contribution from Born term"
+            ),
+        )
 
         def rule_log_gamma_lc_I0(b, s):
             pobj = b.params.get_phase(pname)
@@ -221,6 +249,49 @@ class InfiniteDilutionSingleSolvent(object):
             Expression(
                 b.params.true_species_set,
                 rule=rule_log_gamma_lc_I0,
+                doc="Local contribution at reference state",
+            ),
+        )
+        def rule_d_log_gamma_lc_I0_dT(b, s):
+            pobj = b.params.get_phase(pname)
+            ref_comp = pobj.ref_comp
+            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
+            units = b.params.get_metadata().derived_units
+
+            G = getattr(b, pname + "_G")
+            dG_dT = getattr(b, pname + "_dG_dT")
+            tau = getattr(b, pname + "_tau")
+            dtau_dT = getattr(b, pname + "_dtau_dT")
+            if s in b.params.ion_set:
+                # Eqn. 54/55 
+                # The activity of this "reference state" changes with changing ionic composition
+                # of the undiluted mixture (through using Y_a/Y_c to calculate G_a/c,H2O). This
+                # is probably a bad thing, but everyone else calculates things this way so we might
+                # as well calculate things this way too.
+                Z = abs(b.params.get_component(s).config.charge)
+                return Z * (
+                    dG_dT[s, ref_comp] * tau[s, ref_comp]
+                    + G[s, ref_comp] * dtau_dT[s, ref_comp] 
+                    + dtau_dT[ref_comp, s]
+                )
+            elif s in b.params.solute_set:
+                return (
+                    dG_dT[s, ref_comp] * tau[s, ref_comp]
+                    + G[s, ref_comp] * dtau_dT[s, ref_comp] 
+                    + dtau_dT[ref_comp, s]
+                )
+            elif s in b.params.solvent_set or s in b.params.zwitterion_set:
+                return dimensionless_zero / units.TEMPERATURE
+            else:
+                raise BurntToast(
+                    f"{s} eNRTL model encountered unexpected component."
+                )
+
+        b.add_component(
+            pname + "_d_log_gamma_lc_I0_dT",
+            Expression(
+                b.params.true_species_set,
+                rule=rule_d_log_gamma_lc_I0_dT,
                 doc="Local contribution at reference state",
             ),
         )

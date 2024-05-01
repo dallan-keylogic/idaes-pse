@@ -143,6 +143,7 @@ class ENRTL(Ideal):
             Ideal.common(b, pobj)
             return
         pname = pobj.local_name
+        units = b.params.get_metadata().derived_units
 
         # For the purposes of eNRTL, zwitterions are "molecules" not "ions"
         molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
@@ -154,9 +155,13 @@ class ENRTL(Ideal):
         ):
             alpha_rule = pobj.config.equation_of_state_options[
                 "alpha_rule"
-            ].return_expression
+            ].return_alpha_expression
+            dalpha_dT_rule = pobj.config.equation_of_state_options[
+                "alpha_rule"
+            ].return_dalpha_dT_expression
         else:
-            alpha_rule = DefaultAlphaRule.return_expression
+            alpha_rule = DefaultAlphaRule.return_alpha_expression
+            dalpha_dT_rule = DefaultAlphaRule.return_dalpha_dT_expression
 
         # Check options for tau rule
         if (
@@ -165,9 +170,13 @@ class ENRTL(Ideal):
         ):
             tau_rule = pobj.config.equation_of_state_options[
                 "tau_rule"
-            ].return_expression
+            ].return_tau_expression
+            dtau_dT_rule = pobj.config.equation_of_state_options[
+                "tau_rule"
+            ].return_dtau_dT_expression
         else:
-            tau_rule = DefaultTauRule.return_expression
+            tau_rule = DefaultTauRule.return_tau_expression
+            dtau_dT_rule = DefaultTauRule.return_dtau_dT_expression
 
         # Check options for reference state
         if (
@@ -180,7 +189,11 @@ class ENRTL(Ideal):
 
         # ---------------------------------------------------------------------
         # Calculate composition terms
-        dimensionless_zero = Param(initialize=0.0, mutable=False, doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)")
+        dimensionless_zero = Param(
+            initialize=0.0,
+            mutable=False,
+            doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)"
+        )
         b.add_component(
             pname + "_dimensionless_zero",
             dimensionless_zero,
@@ -283,6 +296,17 @@ class ENRTL(Ideal):
             pname + "_relative_permittivity_solvent",
             Expression(
                 rule=rule_eps_solvent, doc="Mean relative permittivity  of solvent"
+            ),
+        )
+
+        def rule_d_eps_solvent_dT(b):
+            eps_solvent = getattr(b, pname + "_relative_permittivity_solvent")
+            return differentiate(eps_solvent, b.temperature, mode=Modes.reverse_symbolic)
+        
+        b.add_component(
+            pname + "_d_relative_permittivity_solvent_dT",
+            Expression(
+                rule=rule_d_eps_solvent_dT, doc="Temperature derivative of solvent relative permittivity"
             ),
         )
 
@@ -409,24 +433,106 @@ class ENRTL(Ideal):
                 doc="Non-randomness parameters",
             ),
         )
+
+        def rule_dalpha_dT_expr(b, i, j):
+            Y = getattr(b, pname + "_Y")
+
+            if (pname, i) not in b.params.true_phase_component_set or (
+                pname,
+                j,
+            ) not in b.params.true_phase_component_set:
+                return Expression.Skip
+            elif (i in molecular_set) and (j in molecular_set):
+                # alpha equal user provided parameters
+                return dalpha_dT_rule(b, pobj, i, j, b.temperature)
+            elif i in b.params.cation_set and j in molecular_set:
+                # Eqn 32
+                return sum(
+                    Y[k] * dalpha_dT_rule(b, pobj, (i + ", " + k), j, b.temperature)
+                    for k in b.params.anion_set
+                )
+            elif j in b.params.cation_set and i in molecular_set:
+                # Eqn 32
+                return sum(
+                    Y[k] * dalpha_dT_rule(b, pobj, (j + ", " + k), i, b.temperature)
+                    for k in b.params.anion_set
+                )
+            elif i in b.params.anion_set and j in molecular_set:
+                # Eqn 33
+                return sum(
+                    Y[k] * dalpha_dT_rule(b, pobj, (k + ", " + i), j, b.temperature)
+                    for k in b.params.cation_set
+                )
+            elif j in b.params.anion_set and i in molecular_set:
+                # Eqn 33
+                return sum(
+                    Y[k] * dalpha_dT_rule(b, pobj, (k + ", " + j), i, b.temperature)
+                    for k in b.params.cation_set
+                )
+            elif i in b.params.cation_set and j in b.params.anion_set:
+                # Eqn 34
+                if len(b.params.cation_set) > 1:
+                    return sum(
+                        Y[k]
+                        * dalpha_dT_rule(
+                            b, pobj, (i + ", " + j), (k + ", " + j), b.temperature
+                        )
+                        for k in b.params.cation_set
+                    )
+                else:
+                    return 0 / units.TEMPERATURE
+            elif i in b.params.anion_set and j in b.params.cation_set:
+                # Eqn 35
+                if len(b.params.anion_set) > 1:
+                    return sum(
+                        Y[k]
+                        * dalpha_dT_rule(
+                            b, pobj, (j + ", " + i), (j + ", " + k), b.temperature
+                        )
+                        for k in b.params.anion_set
+                    )
+                else:
+                    return 0 / units.TEMPERATURE
+            elif (i in b.params.cation_set and j in b.params.cation_set) or (
+                i in b.params.anion_set and j in b.params.anion_set
+            ):
+                # No like-ion interactions
+                return Expression.Skip
+            else:
+                raise BurntToast(
+                    "{} eNRTL model encountered unexpected component pair {}.".format(
+                        b.name, (i, j)
+                    )
+                )
+        b.add_component(
+            pname + "_dalpha_dT",
+            Expression(
+                b.params.true_species_set,
+                b.params.true_species_set,
+                rule=rule_dalpha_dT_expr,
+                doc="Non-randomness parameters",
+            ),
+        )
         
         # Calculate G terms
         b.add_component(
             pname + "_G_default",
-            Param(initialize=1.0, mutable=False, doc="Constant value of G used in eNRTL"),
+            Param(initialize=1.0, doc="Constant value of G used in eNRTL"),
         )
+
+        def _G_appr(b, pobj, i, j, T):  # Eqn 23
+            pname = pobj.local_name
+            G_default = getattr(b, pname + "_G_default")
+            if i != j:
+                return exp(
+                    -alpha_rule(b, pobj, i, j, T) * tau_rule(b, pobj, i, j, T)
+                )
+            else:
+                return G_default
 
         def rule_G_expr(b, i, j):
             Y = getattr(b, pname + "_Y")
             G_default = getattr(b, pname + "_G_default")
-
-            def _G_appr(b, pobj, i, j, T):  # Eqn 23
-                if i != j:
-                    return exp(
-                        -alpha_rule(b, pobj, i, j, T) * tau_rule(b, pobj, i, j, T)
-                    )
-                else:
-                    return G_default
 
             if (pname, i) not in b.params.true_phase_component_set or (
                 pname,
@@ -510,6 +616,114 @@ class ENRTL(Ideal):
             ),
         )
 
+        b.add_component(
+            pname + "_dG_dT_default",
+            Param(
+                initialize=0.0,
+                mutable=True, # Mutable has to be true for Params with units
+                units=1/units.TEMPERATURE,
+                doc="Derivative of constant value of G used in eNRTL"
+            ),
+        )
+
+        def rule_dG_dT_expr(b, i, j):
+            Y = getattr(b, pname + "_Y")
+            G = getattr(b, pname+"_G")
+            dG_dT_default = getattr(b, pname + "_dG_dT_default")
+                
+            def _dG_dT_appr(b, pobj, i, j, T):
+                if i != j:
+                    return -_G_appr(
+                        b, pobj, i, j, b.temperature
+                    ) * (
+                        dalpha_dT_rule(b, pobj, i, j, T) * tau_rule(b, pobj, i, j, T)
+                        + alpha_rule(b, pobj, i, j, T) * dtau_dT_rule(b, pobj, i, j, T)
+                    )
+                else:
+                    return dG_dT_default
+
+            if (pname, i) not in b.params.true_phase_component_set or (
+                pname,
+                j,
+            ) not in b.params.true_phase_component_set:
+                return Expression.Skip
+            elif (i in molecular_set) and (j in molecular_set):
+                # G comes directly from parameters
+                return _dG_dT_appr(b, pobj, i, j, b.temperature)
+            elif i in b.params.cation_set and j in molecular_set:
+                # Eqn 38
+                return sum(
+                    Y[k] * _dG_dT_appr(b, pobj, (i + ", " + k), j, b.temperature)
+                    for k in b.params.anion_set
+                )
+            elif i in molecular_set and j in b.params.cation_set:
+                # Eqn 40
+                return sum(
+                    Y[k] * _dG_dT_appr(b, pobj, i, (j + ", " + k), b.temperature)
+                    for k in b.params.anion_set
+                )
+            elif i in b.params.anion_set and j in molecular_set:
+                # Eqn 39
+                return sum(
+                    Y[k] * _dG_dT_appr(b, pobj, (k + ", " + i), j, b.temperature)
+                    for k in b.params.cation_set
+                )
+            elif i in molecular_set and j in b.params.anion_set:
+                # Eqn 41
+                return sum(
+                    Y[k] * _dG_dT_appr(b, pobj, i, (k + ", " + j), b.temperature)
+                    for k in b.params.cation_set
+                )
+            elif i in b.params.cation_set and j in b.params.anion_set:
+                # Eqn 42
+                if len(b.params.cation_set) > 1:
+                    return sum(
+                        Y[k]
+                        * _dG_dT_appr(
+                            b, pobj, (i + ", " + j), (k + ", " + j), b.temperature
+                        )
+                        for k in b.params.cation_set
+                    )
+                else:
+                    # This term does not exist for single cation systems
+                    # However, need a valid result to calculate tau
+                    return dG_dT_default
+            elif i in b.params.anion_set and j in b.params.cation_set:
+                # Eqn 43
+                if len(b.params.anion_set) > 1:
+                    return sum(
+                        Y[k]
+                        * _dG_dT_appr(
+                            b, pobj, (j + ", " + i), (j + ", " + k), b.temperature
+                        )
+                        for k in b.params.anion_set
+                    )
+                else:
+                    # This term does not exist for single anion systems
+                    # However, need a valid result to calculate tau
+                    return dG_dT_default
+            elif (i in b.params.cation_set and j in b.params.cation_set) or (
+                i in b.params.anion_set and j in b.params.anion_set
+            ):
+                # No like-ion interactions
+                return Expression.Skip
+            else:
+                raise BurntToast(
+                    "{} eNRTL model encountered unexpected component pair {}.".format(
+                        b.name, (i, j)
+                    )
+                )
+
+        b.add_component(
+            pname + "_dG_dT",
+            Expression(
+                b.params.true_species_set,
+                b.params.true_species_set,
+                rule=rule_dG_dT_expr,
+                doc="Temperature derivative of local interaction G term",
+            ),
+        )
+
         # Calculate tau terms
         def rule_tau_expr(b, i, j):
             if (pname, i) not in b.params.true_phase_component_set or (
@@ -538,6 +752,41 @@ class ENRTL(Ideal):
                 b.params.true_species_set,
                 rule=rule_tau_expr,
                 doc="Binary interaction energy parameters",
+            ),
+        )
+        def rule_dtau_dT_expr(b, i, j):
+            if (pname, i) not in b.params.true_phase_component_set or (
+                pname,
+                j,
+            ) not in b.params.true_phase_component_set:
+                return Expression.Skip
+            elif (i in molecular_set) and (j in molecular_set):
+                # tau equal to parameter
+                return dtau_dT_rule(b, pobj, i, j, b.temperature)
+            elif (i in b.params.cation_set and j in b.params.cation_set) or (
+                i in b.params.anion_set and j in b.params.anion_set
+            ):
+                # No like-ion interactions
+                return Expression.Skip
+            else:
+                alpha = getattr(b, pname + "_alpha")
+                dalpha_dT = getattr(b, pname + "_dalpha_dT")
+                G = getattr(b, pname + "_G")
+                dG_dT = getattr(b, pname + "_dG_dT")
+                tau = getattr(b, pname + "_tau")
+                # Eqn 44
+                return -(
+                    1 / (G[i, j] * alpha[i,j]) * dG_dT[i, j]
+                    + tau[i, j] / alpha[i, j] * dalpha_dT[i, j]
+                )
+
+        b.add_component(
+            pname + "_dtau_dT",
+            Expression(
+                b.params.true_species_set,
+                b.params.true_species_set,
+                rule=rule_dtau_dT_expr,
+                doc="Temperature derivative of binary interaction energy parameters",
             ),
         )
         # Calculate reference state
@@ -751,12 +1000,12 @@ class ENRTL(Ideal):
 
         return v_expr
     
-    @staticmethod
-    def enth_mol_phase_comp_excess(b, p, j):
-        if not hasattr(b, f"{p}_d_log_gamma_dT"):
-            ENRTL._create_d_log_gamma_dT(b, p)
-        d_log_gamma_dT = getattr(b, f"{p}_d_log_gamma_dT")
-        return -ENRTL.gas_constant(b) * b.temperature ** 2 * d_log_gamma_dT[j]
+    # @staticmethod
+    # def enth_mol_phase_comp_excess(b, p, j):
+    #     if not hasattr(b, f"{p}_d_log_gamma_dT"):
+    #         ENRTL._create_d_log_gamma_dT(b, p)
+    #     d_log_gamma_dT = getattr(b, f"{p}_d_log_gamma_dT")
+    #     return -ENRTL.gas_constant(b) * b.temperature ** 2 * d_log_gamma_dT[j]
 
     # These methods probably shouldn't exist    
     # @staticmethod
@@ -842,11 +1091,7 @@ class ENRTL(Ideal):
             b.flow_mol_phase_comp_true[p, j] 
             for j in b.components_in_phase(p, true_basis=True)
         )
-        return enth_mol_ideal + flow_true / b.flow_mol * sum( # TODO fix later
-            b.mole_frac_phase_comp_true[p, j]
-            * ENRTL.enth_mol_phase_comp_excess(b, p, j)
-            for j in b.components_in_phase(p, true_basis=True)
-        )
+        return enth_mol_ideal + flow_true / b.flow_mol * ENRTL.enth_mol_phase_excess(b, p)
 
     @staticmethod
     def energy_internal_mol_phase(b, p):
@@ -916,35 +1161,98 @@ class ENRTL(Ideal):
     @staticmethod
     def enth_mol_phase_excess(b, p):
         pobj = b.params.get_phase(p)
+        pname = pobj.local_name
         if not pobj.is_aqueous_phase():
             # TODO Fix this if/when we implement NRTL for organic phases
             units = b.params.get_metadata().derived_units
             return 0 * units.ENERGY_MOLE
-        return sum(
-            b.mole_frac_phase_comp_true[p, j]
-            * ENRTL.enth_mol_phase_comp_excess(b, p, j)   
-            for j in b.components_in_phase(p, true_basis=True)
+        
+        if not b.is_property_constructed(pname + "_d_log_gamma_lc_I0_dT"):
+            raise NotImplementedError(
+                "Enthalpy calculations are not implemented for your choice of reference state."
+            )
+        R = ENRTL.gas_constant(b)
+        d_log_gamma_lc_I0_dT = getattr(b, pname + "_d_log_gamma_lc_I0_dT")
+
+        X = getattr(b, pname + "_X")
+        G = getattr(b, pname + "_G")
+        dG_dT = getattr(b, pname + "_dG_dT")
+        tau = getattr(b, pname + "_tau")
+        dtau_dT = getattr(b, pname + "_dtau_dT")
+
+        enth_mol_phase_excess_lc = -R * b.temperature**2 * (
+            reduced_symmetric_gibbs_phase_temperature_derivative(
+                b, X, G, dG_dT, tau, dtau_dT
+            )
+            - sum(
+                b.mole_frac_phase_comp_true[p, s]
+                * d_log_gamma_lc_I0_dT[s]
+                for s in b.components_in_phase(p, true_basis=True)
+            )
+        )
+
+
+        v = pyunits.convert(
+            getattr(b, pname + "_vol_mol_solvent"), pyunits.m**3 / pyunits.mol
+        )
+        dv_dT = differentiate(
+            v,
+            b.temperature,
+            mode=Modes.reverse_symbolic
         )
     
-    @staticmethod
-    def _create_d_log_gamma_dT(b, p):
-        pobj = b.params.get_phase(p)
-        pname = pobj.local_name
-        def rule_d_log_gamma_dT(b, j, pname):
-            log_gamma = getattr(b, f"{pname}_log_gamma")
-            return differentiate(
-                expr=log_gamma[j],
-                wrt=b.temperature,
-                mode=Modes.reverse_symbolic
-            )
-        b.add_component(
-            pname + "_d_log_gamma_dT",
-            Expression(
-                b.params.true_species_set,
-                rule=partial(rule_d_log_gamma_dT, pname=pname),
-                doc=f"Temperature derivative of {pname} activity coefficient",
-            ),
+        eps = getattr(b, pname + "_relative_permittivity_solvent")
+        d_eps_dT = getattr(b, pname + "_d_relative_permittivity_solvent_dT")
+        A_DH = getattr(b, pname + "_A_DH")
+        Ix = getattr(b, pname + "_ionic_strength")
+        rho = ClosestApproach
+        # Temperature derivative of Debye Huckel term
+        dA_dT = -A_DH / 2 * (
+            1/v * dv_dT + 3 * (1/eps) * d_eps_dT
         )
+
+        # There's an additional term involving the derivative
+        # of rho wrt temperature (see Pitzer and Simonson, 1986),
+        # but since the main eNRTL treat rho as a constant,
+        # we will here too
+        enth_mol_phase_excess_DH = R * b.temperature**2 * (
+            4 * Ix / rho * log(1 + rho * Ix**0.5) *dA_dT
+        )
+
+        enth_mol_phase_excess_born = getattr(
+            b, pname + "_enth_mol_excess_born"
+        )
+        
+
+        return (
+            enth_mol_phase_excess_lc
+            + enth_mol_phase_excess_DH
+            + enth_mol_phase_excess_born
+        )
+    
+    # @staticmethod
+    # def _create_d_log_gamma_dT(b, p):
+    #     pobj = b.params.get_phase(p)
+    #     pname = pobj.local_name
+    #     def rule_d_log_gamma_dT(b, j, pname):
+    #         log_gamma = getattr(b, f"{pname}_log_gamma")
+    #         return differentiate(
+    #             expr=log_gamma[j],
+    #             wrt=b.temperature,
+    #             mode=Modes.reverse_symbolic
+    #         )
+    #     b.add_component(
+    #         pname + "_d_log_gamma_dT",
+    #         Expression(
+    #             b.params.true_species_set,
+    #             rule=partial(rule_d_log_gamma_dT, pname=pname),
+    #             doc=f"Temperature derivative of {pname} activity coefficient",
+    #         ),
+    #     )
+
+
+
+
 
 
 def log_gamma_lc(b, pname, s, X, G, tau):
@@ -1095,3 +1403,68 @@ def log_gamma_lc(b, pname, s, X, G, tau):
                 for a in b.params.anion_set
             )
         )
+    
+def reduced_symmetric_gibbs_phase(b, X, G, tau):
+    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
+    aqu_species = b.params.true_species_set - b.params._non_aqueous_set
+
+    #  Eqn. 20
+    return sum(
+        X[m] * sum(X[i] * G[i, m] * tau[i, m] for i in aqu_species)
+            / sum(X[i] * G[i, m] for i in aqu_species)
+        for m in molecular_set
+    ) + sum(
+        X[a]* sum(
+            X[i] * G[i, a] * tau[i, a] for i in (aqu_species - b.params.anion_set)
+        ) / sum(X[i] * G[i, a] for i in (aqu_species - b.params.anion_set))
+        for a in b.params.anion_set
+    ) + sum(
+        X[c] * sum(
+                X[i] * G[i, c] * tau[i, c] for i in (aqu_species - b.params.cation_set)
+            ) / sum(X[i] * G[i, c] for i in (aqu_species - b.params.cation_set))
+        for c in b.params.cation_set
+    )
+
+def reduced_symmetric_gibbs_phase_temperature_derivative(b, X, G, dG_dT, tau, dtau_dT):
+    # Not dimensionless, units 1/T
+    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
+    aqu_species = b.params.true_species_set - b.params._non_aqueous_set
+
+    Gamma_m = sum(
+        X[m] * (
+            sum(X[i] * (dG_dT[i, m] * tau[i, m] + G[i, m] * dtau_dT[i, m]) for i in aqu_species)
+            / sum(X[i] * G[i, m] for i in aqu_species)
+            - sum(X[i] * G[i, m] * tau[i, m] for i in aqu_species)
+            * sum(X[i] * dG_dT[i, m] for i in aqu_species)
+            / sum(X[i] * G[i, m] for i in aqu_species) ** 2
+        )
+        for m in molecular_set
+    )
+    Gamma_c = sum(
+        X[c] * (
+            sum(
+                X[i] * (dG_dT[i, c] * tau[i, c] + G[i, c] * dtau_dT[i, c] )
+                for i in (aqu_species - b.params.cation_set)
+            ) / sum(X[i] * G[i, c] for i in (aqu_species - b.params.cation_set))
+            - sum(
+                X[i] * G[i, c] * tau[i, c] for i in (aqu_species - b.params.cation_set)
+            ) * sum(X[i] * dG_dT[i, c] for i in (aqu_species - b.params.cation_set)) 
+            / sum(X[i] * G[i, c] for i in (aqu_species - b.params.cation_set)) ** 2
+        )
+        for c in b.params.cation_set
+    )
+    Gamma_a = sum(
+        X[a]* (
+            sum(
+                X[i] * (dG_dT[i, a] * tau[i, a] + G[i, a] * dtau_dT[i, a])
+                for i in (aqu_species - b.params.anion_set)
+            ) / sum(X[i] * G[i, a] for i in (aqu_species - b.params.anion_set))
+            - sum(
+                X[i] * G[i, a] * tau[i, a] for i in (aqu_species - b.params.anion_set)
+            ) * sum(X[i] * dG_dT[i, a] for i in (aqu_species - b.params.anion_set))
+            / sum(X[i] * G[i, a] for i in (aqu_species - b.params.anion_set)) ** 2
+        )
+        for a in b.params.anion_set
+    )
+
+    return  Gamma_m + Gamma_c + Gamma_a

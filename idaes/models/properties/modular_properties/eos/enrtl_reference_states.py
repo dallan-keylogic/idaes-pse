@@ -197,20 +197,27 @@ class InfiniteDilutionSingleSolvent(object):
             eps_vacuum = Constants.vacuum_electric_permittivity
             pi = Constants.pi
             N_A = Constants.avogadro_number
+            T = pyunits.convert(b.temperature, to_units=pyunits.K)
             eps_solvent = getattr(b, pname + "_relative_permittivity_solvent")
             d_eps_solvent_dT = getattr(b, pname + "_d_relative_permittivity_solvent_dT")
 
-            return pyunits.convert(
-                N_A * (q_e)**2/(8 * pi * eps_vacuum * eps_solvent)
-                * (1 + b.temperature / eps_solvent * d_eps_solvent_dT)
-                * sum(
-                    b.mole_frac_phase_comp_true[pname, s]
-                    * abs(cobj(b, s).config.charge) ** 2
-                    / cobj(b, s).born_radius
-                    for s in b.params.ion_set
-                ),
-                to_units=units.ENERGY/units.AMOUNT
-            )
+            if len(b.params.ion_set) == 0:
+                return 0 * units.ENERGY/units.AMOUNT
+            else:
+                return pyunits.convert(
+                    N_A * (q_e)**2/(8 * pi * eps_vacuum * eps_solvent)
+                    * (1 + T / eps_solvent * d_eps_solvent_dT)
+                    * sum(
+                        b.mole_frac_phase_comp_true[pname, s]
+                        * abs(cobj(b, s).config.charge) ** 2
+                        / pyunits.convert(
+                            cobj(b, s).born_radius,
+                            to_units=pyunits.m
+                        )
+                        for s in b.params.ion_set
+                    ),
+                    to_units=units.ENERGY/units.AMOUNT
+                )
         
         b.add_component(
             pname + "_enth_mol_excess_born",

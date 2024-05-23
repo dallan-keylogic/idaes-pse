@@ -110,17 +110,8 @@ class ConstantAlpha(object):
             )
     @staticmethod
     def return_dalpha_dT_expression(b, pobj, i, j, T):
-        if (i, j) in pobj.alpha:
-            return 0
-        elif (j, i) in pobj.alpha:
-            return 0
-        elif i == j:
-            return 0
-        else:
-            raise BurntToast(
-                "{} alpha rule encountered unexpected index {}. Please contact"
-                "the IDAES Developers with this bug.".format(b.name, (i, j))
-            )
+        units = b.params.get_metadata().derived_units
+        return 0 / units.TEMPERATURE
 
 
 class ConstantTau(object):

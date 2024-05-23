@@ -866,12 +866,42 @@ class ENRTL(Ideal):
             ),
         )
 
+        def rule_log_gamma_poynting(b, j):
+            # TODO move to partial molar volume
+            T = b.temperature
+            v_comp = ENRTL.get_vol_mol_pure(b, "liq", j, T)
+            # TODO do we know if having a vapor pressure is mutually
+            # exclusive with being a Henry component?
+            if (
+                cobj(b, j).config.henry_component is not None
+                and pname in cobj(b, j).config.henry_component
+            ):
+                P_star = b.params.pressure_ref
+            elif cobj(b, j).config.has_vapor_pressure:
+                P_star = get_method(b, "pressure_sat_comp", j)(
+                    b, cobj(b, j), T
+                )
+            else:
+                P_star = b.params.pressure_ref
+            
+            return (b.pressure - P_star) * v_comp / (ENRTL.gas_constant(b) * T)
+
+        b.add_component(
+            pname + "_log_gamma_poynting",
+            Expression(
+                b.params.true_species_set,
+                rule=rule_log_gamma_poynting,
+                doc="Poynting correction to activity coefficient",
+            ),
+        )
+
         # Overall log gamma
         def rule_log_gamma(b, j):
             pdh = getattr(b, pname + "_log_gamma_pdh")
             lc = getattr(b, pname + "_log_gamma_lc")
             born = getattr(b, pname + "_log_gamma_born")
-            return pdh[j] + lc[j] +born[j]
+            poynting = getattr(b, pname + "_log_gamma_poynting")
+            return pdh[j] + lc[j] + born[j] + poynting[j]
 
         b.add_component(
             pname + "_log_gamma",
@@ -932,6 +962,7 @@ class ENRTL(Ideal):
     
     @staticmethod
     def log_act_phase_comp(b, p, j):
+        # TODO this should return the true value
         return b.log_mole_frac_phase_comp[p, j] + b.act_coeff_phase_comp[p, j]
 
     @staticmethod
@@ -1042,6 +1073,7 @@ class ENRTL(Ideal):
 
     @staticmethod
     def enth_mol_phase_comp(b, p, j):
+        # TODO we might be able to give a sensible answer to this via Perry (1981)
         pobj = b.params.get_phase(p)
         if not pobj.is_aqueous_phase():
             return Ideal.enth_mol_phase_comp(b, p, j)
@@ -1097,7 +1129,7 @@ class ENRTL(Ideal):
     def energy_internal_mol_phase(b, p):
         pobj = b.params.get_phase(p)
         if not pobj.is_aqueous_phase():
-            return Ideal.energy_internal_mol_phase(b, p, j)
+            return Ideal.energy_internal_mol_phase(b, p)
         return  b.enth_mol_phase[p] - b.pressure / b.dens_mol_phase[p]
 
     @staticmethod
@@ -1146,7 +1178,11 @@ class ENRTL(Ideal):
             return log_gamma[j] + log_henry_pressure(b, p, j, T)
         elif cobj(b, j).config.has_vapor_pressure:
             # Use Raoult's Law
-            return log_gamma[j] + b.log_mole_frac_phase_comp_true[p, j] + b.log_pressure_sat_comp[j]
+            return (
+                log_gamma[j]
+                + b.log_mole_frac_phase_comp_true[p, j]
+                + b.log_pressure_sat_comp[j]
+            )
         else:
             return Expression.Skip
 
@@ -1157,6 +1193,14 @@ class ENRTL(Ideal):
             "Phase equilibrium calculations using eNRTL is not supported at this time."
             )
 
+
+    # @staticmethod
+    # def enth_mol_phase_excess(b, p):
+    #     return sum(
+    #         b.mole_frac_phase_comp_true[p, j]
+    #         * ENRTL.enth_mol_phase_comp_excess(b, p, j)
+    #         for j in b.components_in_phase(p, true_basis=True)
+    #     )
 
     @staticmethod
     def enth_mol_phase_excess(b, p):
@@ -1195,6 +1239,7 @@ class ENRTL(Ideal):
         v = pyunits.convert(
             getattr(b, pname + "_vol_mol_solvent"), pyunits.m**3 / pyunits.mol
         )
+        # TODO correct unit handling
         dv_dT = differentiate(
             v,
             b.temperature,

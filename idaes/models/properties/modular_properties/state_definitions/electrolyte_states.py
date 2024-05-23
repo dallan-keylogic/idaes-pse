@@ -136,14 +136,21 @@ def _apparent_species_state(b):
         doc="Apparent to true species conversion",
     )
 
+    @b.Expression(
+        b.params.phase_list,
+        doc="Apparent to true species conversion"
+    )
+    def flow_mol_phase_true(b, p):
+        return sum(
+            b.flow_mol_phase_comp_true[p, k]
+            for k in b.params.true_species_set
+            if (p, k) in b.params.true_phase_component_set
+        )
+
     def true_species_mole_fractions(b, p, j):
         return (
             b.mole_frac_phase_comp_true[p, j]
-            * sum(
-                b.flow_mol_phase_comp_true[p, k]
-                for k in b.params.true_species_set
-                if (p, k) in b.params.true_phase_component_set
-            )
+            * b.flow_mol_phase_true[p]
             == b.flow_mol_phase_comp_true[p, j]
         )
 

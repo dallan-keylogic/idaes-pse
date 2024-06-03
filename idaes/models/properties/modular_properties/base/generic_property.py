@@ -4536,8 +4536,8 @@ class GenericStateBlockData(StateBlockData):
         try:
             self.log_act_phase_comp_true = Var(
                 self.params.true_phase_component_set,
-                initialize=1,
-                bounds=(-50, 1),
+                initialize=-1,
+                bounds=(-50, 50),
                 units=pyunits.dimensionless,
                 doc="Log of activity of component by phase",
             )

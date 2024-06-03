@@ -1145,7 +1145,7 @@ class ENRTL(Ideal):
             # Use Raoult's Law
             return (
                 b.act_coeff_phase_comp_true[p, j]
-                * b.get_mole_frac(p)[p, j]
+                * b.mole_frac_phase_comp_true[p, j]
                 * get_method(b, "pressure_sat_comp", j)(
                     b, cobj(b, j), T
                 )

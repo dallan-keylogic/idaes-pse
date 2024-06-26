@@ -3,40 +3,21 @@ from pyomo.environ import (
     check_optimal_termination,
     ConcreteModel,
     Constraint,
-    exp,
-    Expression,
     log,
     Set,
     Param,
     value,
     Var,
     units as pyunits,
-    Reference,
 )
 from pyomo.common.config import ConfigBlock, ConfigDict, ConfigValue, In, Bool
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
-from pyomo.contrib.incidence_analysis import solve_strongly_connected_components
 
-# Import IDAES cores
-from idaes.core import (
-    declare_process_block_class,
-    PhysicalParameterBlock,
-    StateBlockData,
-    StateBlock,
-    MaterialFlowBasis,
-    ElectrolytePropertySet,
-)
-from idaes.core.base.components import Component, __all_components__
+from idaes.core.base.components import __all_components__
 from idaes.core.base.phases import (
-    Phase,
-    AqueousPhase,
-    LiquidPhase,
-    VaporPhase,
     __all_phases__,
 )
 from idaes.core.util.initialization import (
-    fix_state_vars,
-    revert_state_vars,
     solve_indexed_blocks,
 )
 from idaes.core.util.model_statistics import (
@@ -45,29 +26,15 @@ from idaes.core.util.model_statistics import (
 )
 from idaes.core.util.exceptions import (
     BurntToast,
-    ConfigurationError,
-    PropertyPackageError,
-    PropertyNotSupportedError,
     InitializationError,
 )
-from idaes.core.util.misc import add_object_reference
 from idaes.core.solvers import get_solver
 import idaes.logger as idaeslog
 import idaes.core.util.scaling as iscale
 from idaes.core.initialization.initializer_base import InitializerBase
 
-from idaes.models.properties.modular_properties.base.generic_reaction import (
-    equil_rxn_config,
-)
 from idaes.models.properties.modular_properties.base.utility import (
-    get_method,
-    get_phase_method,
-    GenericPropertyPackageError,
     StateIndex,
-)
-from idaes.models.properties.modular_properties.phase_equil.bubble_dew import (
-    LogBubbleDew,
-    _valid_VL_component_list as bub_dew_VL_comp_list,
 )
 from idaes.models.properties.modular_properties.phase_equil.henry import HenryType
 from idaes.models.properties.modular_properties.base.generic_property import _initialize_critical_props
@@ -122,6 +89,13 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
         ),
     )
     CONFIG.declare(
+        "solver_writer_config",
+        ConfigDict(
+            implicit=True,
+            description="Dict of writer_config arguments to pass to solver",
+        ),
+    )
+    CONFIG.declare(
         "calculate_variable_options",
         ConfigDict(
             implicit=True,
@@ -160,7 +134,11 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
         )
 
         # Create solver object
-        solver_obj = get_solver(self.config.solver, self.config.solver_options)
+        solver_obj = get_solver(
+            solver=self.config.solver,
+            solver_options=self.config.solver_options,
+            writer_config=self.config.solver_writer_config,
+        )
 
         init_log.info("Starting initialization routine")
 
@@ -252,13 +230,9 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
                         f"initialization at bubble, dew, and critical point step: "
                         f"{degrees_of_freedom(b)}."
                     )
-                with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-                    solve_strongly_connected_components(
-                        b,
-                        solver=solver_obj,
-                        solve_kwds={"tee": slc.tee},
-                        calc_var_kwds=self.config.calculate_variable_options,
-                    )
+        if number_activated_constraints(model) > 0:
+            with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+                solve_indexed_blocks(solver_obj, model, tee=slc.tee)
         init_log.info("Bubble, dew, and critical point initialization completed.")
 
         # ---------------------------------------------------------------------
@@ -369,23 +343,18 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
                         pp
                     ].phase_equil_initialization(b, pp)
 
-            if number_activated_constraints(b) > 0:
-                dof = degrees_of_freedom(b)
-                if degrees_of_freedom(b) == 0:
-                    with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-                        solve_strongly_connected_components(
-                            b,
-                            solver=solver_obj,
-                            solve_kwds={"tee": slc.tee},
-                            calc_var_kwds=self.config.calculate_variable_options,
-                        )
-                elif dof > 0:
-                    raise InitializationError(
-                        f"{b.name} Unexpected degrees of freedom during "
-                        f"initialization at phase equilibrium step: {dof}."
-                    )
-                # Skip solve if DoF < 0 - this is probably due to a
-                # phase-component flow state with flash
+        if number_activated_constraints(model) > 0:
+            dof = degrees_of_freedom(model)
+            if dof == 0:
+                with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+                    solve_indexed_blocks(solver_obj, [model], tee=slc.tee)
+            elif dof > 0:
+                raise InitializationError(
+                    f"{model.name} Unexpected degrees of freedom during "
+                    f"initialization at phase equilibrium step: {dof}."
+                )
+            # Skip solve if DoF < 0 - this is probably due to a
+            # phase-component flow state with flash
 
         init_log.info("Phase equilibrium initialization completed.")
 
@@ -435,27 +404,22 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
                         lc = log(c)
                         v.set_value(value(lc))
 
-            if number_activated_constraints(b) > 0:
-                dof = degrees_of_freedom(b)
-                if degrees_of_freedom(b) == 0:
-                    with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-                        solve_strongly_connected_components(
-                            b,
-                            solver=solver_obj,
-                            solve_kwds={"tee": slc.tee},
-                            calc_var_kwds=self.config.calculate_variable_options,
-                        )
-                elif dof > 0:
-                    raise InitializationError(
-                        f"{b.name} Unexpected degrees of freedom during "
-                        f"initialization at phase equilibrium step: {dof}."
-                    )
-                # Skip solve if DoF < 0 - this is probably due to a
-                # phase-component flow state with flash
+        if number_activated_constraints(model) > 0:
+            dof = degrees_of_freedom(model)
+            if dof == 0:
+                with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+                    result = solve_indexed_blocks(solver_obj, model, tee=slc.tee)
+            elif dof > 0:
+                raise InitializationError(
+                    f"{model.name} Unexpected degrees of freedom during "
+                    f"initialization at phase equilibrium step: {dof}."
+                )
+		# Skip solve if DoF < 0 - this is probably due to a
+		# phase-component flow state with flash
 
         init_log.info("Property initialization routine finished.")
 
-        return None
+        return result
     
 def _initialize_inherent_reactions(indexed_blk):
     second_iteration=True

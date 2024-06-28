@@ -3713,6 +3713,7 @@ def ipopt_solve_halt_on_error(model, options=None):
     )
 
 
+from pyomo.common.timing import HierarchicalTimer
 def check_parallel_jacobian(
     model,
     tolerance: float = 1e-8,
@@ -3721,6 +3722,7 @@ def check_parallel_jacobian(
     jac=None,
     nlp=None,
     method="vectorized-with-filter",
+    timer=None,
 ):
     if method == "vectorized":
         return _check_parallel_jacobian_vectorized(
@@ -3730,6 +3732,7 @@ def check_parallel_jacobian(
             zero_norm_tolerance=zero_norm_tolerance,
             jac=jac,
             nlp=nlp,
+            timer=timer,
         )
     elif method == "vectorized-with-filter":
         return _check_parallel_jacobian_vectorized_with_filter(
@@ -3738,6 +3741,7 @@ def check_parallel_jacobian(
             direction=direction,
             jac=jac,
             nlp=nlp,
+            timer=timer,
         )
 
 
@@ -3747,7 +3751,10 @@ def _check_parallel_jacobian_vectorized_with_filter(
     direction: str = "row",
     jac=None,
     nlp=None,
+    timer=None,
 ):
+    if timer is None:
+        timer = HierarchicalTimer()
     if direction not in ["row", "column"]:
         raise ValueError(
             f"Unrecognised value for direction ({direction}). "
@@ -3756,6 +3763,7 @@ def _check_parallel_jacobian_vectorized_with_filter(
 
     if jac is None or nlp is None:
         jac, nlp = get_jacobian(model, scaled=False)
+    timer.start("construct-initial-matrices")
     jac.sum_duplicates()
 
     # Get vectors that we will check, and the Pyomo components
@@ -3768,15 +3776,25 @@ def _check_parallel_jacobian_vectorized_with_filter(
         components = nlp.get_pyomo_variables()
         mat = jac.transpose().tocsr()
     ncomp = len(components)
+    timer.stop("construct-initial-matrices")
+
+    timer.start("dot-products")
     dotprods = mat @ mat.transpose()
     dotprods.sum_duplicates()
+    timer.stop("dot-products")
 
+    timer.start("norms")
     norms = np.sqrt(dotprods.diagonal())
+    timer.stop("norms")
+
     # Only consider the upper triangle, so we don't do extra work
+    timer.start("upper-tri")
     dotprods = sps.triu(dotprods, k=1)
     dotprods.sum_duplicates()
+    timer.stop("upper-tri")
 
     # Filter small nonzero entries from original matrix
+    timer.start("filter-small-entries")
     max_val_per_component = np.array(
         [max(np.abs(mat.data[mat.indptr[i]:mat.indptr[i+1]]), default=0.0) for i in range(ncomp)]
     )
@@ -3798,7 +3816,9 @@ def _check_parallel_jacobian_vectorized_with_filter(
         shape=coo.shape,
     ).tocsr()
     mat = filtered_mat
+    timer.stop("filter-small-entries")
 
+    timer.start("compare-nonzero-pattern")
     nnz_by_component = np.array([mat.indptr[i+1] - mat.indptr[i] for i in range(ncomp)])
     max_nnz = max(nnz_by_component)
     
@@ -3831,16 +3851,23 @@ def _check_parallel_jacobian_vectorized_with_filter(
     # These are the dot product indices where the two vectors have the same
     # sparsity structure.
     indices_to_extract = np.where((row_nz_mat == col_nz_mat).all(axis=1))[0]
+    timer.stop("compare-nonzero-pattern")
 
+    timer.start("extract-indices")
     filtered_rows = dotprods.row[indices_to_extract]
     filtered_cols = dotprods.col[indices_to_extract]
     filtered_prods = dotprods.data[indices_to_extract]
     norm_prod = norms[filtered_rows] * norms[filtered_cols]
+    timer.stop("extract-indices")
+    timer.start("differences")
     differences = norm_prod - np.abs(filtered_prods)
+    timer.stop("differences")
 
+    timer.start("compare-to-tolerance")
     parallel = np.where(
         (differences < tolerance) | (differences < (norm_prod * tolerance))
     )[0]
+    timer.stop("compare-to-tolerance")
 
     parallel_components = [
         (components[filtered_rows[idx]], components[filtered_cols[idx]])
@@ -3857,6 +3884,7 @@ def _check_parallel_jacobian_vectorized(
     zero_norm_tolerance: float = 1e-8,
     jac=None,
     nlp=None,
+    timer=None,
 ):
     """
     Check for near-parallel rows or columns in the Jacobian.
@@ -3888,6 +3916,8 @@ def _check_parallel_jacobian_vectorized(
 
     """
     # Thanks to Robby Parker and Doug Allan for significant performance improvements
+    if timer is None:
+        timer = HierarchicalTimer()
 
     if direction not in ["row", "column"]:
         raise ValueError(
@@ -3900,6 +3930,7 @@ def _check_parallel_jacobian_vectorized(
 
     # Get vectors that we will check, and the Pyomo components
     # they correspond to.
+    timer.start("initial-matrices")
     if direction == "row":
         components = nlp.get_pyomo_constraints()
         mat = jac.tocsr()
@@ -3907,32 +3938,42 @@ def _check_parallel_jacobian_vectorized(
     elif direction == "column":
         components = nlp.get_pyomo_variables()
         mat = jac.transpose().tocsr()
+    timer.stop("initial-matrices")
 
     # Take product of all rows/columns with all rows/columns by taking outer
     # product of matrix with itself
+    timer.start("dot-products")
     outer = mat @ mat.transpose()
+    timer.stop("dot-products")
 
     # Along the diagonal of the outer product you get the dot product of the row
     # with itself, which is equal to the norm squared.
+    timer.start("norms")
     norms = np.sqrt(outer.diagonal())
+    timer.stop("norms")
 
     # Want to ignore indices with zero norm. By zeroing out the corresponding
     # entries of the scaling matrix, we set the corresponding rows and columns
     # to zero, which will then be ignored.
 
+    timer.start("inv-norms")
     zero_norm_indices = np.nonzero(np.abs(norms) <= zero_norm_tolerance)
     inv_norms = 1 / norms
     inv_norms[zero_norm_indices] = 0
+    timer.stop("inv-norms")
 
     # Divide each row and each column by the vector norm. This leaves
     # the entries as dot(u, v) / (norm(u) * norm(v)). The exception is
     # entries with "zero norm", whose corresponding rows and columns are
     # set to zero.
+    timer.start("scale-by-norms")
     scaling = diags(inv_norms)
     outer = scaling * outer * scaling
+    timer.stop("scale-by-norms")
 
     # Get rid of duplicate values by only taking (strictly) upper triangular part of
     # resulting matrix
+    timer.start("upper-tri")
     upper_tri = triu(outer, k=1)
 
     # Set diagonal elements to zero
@@ -3944,6 +3985,7 @@ def _check_parallel_jacobian_vectorized(
     # Get the nonzero entries of upper_tri in three arrays,
     # corresponding to row indices, column indices, and values
     rows, columns, values = find(upper_tri)
+    timer.stop("upper-tri")
 
     # We have that dot(u,v) == norm(u) * norm(v) * cos(theta) in which
     # theta is the angle between u and v. If theta is approximately
@@ -3954,7 +3996,9 @@ def _check_parallel_jacobian_vectorized(
     # The expression (1 - abs(values) < tolerance) returns an array with values
     # of ones and zeros, depending on whether the condition is fulfilled or not.
     # We then find indices where it is filled using np.nonzero.
+    timer.start("compare-to-tolerance")
     parallel_1D = np.nonzero(1 - abs(values) < tolerance)[0]
+    timer.stop("compare-to-tolerance")
 
     parallel = [
         (components[rows[idx]], components[columns[idx]]) for idx in parallel_1D

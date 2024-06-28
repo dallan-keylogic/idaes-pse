@@ -1123,7 +1123,7 @@ The following pairs of constraints are nearly parallel:
 
         warnings, next_steps = dt._collect_numerical_warnings()
 
-        assert len(warnings) == 4
+        assert len(warnings) == 3
         assert (
             "WARNING: 2 Variables with extreme Jacobian values (<1.0E-08 or >1.0E+08)"
             in warnings
@@ -1134,7 +1134,7 @@ The following pairs of constraints are nearly parallel:
         )
         assert "WARNING: 1 Constraint with large residuals (>1.0E-05)" in warnings
 
-        assert len(next_steps) == 5
+        assert len(next_steps) == 4
         assert "display_variables_with_extreme_jacobians()" in next_steps
         assert "display_constraints_with_extreme_jacobians()" in next_steps
         assert "display_constraints_with_large_residuals()" in next_steps

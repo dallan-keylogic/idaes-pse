@@ -29,6 +29,7 @@ import numpy as np
 from scipy.linalg import svd
 from scipy.sparse.linalg import svds, norm
 from scipy.sparse import issparse, find, triu, diags
+import scipy.sparse as sps
 
 from pyomo.environ import (
     Binary,
@@ -3713,6 +3714,143 @@ def ipopt_solve_halt_on_error(model, options=None):
 
 
 def check_parallel_jacobian(
+    model,
+    tolerance: float = 1e-8,
+    direction: str = "row",
+    zero_norm_tolerance: float = 1e-8,
+    jac=None,
+    nlp=None,
+    method="vectorized-with-filter",
+):
+    if method == "vectorized":
+        return _check_parallel_jacobian_vectorized(
+            model,
+            tolerance=tolerance,
+            direction=direction,
+            zero_norm_tolerance=zero_norm_tolerance,
+            jac=jac,
+            nlp=nlp,
+        )
+    elif method == "vectorized-with-filter":
+        return _check_parallel_jacobian_vectorized_with_filter(
+            model,
+            tolerance=tolerance,
+            direction=direction,
+            jac=jac,
+            nlp=nlp,
+        )
+
+
+def _check_parallel_jacobian_vectorized_with_filter(
+    model,
+    tolerance: float = 1e-8,
+    direction: str = "row",
+    jac=None,
+    nlp=None,
+):
+    if direction not in ["row", "column"]:
+        raise ValueError(
+            f"Unrecognised value for direction ({direction}). "
+            "Must be 'row' or 'column'."
+        )
+
+    if jac is None or nlp is None:
+        jac, nlp = get_jacobian(model, scaled=False)
+    jac.sum_duplicates()
+
+    # Get vectors that we will check, and the Pyomo components
+    # they correspond to.
+    if direction == "row":
+        components = nlp.get_pyomo_constraints()
+        mat = jac.tocsr()
+
+    elif direction == "column":
+        components = nlp.get_pyomo_variables()
+        mat = jac.transpose().tocsr()
+    ncomp = len(components)
+    dotprods = mat @ mat.transpose()
+    dotprods.sum_duplicates()
+
+    norms = np.sqrt(dotprods.diagonal())
+    # Only consider the upper triangle, so we don't do extra work
+    dotprods = sps.triu(dotprods, k=1)
+    dotprods.sum_duplicates()
+
+    # Filter small nonzero entries from original matrix
+    max_val_per_component = np.array(
+        [max(np.abs(mat.data[mat.indptr[i]:mat.indptr[i+1]]), default=0.0) for i in range(ncomp)]
+    )
+    component_by_nonzero = np.hstack(
+        tuple(
+            k * np.ones(mat.indptr[k+1] - mat.indptr[k], dtype=int)
+            for k in range(ncomp)
+        )
+    )
+    coo = mat.tocoo()
+    not_small = np.where(
+        # Entries must be significant in an absolute sense
+        (np.abs(coo.data) > tolerance)
+        # And relative to the largest entry for this component
+        & (np.abs(coo.data) > (max_val_per_component[component_by_nonzero] * tolerance))
+    )[0]
+    filtered_mat = sps.coo_matrix(
+        (coo.data[not_small], (coo.row[not_small], coo.col[not_small])),
+        shape=coo.shape,
+    ).tocsr()
+    mat = filtered_mat
+
+    nnz_by_component = np.array([mat.indptr[i+1] - mat.indptr[i] for i in range(ncomp)])
+    max_nnz = max(nnz_by_component)
+    
+    # To facilitate vectorized calculations, we reshape the original sparse matrix
+    # into a dense matrix with max_nnz columns. This will be used to compare nonzero
+    # structure of rows.
+    # Get the array of "component indices" for each nonzero in the original matrix
+    component_by_nonzero = np.hstack(
+        tuple(
+            k * np.ones(mat.indptr[k+1] - mat.indptr[k], dtype=int)
+            for k in range(ncomp)
+        )
+    )
+    buf = -np.ones(max_nnz*ncomp, dtype=int)
+    offsets = (
+        # Allow max_nnz entries for each component
+        component_by_nonzero * max_nnz
+        # Offset by the index of nonzero within the row (component)
+        + np.arange(mat.nnz) - mat.indptr[component_by_nonzero]
+    )
+    buf[offsets] = mat.indices
+    nz_by_component = buf.reshape((ncomp, max_nnz))
+
+    row_nz_mat = nz_by_component[dotprods.row]
+    col_nz_mat = nz_by_component[dotprods.col]
+    # Make sure nonzeros-per-component are in ascending order
+    row_nz_mat.sort(axis=1)
+    col_nz_mat.sort(axis=1)
+
+    # These are the dot product indices where the two vectors have the same
+    # sparsity structure.
+    indices_to_extract = np.where((row_nz_mat == col_nz_mat).all(axis=1))[0]
+
+    filtered_rows = dotprods.row[indices_to_extract]
+    filtered_cols = dotprods.col[indices_to_extract]
+    filtered_prods = dotprods.data[indices_to_extract]
+    norm_prod = norms[filtered_rows] * norms[filtered_cols]
+    differences = norm_prod - np.abs(filtered_prods)
+
+    parallel = np.where(
+        (differences < tolerance) | (differences < (norm_prod * tolerance))
+    )[0]
+
+    parallel_components = [
+        (components[filtered_rows[idx]], components[filtered_cols[idx]])
+        for idx in parallel
+    ]
+
+    return parallel_components
+
+
+def _check_parallel_jacobian_vectorized(
     model,
     tolerance: float = 1e-8,
     direction: str = "row",

@@ -867,6 +867,7 @@ class ENRTL(Ideal):
         )
 
         def rule_log_gamma_poynting(b, j):
+            return 0
             # TODO move to partial molar volume
             T = b.temperature
             v_comp = ENRTL.get_vol_mol_pure(b, "liq", j, T)

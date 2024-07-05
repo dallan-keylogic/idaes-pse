@@ -251,14 +251,18 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
         for k in model.values():
             k.params.config.state_definition.state_initialization(k)
 
-        if params.config.state_components == StateIndex.apparent:
-            _initialize_inherent_reactions(model)
-
-        for k in model.values():
-            if k.params._electrolyte:
-                # TODO add initialization of reactions here too
-                if k.params.config.state_components == StateIndex.true:
-                    # First calculate initial values for apparent species flows
+        if params._electrolyte:
+            for k in model.values():
+                if k.is_property_constructed("log_k_eq_constraint"):
+                    for rxn in k.log_k_eq_constraint:
+                        calculate_variable_from_constraint(
+                            k.log_k_eq[rxn],
+                            k.log_k_eq_constraint[rxn]
+                        )
+            if params.config.state_components == StateIndex.apparent:
+                _initialize_inherent_reactions(model)
+            elif params.config.state_components == StateIndex.true:
+                for k in model.values():
                     for p, j in k.params.apparent_phase_component_set:
                         calculate_variable_from_constraint(
                             k.flow_mol_phase_comp_apparent[p, j],
@@ -280,16 +284,13 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
                             k.mole_frac_phase_comp_apparent[p, j].set_value(lb)
                         else:
                             k.mole_frac_phase_comp_apparent[p, j].set_value(x)
-                elif k.params.config.state_components == StateIndex.apparent:
-                    # Was handled elsewhere
-                    pass
-
-                else:
-                    raise BurntToast(
-                        "Electrolyte basis other than true or apparent chosen. "
-                        "This should not be possible, please contact the IDAES developers."
-                    )
-
+            else:
+                raise BurntToast(
+                    "Electrolyte basis other than true or apparent chosen. "
+                    "This should not be possible, please contact the IDAES developers."
+                )
+            
+        for k in model.values():
             # If state block has phase equilibrium, use the average of all
             # _teq's as an initial guess for T
             if (

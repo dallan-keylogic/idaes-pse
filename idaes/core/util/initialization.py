@@ -20,10 +20,12 @@ from pyomo.environ import (
     check_optimal_termination,
     Constraint,
     value,
+    Var
 )
 from pyomo.network import Arc
 from pyomo.dae import ContinuousSet
 from pyomo.core.expr.visitor import identify_variables
+from pyomo.util.subsystems import create_subsystem_block
 
 from idaes.core.util.exceptions import ConfigurationError
 from idaes.core.util.model_statistics import degrees_of_freedom
@@ -293,6 +295,20 @@ def solve_indexed_blocks(solver, blocks, **kwds):
 
     # Return results
     return results
+
+def unindex_indexed_block(blocks, include_fixed=False):
+    variables = []
+    constraints = []
+    for block in blocks.values():
+        for var in block.component_data_objects(ctype=Var):
+            variables.append(var)
+        for con in block.component_data_objects(ctype=Constraint):
+            constraints.append(con)
+    return create_subsystem_block(
+        variables=variables,
+        constraints=constraints,
+        include_fixed=include_fixed,
+    )
 
 
 def initialize_by_time_element(fs, time, **kwargs):

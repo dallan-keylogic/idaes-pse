@@ -404,7 +404,6 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
                             c = 1e-8
                         lc = log(c)
                         v.set_value(value(lc))
-
         if number_activated_constraints(model) > 0:
             dof = degrees_of_freedom(model)
             if dof == 0:

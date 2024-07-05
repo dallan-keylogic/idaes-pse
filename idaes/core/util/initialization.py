@@ -229,6 +229,10 @@ def propagate_state(
 
 
 # HACK, courtesy of J. Siirola
+# Note 7/5/24: this could be re-implemented with create_subsystem_block at a
+# slight performance cost (solve times for a 4096x4096 system went from 1.8 to
+# 3 seconds). No reason to reimplement it at the moment, but if it ever breaks,
+# that version would be much easier to maintain. ---Doug Allan
 def solve_indexed_blocks(solver, blocks, **kwds):
     """
     This method allows for solving of Indexed Block components as if they were
@@ -309,7 +313,6 @@ def unindex_indexed_block(blocks, include_fixed=False):
         constraints=constraints,
         include_fixed=include_fixed,
     )
-
 
 def initialize_by_time_element(fs, time, **kwargs):
     """

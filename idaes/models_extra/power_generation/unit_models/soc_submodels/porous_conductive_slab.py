@@ -556,6 +556,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 nodes=b.xnodes,
                 faces=b.xfaces,
                 phi_func=lambda ixf: b.temperature_deviation_x[t, ixf, iz] / b.length_x,
+                # TODO check these formulae
                 phi_bound_0=(
                     b.temperature_deviation_x[t, ixnodes.first(), iz]
                     - b.temperature_deviation_x0[t, iz]
@@ -595,6 +596,7 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 faces=b.xfaces,
                 phi_func=lambda ixf: b.diff_eff_coeff[t, ixf, iz, i],
                 # TODO we can probably use conc_x0 and conc_x1 now
+                # Also this might be degrading convergence order
                 phi_bound_0=b.diff_eff_coeff[
                     t, ixnodes.first(), iz, i
                 ],  # use node value
@@ -614,8 +616,12 @@ class PorousConductiveSlabData(UnitModelBlockData):
                 nodes=b.znodes,
                 faces=b.zfaces,
                 phi_func=lambda izf: b.diff_eff_coeff[t, ix, izf, i],
-                phi_bound_0=0 * diff_coeff_units,  # solid wall no flux
-                phi_bound_1=0 * diff_coeff_units,  # solid wall no flux
+                phi_bound_0=b.diff_eff_coeff[
+                    t, ix, iznodes.first(), i
+                ],  # use node value
+                phi_bound_1=b.diff_eff_coeff[
+                    t, ix, iznodes.last(), i
+                ],  # use node value
                 derivative=False,
             )
 

@@ -4,7 +4,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -22,6 +22,7 @@ from pyomo.environ import (
     value,
     Var
 )
+from pyomo.common.collections import ComponentMap
 from pyomo.network import Arc
 from pyomo.dae import ContinuousSet
 from pyomo.core.expr.visitor import identify_variables
@@ -554,3 +555,35 @@ def initialize_by_time_element(fs, time, **kwargs):
 
     # Logger message that initialization is finished
     init_log.info("Initialization completed. Model has been reactivated")
+
+def _fix_vars(var_list):
+    flags = ComponentMap()
+    for var in var_list:
+        if var.is_indexed():
+            for subvar in var.values():
+                flags[subvar] = subvar.fixed
+                subvar.fix()
+        else:
+            flags[var] = var.fixed
+            var.fix()
+    return flags
+
+
+def _unfix_vars(var_list):
+    flags = ComponentMap()
+    if var.is_indexed():
+        for subvar in var.values():
+            flags[subvar] = subvar.fixed
+            subvar.unfix()
+    else:
+        flags[var] = var.fixed
+        var.unfix()
+    return flags
+
+
+def _restore_fixedness(flags):
+    for var, fix in flags.items():
+        if fix:
+            var.fix()
+        else:
+            var.unfix()

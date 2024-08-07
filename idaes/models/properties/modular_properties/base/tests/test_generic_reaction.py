@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -638,8 +638,10 @@ class TestGenericReactionBlock(object):
         )
         assert value(model.rblock[1].equilibrium_constraint["e2"].body) == value(
             model.rblock[1].log_k_eq["e2"]
-            - model.sblock[1].log_mole_frac_phase_comp["p2", "c1"] * -5
-            + model.sblock[1].log_mole_frac_phase_comp["p2", "c2"] * 6
+            - (
+                model.sblock[1].log_mole_frac_phase_comp["p2", "c1"] * -5
+                + model.sblock[1].log_mole_frac_phase_comp["p2", "c2"] * 6
+            )
         )
 
     @pytest.mark.unit

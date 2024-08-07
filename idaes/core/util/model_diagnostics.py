@@ -4,7 +4,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -45,6 +45,16 @@ from pyomo.environ import (
     SolverFactory,
     value,
     Var,
+    is_fixed,
+)
+from pyomo.core.expr.numeric_expr import (
+    DivisionExpression,
+    NPV_DivisionExpression,
+    PowExpression,
+    NPV_PowExpression,
+    UnaryFunctionExpression,
+    NPV_UnaryFunctionExpression,
+    NumericExpression,
 )
 from pyomo.core.expr.numeric_expr import (
     DivisionExpression,
@@ -901,7 +911,7 @@ class DiagnosticsToolbox:
             large=self.config.jacobian_large_value_caution,
             small=self.config.jacobian_small_value_caution,
         )
-        xjc.sort(key=lambda i: abs(log(i[0])), reverse=True)
+        xjc.sort(key=lambda i: abs(i[0]), reverse=True)
 
         _write_report_section(
             stream=stream,
@@ -3167,7 +3177,7 @@ CACONFIG.declare(
 
 class IpoptConvergenceAnalysis:
     """
-    Tool to performa a parameter sweep of model checking for numerical issues and
+    Tool to perform a parameter sweep of model checking for numerical issues and
     convergence characteristics. Users may specify an IDAES ParameterSweep class to
     perform the sweep (default is SequentialSweepRunner).
     """

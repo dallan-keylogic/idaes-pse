@@ -78,6 +78,7 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
         "solver",
         ConfigValue(
             default=None,
+            domain=str,
             description="Solver to use for initialization",
         ),
     )
@@ -260,7 +261,7 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
                             k.log_k_eq_constraint[rxn]
                         )
             if params.config.state_components == StateIndex.apparent:
-                _initialize_inherent_reactions(model)
+                _initialize_inherent_reactions(model, init_log=init_log, solve_log=solve_log)
             elif params.config.state_components == StateIndex.true:
                 for k in model.values():
                     for p, j in k.params.apparent_phase_component_set:
@@ -421,7 +422,7 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
 
         return result
     
-def _initialize_inherent_reactions(indexed_blk):
+def _initialize_inherent_reactions(indexed_blk, init_log, solve_log):
     second_iteration=True
     model = ConcreteModel()
     index_data = indexed_blk.index_set().data()
@@ -512,12 +513,15 @@ def _initialize_inherent_reactions(indexed_blk):
             # "jac_c_constant": "yes"
         }
     )
-    res = solver_obj.solve(model, tee=False)
+    init_log.info_high("Inherent reactions: solving minimization of Gibbs energy")
+    with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+        res = solver_obj.solve(model, tee=slc.tee)
     if not check_optimal_termination(res):
         raise InitializationError(
             f"{indexed_blk.name} failed to initialize successfully. Please check "
             f"the output logs for more information."
         )
+    init_log.info_high("Inherent reactions: Gibbs energy successfully minimized")
     def propagate_back_to_indexed_blk():
         for idx in model.idx_set:
             for r in model.inherent_reaction_idx:
@@ -559,5 +563,13 @@ def _initialize_inherent_reactions(indexed_blk):
                         )
                     )
                 )
-        res = solver_obj.solve(model, tee=False)
+        init_log.info_high("Inherent reactions: solving second minimization of Gibbs energy")
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            res = solver_obj.solve(model, tee=slc.tee)
+        if not check_optimal_termination(res):
+            raise InitializationError(
+                f"{indexed_blk.name} failed to initialize successfully. Please check "
+                f"the output logs for more information."
+            )
+        init_log.info_high("Inherent reactions: Gibbs energy successfully minimized for second time")
         propagate_back_to_indexed_blk()

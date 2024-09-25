@@ -240,7 +240,6 @@ class SolventCondenserInitializer(InitializerBase):
                         liquid_state_args[sv] = value(getattr(vap_state, sv))
 
         state_init.initialize(blk.liquid_phase)
-        import pdb; pdb.set_trace()
 
         init_log.info_high("Initialization Step 1 Complete.")
         # ---------------------------------------------------------------------

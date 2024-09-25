@@ -419,7 +419,8 @@ class ModularPropertiesInherentReactionsInitializer(InitializerBase):
 		# phase-component flow state with flash
 
         init_log.info("Property initialization routine finished.")
-
+        # if  model.name == "fs.condenser.liquid_phase":
+        #     import pdb; pdb.set_trace()
         return result
     
 def _initialize_inherent_reactions(indexed_blk, init_log, solve_log):

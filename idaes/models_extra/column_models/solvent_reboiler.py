@@ -27,6 +27,7 @@ __author__ = "Andrew Lee, Paul Akula"
 
 # Import Pyomo libraries
 from pyomo.environ import (
+    Block,
     check_optimal_termination,
     Constraint,
     Param,
@@ -34,7 +35,7 @@ from pyomo.environ import (
     units as pyunits,
     value,
 )
-from pyomo.common.config import ConfigBlock, ConfigValue, In, Bool
+from pyomo.common.config import ConfigBlock, ConfigDict, ConfigValue, In, Bool
 
 # Import IDAES cores
 import idaes.logger as idaeslog
@@ -51,11 +52,224 @@ from idaes.core import (
 from idaes.core.util.config import is_physical_parameter_block
 from idaes.core.util import scaling as iscale
 from idaes.core.solvers import get_solver
+from idaes.core.initialization.initializer_base import InitializerBase
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.core.util.exceptions import ConfigurationError, InitializationError
 
+from idaes.models_extra.column_models.properties import ModularPropertiesInherentReactionsInitializer
 
 _log = idaeslog.getIdaesLogger(__name__)
+
+
+
+class SolventReboilerInitializer(InitializerBase):
+    """
+    TODO on doc
+
+    """
+
+    CONFIG = InitializerBase.CONFIG()
+    CONFIG.declare(
+        "solver",
+        ConfigValue(
+            default=None,
+            description="Solver to use for initialization",
+        ),
+    )
+    CONFIG.declare(
+        "solver_options",
+        ConfigDict(
+            implicit=True,
+            description="Dict of options to pass to solver",
+        ),
+    )
+    CONFIG.declare(
+        "solver_writer_config",
+        ConfigDict(
+            implicit=True,
+            description="Dict of writer_config arguments to pass to solver",
+        ),
+    )
+    CONFIG.declare(
+        "estimate_vapor_state",
+        ConfigValue(
+            default=False,
+            domain=Bool,
+            description="Estimate state of condesate before solving block",
+            doc="Option to estimate state of condensate before solving block."
+            "NOTE: this WILL OVERWRITE any initial guess provided as a dict or json.",
+        ),
+    )
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        self._solver = None
+
+    def initialize(
+        self,
+        model: Block,
+        initial_guesses: dict = None,
+        json_file: str = None,
+        output_level=None,
+        exclude_unused_vars: bool = True,
+    ):
+        super().initialize(
+            model=model,
+            initial_guesses=initial_guesses,
+            json_file=json_file,
+            output_level=output_level,
+            exclude_unused_vars=exclude_unused_vars
+        )
+
+    def initialization_routine(
+        self,
+        blk: Block,
+    ):
+        """
+        SolventCondenser initialization.
+
+        Args:
+            blk: block to be initialized
+
+        Returns:
+            None
+        """
+        """
+        Initialization routine for solvent reboiler unit model.
+
+        Keyword Arguments:
+            liquid_state_args : a dict of arguments to be passed to the
+                liquid property packages to provide an initial state for
+                initialization (see documentation of the specific property
+                package) (default = none).
+            vapor_state_args : a dict of arguments to be passed to the
+                vapor property package to provide an initial state for
+                initialization (see documentation of the specific property
+                package) (default = none).
+            outlvl : sets output level of initialization routine
+            optarg : solver options dictionary object (default=None, use
+                     default solver options)
+            solver : str indicating which solver to use during
+                     initialization (default = None, use default IDAES solver)
+
+        Returns:
+            None
+        """
+        blk.inlet.fix()
+        blk.heat_duty.fix()
+
+        # Check DOF
+        if degrees_of_freedom(blk) != 0:
+            raise InitializationError(
+                f"{blk.name} degrees of freedom were not 0 at the beginning "
+                f"of initialization. DoF = {degrees_of_freedom(blk)}"
+            )
+
+        # Set solver options
+        init_log = idaeslog.getInitLogger(blk.name, self.config.output_level, tag="unit")
+        solve_log = idaeslog.getSolveLogger(blk.name, self.config.output_level, tag="unit")
+
+        solverobj = get_solver(
+            solver=self.config.solver,
+            solver_options=self.config.solver_options,
+            writer_config=self.config.solver_writer_config,
+        )
+
+        init_log.info("Step 1: Property Package initialization")
+
+        state_init = ModularPropertiesInherentReactionsInitializer(
+            solver=self.config.solver,
+            solver_options=self.config.solver_options,
+            solver_writer_config=self.config.solver_writer_config,
+            output_level=self.config.output_level
+        )
+
+        # ---------------------------------------------------------------------
+        # Initialize liquid phase control volume block
+        state_init.initialize(blk.liquid_phase.properties_in)
+        blk.liquid_phase.estimate_outlet_state(always_estimate=True)
+        state_init.initialize(blk.liquid_phase.properties_out)
+
+        # ---------------------------------------------------------------------
+        # Initialize vapor phase state block
+        if self.config.estimate_vapor_state:
+            for t_init in blk.flowsheet().time:
+                vapor_state_args = {}
+                vap_state_vars = blk.vapor_phase[t_init].define_state_vars()
+
+                liq_state = blk.liquid_phase.properties_out[t_init]
+
+                # Check for unindexed state variables
+                for sv in vap_state_vars:
+                    if "flow" in sv:
+                        # Flow variable, assume 10% vaporization
+                        if "phase_comp" in sv:
+                            # Flow is indexed by phase and component
+                            vapor_state_args[sv] = {}
+                            for p, j in vap_state_vars[sv]:
+                                if j in liq_state.component_list:
+                                    vapor_state_args[sv][p, j] = 0.1 * value(
+                                        getattr(liq_state, sv)[p, j]
+                                    )
+                                else:
+                                    vapor_state_args[sv][p, j] = 1e-8
+                        elif "comp" in sv:
+                            # Flow is indexed by component
+                            vapor_state_args[sv] = {}
+                            for j in vap_state_vars[sv]:
+                                if j in liq_state.component_list:
+                                    vapor_state_args[sv][j] = 0.1 * value(
+                                        getattr(liq_state, sv)[j]
+                                    )
+                                else:
+                                    vapor_state_args[sv][j] = 1e-8
+                        elif "phase" in sv:
+                            # Flow is indexed by phase
+                            vapor_state_args[sv] = {}
+                            for p in vap_state_vars[sv]:
+                                vapor_state_args[sv][p] = 0.1 * value(
+                                    getattr(liq_state, sv)["Liq"]
+                                )
+                        else:
+                            vapor_state_args[sv] = 0.1 * value(getattr(liq_state, sv))
+                    elif "mole_frac" in sv:
+                        vapor_state_args[sv] = {}
+                        if "phase" in sv:
+                            # Variable is indexed by phase and component
+                            for p, j in vap_state_vars[sv].keys():
+                                if j in liq_state.component_list:
+                                    vapor_state_args[sv][p, j] = value(
+                                        liq_state.fug_phase_comp["Liq", j]
+                                        / liq_state.pressure
+                                    )
+                                else:
+                                    vapor_state_args[sv][p, j] = 1e-8
+                        else:
+                            for j in vap_state_vars[sv].keys():
+                                if j in liq_state.component_list:
+                                    vapor_state_args[sv][j] = value(
+                                        liq_state.fug_phase_comp["Liq", j]
+                                        / liq_state.pressure
+                                    )
+                                else:
+                                    vapor_state_args[sv][j] = 1e-8
+                    else:
+                        vapor_state_args[sv] = value(getattr(liq_state, sv))
+        
+        state_init.initialize(blk.vapor_phase)
+
+        init_log.info_high("Initialization Step 1 Complete.")
+        # ---------------------------------------------------------------------
+        # Solve unit model
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            results = solverobj.solve(blk, tee=slc.tee)
+
+        init_log.info_high(
+            "Initialization Step 2 {}.".format(idaeslog.condition(results))
+        )
+
+        return results
 
 
 @declare_process_block_class("SolventReboiler")

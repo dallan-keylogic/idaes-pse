@@ -24,6 +24,7 @@ from pyomo.environ import (
     Reals,
     RangeSet,
     Var,
+    value,
 )
 from pyomo.common.config import ConfigBlock, ConfigValue, In, ListOf, Bool
 
@@ -49,6 +50,8 @@ from idaes.core.util.tables import create_stream_table_dataframe
 import idaes.core.util.scaling as iscale
 from idaes.core.solvers import get_solver
 from idaes.core.initialization import ModularInitializerBase
+from idaes.models.unit_models.mixer import MixingType, MomentumMixingType
+from idaes.models_extra.column_models.properties import ModularPropertiesInherentReactionsInitializer
 
 import idaes.logger as idaeslog
 
@@ -59,28 +62,7 @@ __author__ = "Andrew Lee"
 _log = idaeslog.getLogger(__name__)
 
 
-# Enumerate options for balances
-class MixingType(Enum):
-    """
-    Enum of supported mixing types.
-    """
-
-    none = 0
-    extensive = 1
-
-
-class MomentumMixingType(Enum):
-    """
-    Enum of supported approaches to pressure mixing.
-    """
-
-    none = 0
-    minimize = 1
-    equality = 2
-    minimize_and_equality = 3
-
-
-class MixerInitializer(ModularInitializerBase):
+class TranslatingMixerInitializer(ModularInitializerBase):
     """
     Hierarchical Initializer for Mixer blocks.
 
@@ -135,37 +117,88 @@ class MixerInitializer(ModularInitializerBase):
             # Iterate over state vars as defined by property package
             s_vars = mblock[t].define_state_vars()
             for s in s_vars:
-                i_vars = []
                 for k in s_vars[s]:
                     # If fixed, use current value
                     # otherwise calculate guess from mixed state
                     if not s_vars[s][k].fixed:
-                        for ib in i_block_list:
-                            i_vars.append(getattr(ib[t], s_vars[s].local_name))
-
                         if s == "pressure":
                             # If pressure, use minimum as initial guess
                             mblock[t].pressure.set_value(
                                 min(
-                                    i_block_list[i][t].pressure.value
+                                    value(i_block_list[i][t].pressure)
                                     for i in range(len(i_block_list))
                                 )
                             )
                         elif "flow" in s:
+                            if "flow_comp" in s:
+                                validation_sets = [i_block_list[i][t].component_list for i in range(len(i_block_list))]
+                            elif "flow_phase_comp" in s:
+                                validation_sets = [i_block_list[i][t].phase_component_set for i in range(len(i_block_list))]
+                            else:
+                                # Otherwise s is unindexed, right..? FIXME
+                                validation_sets = [{None} for i in range(len(i_block_list))]
                             # If a "flow" variable (i.e. extensive), sum inlets
                             for k in s_vars[s]:
                                 s_vars[s][k].set_value(
                                     sum(
-                                        i_vars[i][k].value
+                                        value(
+                                            getattr(i_block_list[i][t], s)[k]
+                                            # TODO the attribute will always be generated, right?
+                                        )
                                         for i in range(len(i_block_list))
+                                        if k in validation_sets[i]
                                     )
                                 )
+                        elif "mole_frac" in s:
+                            if "mole_frac_comp" in s:
+                                validation_sets = [i_block_list[i][t].component_list for i in range(len(i_block_list))]
+                                flow_mol = max(
+                                    sum(value(i_block_list[i][t].flow_mol) for i in range(len(i_block_list))),
+                                    1e-16 #Guard against zero flows
+                                )
+                                for k in s_vars[s]:
+                                    flow_mol_comp = sum(
+                                        value(
+                                            i_block_list[i][t].flow_mol_comp[k]
+                                            # TODO the attribute will always be generated, right?
+                                        )
+                                        for i in range(len(i_block_list))
+                                        if k in validation_sets[i]
+                                    )
+                                s_vars[s][k].set_value(flow_mol_comp/flow_mol)
+                            
+                            elif "flow_phase_comp" in s:
+                                phase_sets = [i_block_list[i][t].phase_set for i in range(len(i_block_list))]
+                                phase_comp_sets = [i_block_list[i][t].phase_component_set for i in range(len(i_block_list))]
+                                p = k=[0]
+                                flow_mol_phase = max(
+                                    sum(
+                                        value(i_block_list[i][t].flow_mol_phase[p])
+                                        for i in range(len(i_block_list))
+                                        if p in phase_sets[i]
+                                    ),
+                                    1e-16 #Guard against zero flows
+                                )
+                                flow_mol_phase_comp = sum(
+                                    value(
+                                        i_block_list[i][t].flow_mol_phase_comp[k]
+                                        # TODO the attribute will always be generated, right?
+                                    )
+                                    for i in range(len(i_block_list))
+                                    if k in phase_comp_sets[i]
+                                )
+                                s_vars[s][k].set_value(flow_mol_phase_comp/flow_mol_phase)
+
                         else:
                             # Otherwise use average of inlets
+                            # TODO need to add a step to iterate through and generate these values
+                            # What is going to be here besides temperature or molar enthalpy? Volume?
                             for k in s_vars[s]:
                                 s_vars[s][k].set_value(
                                     sum(
-                                        i_vars[i][k].value
+                                        value(
+                                            getattr(i_block_list[i][t], s)[k]
+                                        )
                                         for i in range(len(i_block_list))
                                     )
                                     / len(i_block_list)
@@ -204,9 +237,10 @@ class MixerInitializer(ModularInitializerBase):
         return res
 
 
-@declare_process_block_class("Mixer")
-class MixerData(UnitModelBlockData):
+@declare_process_block_class("TranslatingMixer")
+class TranslatingMixerData(UnitModelBlockData):
     """
+    TODO rewrite
     This is a general purpose model for a Mixer block with the IDAES modeling
     framework. This block can be used either as a stand-alone Mixer unit
     operation, or as a sub-model within another unit operation.
@@ -224,7 +258,7 @@ class MixerData(UnitModelBlockData):
     equations.
     """
 
-    default_initializer = MixerInitializer
+    default_initializer = TranslatingMixerInitializer
 
     CONFIG = ConfigBlock()
     CONFIG.declare(
@@ -248,55 +282,41 @@ False.""",
         ),
     )
     CONFIG.declare(
-        "property_package",
+        "inlet_dict",
         ConfigValue(
-            default=useDefault,
-            domain=is_physical_parameter_block,
-            description="Property package to use for mixer",
-            doc="""Property parameter object used to define property
-calculations, **default** - useDefault.
-**Valid values:** {
-**useDefault** - use default package from parent model or flowsheet,
-**PropertyParameterObject** - a PropertyParameterBlock object.}""",
+            # domain=ListOf(str),
+            description="List of inlet names",
+            doc="""A dictionary with inlet names as keys and dictionaries as values.
+                The dictionaries should all have "property_package" as a key and a 
+                property parameter object as value. Optionally, they can contain 
+                "property_package_args" as a key and a ConfigBlock with arguments to
+                be passed to the property block as values.
+                TODO enthalpy offset?
+                """,
         ),
     )
     CONFIG.declare(
-        "property_package_args",
+        "mixed_state_property_package",
+        ConfigValue(
+            # default=useDefault,
+            domain=is_physical_parameter_block,
+            description="Property package to use for mixed state",
+            doc="""Property parameter object used to define property
+            calculations,
+            **Valid values:** {
+            **PropertyParameterObject** - a PropertyParameterBlock object.}""",
+        ),
+    )
+    CONFIG.declare(
+        "mixed_state_property_package_args",
         ConfigBlock(
             implicit=True,
-            description="Arguments to use for constructing property packages",
-            doc="""A ConfigBlock with arguments to be passed to a property
-block(s) and used when constructing these,
-**default** - None.
-**Valid values:** {
-see property package for documentation.}""",
-        ),
-    )
-    CONFIG.declare(
-        "inlet_list",
-        ConfigValue(
-            domain=ListOf(str),
-            description="List of inlet names",
-            doc="""A list containing names of inlets,
-**default** - None.
-**Valid values:** {
-**None** - use num_inlets argument,
-**list** - a list of names to use for inlets.}""",
-        ),
-    )
-    CONFIG.declare(
-        "num_inlets",
-        ConfigValue(
-            domain=int,
-            description="Number of inlets to unit",
-            doc="""Argument indicating number (int) of inlets to construct, not
-used if inlet_list arg is provided,
-**default** - None.
-**Valid values:** {
-**None** - use inlet_list arg instead, or default to 2 if neither argument
-provided,
-**int** - number of inlets to create (will be named with sequential integers
-from 1 to num_inlets).}""",
+            description="Arguments to use for constructing mixed state property package",
+            doc="""A ConfigBlock with arguments to be passed to the mixed state property
+                block and used when constructing it,
+                **default** - None.
+                **Valid values:** {
+                see property package for documentation.}""",
         ),
     )
     CONFIG.declare(
@@ -382,20 +402,20 @@ Mixer block,
 """,
         ),
     )
-    CONFIG.declare(
-        "construct_ports",
-        ConfigValue(
-            default=True,
-            domain=Bool,
-            description="Construct inlet and outlet Port objects",
-            doc="""Argument indicating whether model should construct Port
-objects linked to all inlet states and the mixed state,
-**default** - True.
-**Valid values:** {
-**True** - construct Ports for all states,
-**False** - do not construct Ports.""",
-        ),
-    )
+#     CONFIG.declare(
+#         "construct_ports",
+#         ConfigValue(
+#             default=True,
+#             domain=Bool,
+#             description="Construct inlet and outlet Port objects",
+#             doc="""Argument indicating whether model should construct Port
+# objects linked to all inlet states and the mixed state,
+# **default** - True.
+# **Valid values:** {
+# **True** - construct Ports for all states,
+# **False** - do not construct Ports.""",
+#         ),
+#     )
 
     def build(self):
         """
@@ -412,17 +432,13 @@ objects linked to all inlet states and the mixed state,
             None
         """
         # Call super.build()
-        super(MixerData, self).build()
-
-        # Call setup methods from ControlVolumeBlockData
-        self._get_property_package()
-        self._get_indexing_sets()
+        super(TranslatingMixerData, self).build()
 
         # Create list of inlet names
         inlet_list = self.create_inlet_list()
 
         # Build StateBlocks
-        inlet_blocks = self.add_inlet_state_blocks(inlet_list)
+        inlet_blocks = self.add_inlet_state_blocks()
 
         if self.config.mixed_state_block is None:
             mixed_block = self.add_mixed_state_block()
@@ -509,58 +525,44 @@ objects linked to all inlet states and the mixed state,
         Returns:
             list of strings
         """
-        if self.config.inlet_list is not None and self.config.num_inlets is not None:
-            # If both arguments provided and not consistent, raise Exception
-            if len(self.config.inlet_list) != self.config.num_inlets:
-                raise ConfigurationError(
-                    "{} Mixer provided with both inlet_list and "
-                    "num_inlets arguments, which were not consistent ("
-                    "length of inlet_list was not equal to num_inlets). "
-                    "PLease check your arguments for consistency, and "
-                    "note that it is only necessary to provide one of "
-                    "these arguments.".format(self.name)
-                )
-        elif self.config.inlet_list is None and self.config.num_inlets is None:
-            # If no arguments provided for inlets, default to num_inlets = 2
-            self.config.num_inlets = 2
-
         # Create a list of names for inlet StateBlocks
-        if self.config.inlet_list is not None:
-            inlet_list = self.config.inlet_list
+        if self.config.inlet_dict is not None:
+            inlet_list = [key for key in self.config.inlet_dict.keys()]
         else:
-            inlet_list = [
-                "inlet_" + str(n) for n in range(1, self.config.num_inlets + 1)
-            ]
+            raise ConfigurationError(
+                f"{self.name} Mixer not provided with inlet dict."
+            )
 
         return inlet_list
 
-    def add_inlet_state_blocks(self, inlet_list):
+    def add_inlet_state_blocks(self):
         """
         Construct StateBlocks for all inlet streams.
 
         Args:
-            list of strings to use as StateBlock names
+            None
 
         Returns:
             list of StateBlocks
         """
         # Setup StateBlock argument dict
-        tmp_dict = dict(**self.config.property_package_args)
-        tmp_dict["has_phase_equilibrium"] = False
-        tmp_dict["defined_state"] = True
-
+        inlet_dict = self.config.inlet_dict
         # Create empty list to hold StateBlocks for return
         inlet_blocks = []
-
-        # Create an instance of StateBlock for all inlets
-        for i in inlet_list:
-            i_obj = self.config.property_package.build_state_block(
-                self.flowsheet().time, doc="Material properties at inlet", **tmp_dict
+        for inlet_name, config_dict in inlet_dict.items():
+            inlet_properties = config_dict["property_package"]
+            try:
+                arg_dict = config_dict["property_package_args"]
+            except KeyError:
+                arg_dict = {}
+            tmp_dict = dict(**arg_dict)
+            tmp_dict["has_phase_equilibrium"] = False
+            tmp_dict["defined_state"] = True
+            inlet_state = inlet_properties.build_state_block(
+                self.flowsheet().time, doc=f"Material properties at inlet {inlet_name}", **tmp_dict
             )
-
-            setattr(self, i + "_state", i_obj)
-
-            inlet_blocks.append(getattr(self, i + "_state"))
+            setattr(self, inlet_name + "_state", inlet_state)
+            inlet_blocks.append(inlet_state)
 
         return inlet_blocks
 
@@ -572,11 +574,11 @@ objects linked to all inlet states and the mixed state,
             New StateBlock object
         """
         # Setup StateBlock argument dict
-        tmp_dict = dict(**self.config.property_package_args)
+        tmp_dict = dict(**self.config.mixed_state_property_package_args)
         tmp_dict["has_phase_equilibrium"] = self.config.has_phase_equilibrium
         tmp_dict["defined_state"] = False
 
-        self.mixed_state = self.config.property_package.build_state_block(
+        self.mixed_state = self.config.mixed_state_property_package.build_state_block(
             self.flowsheet().time, doc="Material properties of mixed stream", **tmp_dict
         )
 
@@ -598,19 +600,19 @@ objects linked to all inlet states and the mixed state,
             )
 
         # Check that the user-provided StateBlock uses the same prop pack
-        if (
-            self.config.mixed_state_block[
-                self.flowsheet().time.first()
-            ].config.parameters
-            != self.config.property_package
-        ):
-            raise ConfigurationError(
-                "{} StateBlock provided in mixed_state_block argument "
-                "does not come from the same property package as "
-                "provided in the property_package argument. All "
-                "StateBlocks within a Mixer must use the same "
-                "property package.".format(self.name)
-            )
+        # if (
+        #     self.config.mixed_state_block[
+        #         self.flowsheet().time.first()
+        #     ].config.parameters
+        #     != self.config.property_package
+        # ):
+        #     raise ConfigurationError(
+        #         "{} StateBlock provided in mixed_state_block argument "
+        #         "does not come from the same property package as "
+        #         "provided in the property_package argument. All "
+        #         "StateBlocks within a Mixer must use the same "
+        #         "property package.".format(self.name)
+        #     )
 
         return self.config.mixed_state_block
 
@@ -618,7 +620,7 @@ objects linked to all inlet states and the mixed state,
         """
         Add material mixing equations.
         """
-        pp = self.config.property_package
+        pp = self.config.mixed_state_property_package
         # Get phase component list(s)
         pc_set = mixed_block.phase_component_set
 
@@ -680,7 +682,7 @@ objects linked to all inlet states and the mixed state,
                         )
                     )
                 return Constraint.Skip
-
+        # TODO add unit conversions
         if mb_type == MaterialBalanceType.componentPhase:
             # Create equilibrium generation term and constraints if required
             if self.config.has_phase_equilibrium is True:
@@ -706,9 +708,15 @@ objects linked to all inlet states and the mixed state,
                 doc="Material mixing equations",
             )
             def material_mixing_equations(b, t, p, j):
+                # inlet_sum = 0
+                # for i in range(len(inlet_blocks):
+                #     if (p, j) in inlet_blocks[i].phase_component_set:
+                #         inlet_sum += inlet_blocks[i][t].get_material_flow_terms(p, j)
+
                 rhs = sum(
                     inlet_blocks[i][t].get_material_flow_terms(p, j)
                     for i in range(len(inlet_blocks))
+                    if (p, j) in inlet_blocks[i].phase_component_set
                 ) - mixed_block[t].get_material_flow_terms(p, j)
 
                 if self.config.has_phase_equilibrium:
@@ -741,6 +749,7 @@ objects linked to all inlet states and the mixed state,
                     sum(
                         inlet_blocks[i][t].get_material_flow_terms(p, j)
                         for i in range(len(inlet_blocks))
+                        if j in inlet_blocks[i].component_list
                     )
                     - mixed_block[t].get_material_flow_terms(p, j)
                     for p in mixed_block.phase_list
@@ -765,6 +774,7 @@ objects linked to all inlet states and the mixed state,
                         sum(
                             inlet_blocks[i][t].get_material_flow_terms(p, j)
                             for i in range(len(inlet_blocks))
+                            if (p, j) in inlet_blocks[i].phase_component_set
                         )
                         - mixed_block[t].get_material_flow_terms(p, j)
                         for j in mixed_block.component_list
@@ -801,6 +811,7 @@ objects linked to all inlet states and the mixed state,
                     sum(
                         inlet_blocks[i][t].get_enthalpy_flow_terms(p)
                         for p in mixed_block.phase_list
+                        if p in inlet_blocks[i].phase_list
                     )
                     for i in range(len(inlet_blocks))
                 )
@@ -892,12 +903,12 @@ objects linked to all inlet states and the mixed state,
         Returns:
             None
         """
-        if self.config.construct_ports is True:
-            # Add ports
-            for p in inlet_list:
-                i_state = getattr(self, p + "_state")
-                self.add_port(name=p, block=i_state, doc="Inlet Port")
-            self.add_port(name="outlet", block=mixed_block, doc="Outlet Port")
+        # if self.config.construct_ports is True:
+        # Add ports
+        for p in inlet_list:
+            i_state = getattr(self, p + "_state")
+            self.add_port(name=p, block=i_state, doc="Inlet Port")
+        self.add_port(name="outlet", block=mixed_block, doc="Outlet Port")
 
     def model_check(blk):
         """
@@ -911,31 +922,35 @@ objects linked to all inlet states and the mixed state,
         Returns:
             None
         """
+        # TODO add check about significant amount of components being dropped
+        # because they're present in inlet blocks but not the mixed block
+        # (and thus not getting written into any material balance constraint)
+        pass
         # Try property block model check
-        for t in blk.flowsheet().time:
-            try:
-                inlet_list = blk.create_inlet_list()
-                for i in inlet_list:
-                    i_block = getattr(blk, i + "_state")
-                    i_block[t].model_check()
-            except AttributeError:
-                _log.warning(
-                    "{} Mixer inlet property block has no model "
-                    "checks. To correct this, add a model_check "
-                    "method to the associated StateBlock class.".format(blk.name)
-                )
-            try:
-                if blk.config.mixed_state_block is None:
-                    blk.mixed_state[t].model_check()
-                else:
-                    blk.config.mixed_state_block.model_check()
-            except AttributeError:
-                _log.warning(
-                    "{} Mixer outlet property block has no "
-                    "model checks. To correct this, add a "
-                    "model_check method to the associated "
-                    "StateBlock class.".format(blk.name)
-                )
+        # for t in blk.flowsheet().time:
+        #     try:
+        #         inlet_list = blk.create_inlet_list()
+        #         for i in inlet_list:
+        #             i_block = getattr(blk, i + "_state")
+        #             i_block[t].model_check()
+        #     except AttributeError:
+        #         _log.warning(
+        #             "{} Mixer inlet property block has no model "
+        #             "checks. To correct this, add a model_check "
+        #             "method to the associated StateBlock class.".format(blk.name)
+        #         )
+        #     try:
+        #         if blk.config.mixed_state_block is None:
+        #             blk.mixed_state[t].model_check()
+        #         else:
+        #             blk.config.mixed_state_block.model_check()
+        #     except AttributeError:
+        #         _log.warning(
+        #             "{} Mixer outlet property block has no "
+        #             "model checks. To correct this, add a "
+        #             "model_check method to the associated "
+        #             "StateBlock class.".format(blk.name)
+        #         )
 
     def use_minimum_inlet_pressure_constraint(self):
         """Activate the mixer pressure = minimum inlet pressure constraint and
@@ -1019,118 +1034,7 @@ objects linked to all inlet states and the mixed state,
             If hold_states is True, returns a dict containing flags for which
             states were fixed during initialization.
         """
-        init_log = idaeslog.getInitLogger(blk.name, outlvl, tag="unit")
-        solve_log = idaeslog.getSolveLogger(blk.name, outlvl, tag="unit")
-
-        # Create solver
-        opt = get_solver(solver, optarg)
-
-        # Initialize inlet state blocks
-        flags = {}
-        inlet_list = blk.create_inlet_list()
-        i_block_list = []
-        for i in inlet_list:
-            i_block = getattr(blk, i + "_state")
-            i_block_list.append(i_block)
-            flags[i] = {}
-            flags[i] = i_block.initialize(
-                outlvl=outlvl,
-                optarg=optarg,
-                solver=solver,
-                hold_state=True,
-            )
-
-        # Initialize mixed state block
-        if blk.config.mixed_state_block is None:
-            mblock = blk.mixed_state
-        else:
-            mblock = blk.config.mixed_state_block
-
-        o_flags = {}
-        # Calculate initial guesses for mixed stream state
-        for t in blk.flowsheet().time:
-            # Iterate over state vars as defined by property package
-            s_vars = mblock[t].define_state_vars()
-            for s in s_vars:
-                i_vars = []
-                for k in s_vars[s]:
-                    # Record whether variable was fixed or not
-                    o_flags[t, s, k] = s_vars[s][k].fixed
-
-                    # If fixed, use current value
-                    # otherwise calculate guess from mixed state
-                    if not s_vars[s][k].fixed:
-                        for ib in i_block_list:
-                            i_vars.append(getattr(ib[t], s_vars[s].local_name))
-
-                        if s == "pressure":
-                            # If pressure, use minimum as initial guess
-                            mblock[t].pressure.value = min(
-                                i_block_list[i][t].pressure.value
-                                for i in range(len(i_block_list))
-                            )
-                        elif "flow" in s:
-                            # If a "flow" variable (i.e. extensive), sum inlets
-                            for k in s_vars[s]:
-                                s_vars[s][k].value = sum(
-                                    i_vars[i][k].value for i in range(len(i_block_list))
-                                )
-                        else:
-                            # Otherwise use average of inlets
-                            for k in s_vars[s]:
-                                s_vars[s][k].value = sum(
-                                    i_vars[i][k].value for i in range(len(i_block_list))
-                                ) / len(i_block_list)
-
-        mblock.initialize(
-            outlvl=outlvl,
-            optarg=optarg,
-            solver=solver,
-            hold_state=False,
-        )
-
-        res = None
-        # Revert fixed status of variables to what they were before
-        for t in blk.flowsheet().time:
-            s_vars = mblock[t].define_state_vars()
-            for s in s_vars:
-                for k in s_vars[s]:
-                    s_vars[s][k].fixed = o_flags[t, s, k]
-
-        if blk.config.mixed_state_block is None:
-            if (
-                hasattr(blk, "pressure_equality_constraints")
-                and blk.pressure_equality_constraints.active is True
-            ):
-                blk.pressure_equality_constraints.deactivate()
-                for t in blk.flowsheet().time:
-                    sys_press = getattr(blk, blk.create_inlet_list()[0] + "_state")[
-                        t
-                    ].pressure
-                    blk.mixed_state[t].pressure.fix(sys_press.value)
-                with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-                    res = opt.solve(blk, tee=slc.tee)
-                blk.pressure_equality_constraints.activate()
-                for t in blk.flowsheet().time:
-                    blk.mixed_state[t].pressure.unfix()
-            else:
-                with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-                    res = opt.solve(blk, tee=slc.tee)
-
-            init_log.info("Initialization Complete: {}".format(idaeslog.condition(res)))
-        else:
-            init_log.info("Initialization Complete.")
-
-        if res is not None and not check_optimal_termination(res):
-            raise InitializationError(
-                f"{blk.name} failed to initialize successfully. Please check "
-                f"the output logs for more information."
-            )
-
-        if hold_state is True:
-            return flags
-        else:
-            blk.release_state(flags, outlvl=outlvl)
+        raise NotImplementedError("Old style initialization is not implemented for the translating mixer")
 
     def release_state(blk, flags, outlvl=idaeslog.NOTSET):
         """

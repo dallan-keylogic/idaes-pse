@@ -1099,7 +1099,12 @@ class ENRTL(Ideal):
         try:
             inherent_rxn_idx = b.params.inherent_reaction_idx
         except AttributeError:
-            inherent_rxn_idx = []
+            enth_mol_ideal = sum(
+                    b.mole_frac_phase_comp[p, j]
+                    * Ideal.enth_mol_phase_comp(b, p, j)
+                    for j in b.components_in_phase(p, true_basis=True)
+                )
+            return enth_mol_ideal + ENRTL.enth_mol_phase_excess(b, p)
 
         try:
             enth_mol_phase_basis = pobj.config.equation_of_state_options["enth_mol_phase_basis"]

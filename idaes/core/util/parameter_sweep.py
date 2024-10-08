@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -495,7 +495,7 @@ class ParameterSweepBase:
             results = self.build_outputs(model, run_stats)
         else:
             # Catch any Exception for recourse
-            results, success = self.handle_error(model)
+            results = self.handle_error(model)
 
         _log.info(f"Sample {sample_id} finished.")
 
@@ -625,13 +625,24 @@ class ParameterSweepBase:
                     )
                 comp.set_value(v)
             elif ctype is Var:
-                if not comp.is_fixed():
-                    raise ValueError(
-                        f"Convergence testing found an input of type Var that "
-                        f"was not fixed ({comp.name}). Please make sure all "
-                        f"sampled inputs are either mutable params or fixed vars."
-                    )
-                comp.set_value(float(v))
+                try:
+                    if not comp.is_fixed():
+                        raise ValueError(
+                            f"Convergence testing found an input of type Var that "
+                            f"was not fixed ({comp.name}). Please make sure all "
+                            f"sampled inputs are either mutable params or fixed vars."
+                        )
+                    comp.set_value(float(v))
+                except AttributeError:
+                    # Component might be indexed, try iterating and setting value
+                    for i, c in comp.items():
+                        if not c.is_fixed():
+                            raise ValueError(
+                                f"Convergence testing found an input of type IndexedVar that "
+                                f"was not fixed ({comp.name}, index {i}). Please make sure all "
+                                f"sampled inputs are either mutable params or fixed vars."
+                            )
+                        c.set_value(float(v))
             else:
                 raise ValueError(
                     f"Failed to find a valid input component (must be "
@@ -697,8 +708,8 @@ class ParameterSweepBase:
             Output of handle_solver_error callback
         """
         if self.config.handle_solver_error is None:
-            # No recourse specified, so success=False and results=None
-            return None, False
+            # No recourse specified, so results=None
+            return None
         else:
             args = self.config.handle_solver_error_arguments
             if args is None:

@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -16,6 +16,7 @@ Tests for Component objects
 Author: Andrew Lee
 """
 import pytest
+import re
 import types
 
 from pyomo.environ import ConcreteModel, Set, Param, Var, units as pyunits
@@ -84,9 +85,11 @@ class TestComponent:
     def test_is_solute(self, m):
         with pytest.raises(
             TypeError,
-            match="comp Generic Component objects do not "
-            "support is_solute\(\) method. Use a Solvent or "
-            "Solute Component instead.",
+            match=re.escape(
+                "comp Generic Component objects do not "
+                "support is_solute() method. Use a Solvent or "
+                "Solute Component instead."
+            ),
         ):
             m.comp.is_solute()
 
@@ -94,9 +97,11 @@ class TestComponent:
     def test_is_solvent(self, m):
         with pytest.raises(
             TypeError,
-            match="comp Generic Component objects do not "
-            "support is_solvent\(\) method. Use a Solvent or "
-            "Solute Component instead.",
+            match=re.escape(
+                "comp Generic Component objects do not "
+                "support is_solvent() method. Use a Solvent or "
+                "Solute Component instead."
+            ),
         ):
             m.comp.is_solvent()
 

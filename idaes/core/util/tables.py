@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -20,7 +20,7 @@ from pandas import DataFrame
 
 from pyomo.environ import value
 from pyomo.network import Arc, Port
-from pyomo.core.base.var import _GeneralVarData, Var
+from pyomo.core.base.var import VarData, Var
 from pyomo.core.base.param import Param
 from pyomo.core.base.expression import Expression
 
@@ -245,7 +245,7 @@ def create_stream_table_ui(
 
                 # Identifying value's variable type
                 var_type = None
-                if isinstance(disp_dict[k][i], (_GeneralVarData, Var)):
+                if isinstance(disp_dict[k][i], (VarData, Var)):
                     if disp_dict[k][i].fixed:
                         var_type = VariableTypes.FIXED
                     else:

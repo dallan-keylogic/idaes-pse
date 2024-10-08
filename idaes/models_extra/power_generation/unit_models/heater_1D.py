@@ -1,28 +1,29 @@
-##############################################################################
-# Institute for the Design of Advanced Energy Systems Process Systems
-# Engineering Framework (IDAES PSE Framework) Copyright (c) 2018-2019, by the
-# software owners: The Regents of the University of California, through
-# Lawrence Berkeley National Laboratory,  National Technology & Engineering
-# Solutions of Sandia, LLC, Carnegie Mellon University, West Virginia
-# University Research Corporation, et al. All rights reserved.
+#################################################################################
+# The Institute for the Design of Advanced Energy Systems Integrated Platform
+# Framework (IDAES IP) was produced under the DOE Institute for the
+# Design of Advanced Energy Systems (IDAES).
 #
-# Please see the files COPYRIGHT.txt and LICENSE.txt for full copyright and
-# license information, respectively. Both files are also available online
-# at the URL "https://github.com/IDAES/idaes-pse".
-##############################################################################
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
+# University of California, through Lawrence Berkeley National Laboratory,
+# National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
+# University, West Virginia University Research Corporation, et al.
+# All rights reserved.  Please see the files COPYRIGHT.md and LICENSE.md
+# for full copyright and license information.
+#################################################################################
 """
-1-D Cross Flow Heat Exchanger Model With Wall Temperatures
+1-D Electric Trim Heater Model With Wall Temperatures
 
 Discretization based on tube rows
 """
 # Import Pyomo libraries
 from pyomo.environ import (
     assert_optimal_termination,
+    Block,
+    units as pyunits,
     Var,
     value,
-    units as pyunits,
 )
-from pyomo.common.config import ConfigBlock, ConfigValue, In
+from pyomo.common.config import ConfigValue, In
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
 
 # Import IDAES cores
@@ -39,53 +40,128 @@ from idaes.core import (
 import idaes.core.util.scaling as iscale
 from idaes.core.solvers import get_solver
 from idaes.core.util.config import is_physical_parameter_block
+from idaes.core.util.exceptions import InitializationError
 from idaes.core.util.misc import add_object_reference
 import idaes.logger as idaeslog
 from idaes.core.util.tables import create_stream_table_dataframe
-from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.models_extra.power_generation.unit_models.heat_exchanger_common import (
-    _make_geometry_common,  # pylint: disable=W0212
-    _make_performance_common,  # pylint: disable=W0212
-    _scale_common,  # pylint: disable=W0212
+    make_geometry_common,
+    make_performance_common,
+    scale_common,
 )
+from idaes.core.initialization import SingleControlVolumeUnitInitializer
 
 __author__ = "Jinliang Ma, Douglas Allan"
 
 
+class Heater1DInitializer(SingleControlVolumeUnitInitializer):
+    """
+    Initializer for Heater 1D units.
+
+    A simple initialization method that first initializes the control volume
+    without heat transfer, then adds heat transfer in and solves it again,
+    then finally solves the entire model.
+    """
+
+    def initialize_main_model(
+        self,
+        model: Block,
+        copy_inlet_state: bool = False,
+    ):
+        """
+        Initialization routine for the main Heater 1D model
+        (as opposed to submodels like costing, which presently do not exist).
+
+
+        Args:
+            model: Pyomo Block to be initialized.
+            copy_inlet_state: bool (default=False). Whether to copy inlet state to other states or not
+                (0-D control volumes only). Copying will generally be faster, but inlet states may not contain
+                all properties required elsewhere.
+            duty: initial guess for heat duty to assist with initialization. Can be a Pyomo expression with units.
+
+        Returns:
+            Pyomo solver results object.
+
+        """
+        # Set solver options
+        init_log = idaeslog.getInitLogger(
+            model.name, self.get_output_level(), tag="unit"
+        )
+        solve_log = idaeslog.getSolveLogger(
+            model.name, self.get_output_level(), tag="unit"
+        )
+
+        # Create solver
+        solver_obj = get_solver(self.config.solver, self.config.solver_options)
+
+        # ---------------------------------------------------------------------
+        # Initialize shell block
+
+        self.initialize_control_volume(model.control_volume, copy_inlet_state)
+
+        init_log.info_high("Initialization Step 1 Complete.")
+
+        calc_var = calculate_variable_from_constraint
+
+        calc_var(model.length_flow_shell, model.length_flow_shell_eqn)
+        calc_var(model.area_flow_shell, model.area_flow_shell_eqn)
+        calc_var(model.area_flow_shell_min, model.area_flow_shell_min_eqn)
+
+        for t in model.flowsheet().config.time:
+            for x in model.control_volume.length_domain:
+                model.control_volume.heat[t, x].fix(
+                    value(model.electric_heat_duty[t] / model.length_flow_shell)
+                )
+
+        if model.config.has_pressure_change:
+            model.control_volume.pressure.fix()
+
+        model.control_volume.length.fix()
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            res = solver_obj.solve(model.control_volume, tee=slc.tee)
+
+        try:
+            assert_optimal_termination(res)
+        except AssertionError:
+            raise InitializationError("Initialization solve failed.")
+
+        init_log.info_high("Initialization Step 2 Complete.")
+        model.control_volume.length.unfix()
+        model.control_volume.heat.unfix()
+
+        for t in model.flowsheet().config.time:
+            for x in model.control_volume.length_domain:
+                model.temp_wall_center[t, x].fix(
+                    value(model.control_volume.properties[t, x].temperature) + 10
+                )
+                calc_var(model.heat_holdup[t, x], model.heat_holdup_eqn[t, x])
+                model.temp_wall_center[t, x].unfix()
+
+        if model.config.has_pressure_change:
+            model.control_volume.pressure.unfix()
+            model.control_volume.pressure[:, 0].fix()
+
+        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
+            res = solver_obj.solve(model, tee=slc.tee)
+
+        try:
+            assert_optimal_termination(res)
+        except AssertionError:
+            raise InitializationError("Initialization solve failed.")
+
+        init_log.info_high("Initialization Step 3 Complete.")
+
+        return res
+
+
 @declare_process_block_class("Heater1D")
 class Heater1DData(UnitModelBlockData):
-    """Standard Heat Exchanger Cross Flow Unit Model Class."""
+    """Standard Trim Heater Model Class Class."""
 
-    # Template for config arguments for shell and tube side
-    CONFIG = ConfigBlock()
-    CONFIG.declare(
-        "dynamic",
-        ConfigValue(
-            default=useDefault,
-            domain=In([useDefault, True, False]),
-            description="Dynamic model flag",
-            doc="""Indicates whether this model will be dynamic or not,
-**default** = useDefault.
-**Valid values:** {
-**useDefault** - get flag from parent (default = False),
-**True** - set as a dynamic model,
-**False** - set as a steady-state model.}""",
-        ),
-    )
-    CONFIG.declare(
-        "has_holdup",
-        ConfigValue(
-            default=False,
-            domain=In([True, False]),
-            description="Holdup construction flag",
-            doc="""Indicates whether holdup terms should be constructed or not.
-Must be True if dynamic = True,
-**default** - False.
-**Valid values:** {
-**True** - construct holdup terms,
-**False** - do not construct holdup terms}""",
-        ),
-    )
+    default_initializer = Heater1DInitializer
+
+    CONFIG = UnitModelBlockData.CONFIG()
     CONFIG.declare(
         "has_fluid_holdup",
         ConfigValue(
@@ -202,8 +278,6 @@ documentation for supported schemes.""",
         ),
     )
 
-    CONFIG = CONFIG
-
     # Common config args for both sides
     CONFIG.declare(
         "finite_elements",
@@ -221,7 +295,7 @@ domain (default=5). Should set to the number of tube rows""",
             default=3,
             domain=int,
             description="Number of collocation points per finite element",
-            doc="""If using collocation, number of collocation points to use 
+            doc="""If using collocation, number of collocation points to use
             per finite element when discretizing length domain (default=3)""",
         ),
     )
@@ -319,13 +393,13 @@ domain (default=5). Should set to the number of tube rows""",
         # Add reference to control volume geometry
         add_object_reference(self, "area_flow_shell", self.control_volume.area)
         add_object_reference(self, "length_flow_shell", self.control_volume.length)
-        _make_geometry_common(self, shell_units=units)
+        make_geometry_common(self, shell_units=units)
 
         @self.Expression(
             doc="Common performance equations expect this expression to be here"
         )
         def length_flow_tube(b):
-            return b.nseg_tube * b.length_tube_seg
+            return b.number_passes * b.length_tube_seg
 
     def _make_performance(self):
         """
@@ -344,7 +418,7 @@ domain (default=5). Should set to the number of tube rows""",
             doc="Heat duty provided to heater through resistive heating",
         )
         units = self.config.property_package.get_metadata().derived_units
-        _make_performance_common(
+        make_performance_common(
             self,
             shell=self.control_volume,
             shell_units=units,
@@ -382,7 +456,7 @@ domain (default=5). Should set to the number of tube rows""",
         )
         def heat_shell_eqn(b, t, x):
             return b.control_volume.heat[t, x] * b.length_flow_shell == (
-                b.hconv_shell_total[t, x]
+                b.total_heat_transfer_coeff_shell[t, x]
                 * b.total_heat_transfer_area
                 * (
                     b.temp_wall_shell[t, x]
@@ -398,7 +472,7 @@ domain (default=5). Should set to the number of tube rows""",
         )
         def temp_wall_shell_eqn(b, t, x):
             return (
-                b.hconv_shell_total[t, x]
+                b.total_heat_transfer_coeff_shell[t, x]
                 * (
                     b.control_volume.properties[t, x].temperature
                     - b.temp_wall_shell[t, x]
@@ -420,103 +494,6 @@ domain (default=5). Should set to the number of tube rows""",
                 + b.electric_heat_duty[t] / b.length_flow_shell
             )
 
-    def set_initial_condition(self):
-        # TODO how to deal with holdup for fluid side?
-        if self.config.dynamic is True:
-            self.heat_accumulation[:, :].value = 0
-            self.heat_accumulation[0, :].fix(0)
-            # no accumulation term for fluid side models to avoid pressure waves
-
-    def initialize_build(blk, state_args=None, outlvl=0, solver="ipopt", optarg=None):
-        """
-        HeatExchangerCrossFlow1D initialization routine
-
-        Keyword Arguments:
-            state_args : a dict of arguments to be passed to the property
-                         package(s) to provide an initial state for
-                         initialization (see documentation of the specific
-                         property package) (default = None).
-            outlvl : sets output level of initialization routine
-
-                     * 0 = no output (default)
-                     * 1 = return solver state for each step in routine
-                     * 2 = return solver state for each step in subroutines
-                     * 3 = include solver output information (tee=True)
-
-            optarg : solver options dictionary object (default={'tol': 1e-6})
-            solver : str indicating which solver to use during
-                     initialization (default = 'ipopt')
-
-        Returns:
-            None
-        """
-        init_log = idaeslog.getInitLogger(blk.name, outlvl, tag="unit")
-        solve_log = idaeslog.getSolveLogger(blk.name, outlvl, tag="unit")
-
-        if optarg is None:
-            optarg = {}
-        opt = get_solver(solver, optarg)
-
-        # ---------------------------------------------------------------------
-        # Initialize shell block
-
-        flags = blk.control_volume.initialize(
-            outlvl=0, optarg=optarg, solver=solver, state_args=state_args
-        )
-
-        init_log.info_high("Initialization Step 1 Complete.")
-
-        # mcp = value(blk.control_volume.properties[0,0].flow_mol * blk.control_volume.properties[0,0].cp_mol)
-        # tout_guess = value(blk.tube.properties[0,0].temperature) + value(blk.electric_heat_duty[0]/blk.length_flow)
-        calc_var = calculate_variable_from_constraint
-
-        calc_var(blk.length_flow_shell, blk.length_flow_shell_eqn)
-        calc_var(blk.area_flow_shell, blk.area_flow_shell_eqn)
-        calc_var(blk.area_flow_shell_min, blk.area_flow_shell_min_eqn)
-
-        for t in blk.flowsheet().config.time:
-            for x in blk.control_volume.length_domain:
-                blk.control_volume.heat[t, x].fix(
-                    value(blk.electric_heat_duty[t] / blk.length_flow_shell)
-                )
-
-        if blk.config.has_pressure_change:
-            blk.control_volume.pressure.fix()
-
-        blk.control_volume.length.fix()
-        assert degrees_of_freedom(blk.control_volume) == 0
-        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-            res = opt.solve(blk.control_volume, tee=slc.tee)
-
-        assert_optimal_termination(res)
-
-        init_log.info_high("Initialization Step 2 Complete.")
-        blk.control_volume.length.unfix()
-        blk.control_volume.heat.unfix()
-
-        for t in blk.flowsheet().config.time:
-            for x in blk.control_volume.length_domain:
-                blk.temp_wall_center[t, x].fix(
-                    value(blk.control_volume.properties[t, x].temperature) + 10
-                )
-                calc_var(blk.heat_holdup[t, x], blk.heat_holdup_eqn[t, x])
-                blk.temp_wall_center[t, x].unfix()
-
-        if blk.config.has_pressure_change:
-            blk.control_volume.pressure.unfix()
-            blk.control_volume.pressure[:, 0].fix()
-
-        assert degrees_of_freedom(blk) == 0
-
-        with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
-            res = opt.solve(blk, tee=slc.tee)
-
-        assert_optimal_termination(res)
-
-        init_log.info_high("Initialization Step 3 Complete.")
-
-        blk.control_volume.release_state(flags)
-
     def calculate_scaling_factors(self):
         def gsf(obj):
             return iscale.get_scaling_factor(obj, default=1, warning=True)
@@ -527,7 +504,7 @@ domain (default=5). Should set to the number of tube rows""",
         def cst(con, sf):
             iscale.constraint_scaling_transform(con, sf, overwrite=False)
 
-        _scale_common(
+        scale_common(
             self,
             self.control_volume,
             self.config.has_pressure_change,
@@ -541,8 +518,11 @@ domain (default=5). Should set to the number of tube rows""",
 
         for t in self.flowsheet().time:
             for z in self.control_volume.length_domain:
-                sf_hconv_conv = gsf(self.hconv_shell_conv[t, z])
-                cst(self.hconv_shell_conv_eqn[t, z], sf_hconv_conv * sf_d_tube)
+                sf_hconv_conv = gsf(self.conv_heat_transfer_coeff_shell[t, z])
+                cst(
+                    self.conv_heat_transfer_coeff_shell_eqn[t, z],
+                    sf_hconv_conv * sf_d_tube,
+                )
 
                 sf_T = gsf(self.control_volume.properties[t, z].temperature)
                 ssf(self.temp_wall_shell[t, z], sf_T)

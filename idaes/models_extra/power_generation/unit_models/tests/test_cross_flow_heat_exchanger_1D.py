@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -23,14 +23,16 @@ from idaes.models_extra.power_generation.properties.natural_gas_PR import (
     get_prop,
     EosType,
 )
-from idaes.models_extra.power_generation.unit_models import CrossFlowHeatExchanger1D
+from idaes.models_extra.power_generation.unit_models import (
+    CrossFlowHeatExchanger1D,
+    CrossFlowHeatExchanger1DInitializer,
+)
 import idaes.core.util.model_statistics as mstat
 from idaes.core.util.model_statistics import degrees_of_freedom
-from idaes.core.solvers import get_solver
+from idaes.core.util.model_diagnostics import DiagnosticsToolbox
 
 # Set up solver
 optarg = {
-    # 'bound_push' : 1e-6,
     "constr_viol_tol": 1e-8,
     "nlp_scaling_method": "user-scaling",
     "linear_solver": "ma57",
@@ -39,7 +41,6 @@ optarg = {
     "tol": 1e-8,
     "halt_on_ampl_error": "no",
 }
-solver = get_solver("ipopt", options=optarg)
 
 
 def _create_model(pressure_drop):
@@ -95,13 +96,12 @@ def _create_model(pressure_drop):
     hx.di_tube.fix(0.0525018)
     hx.thickness_tube.fix(0.0039116)
     hx.length_tube_seg.fix(4.3)
-    hx.nseg_tube.fix(12)
-    hx.ncol_tube.fix(50)
-    hx.nrow_inlet.fix(25)
+    hx.number_passes.fix(12)
+    hx.number_columns_per_pass.fix(50)
+    hx.number_rows_per_pass.fix(25)
 
     hx.pitch_x.fix(0.1)
     hx.pitch_y.fix(0.1)
-    hx.delta_elevation.fix(0)
     hx.therm_cond_wall = 43.0
     hx.rfouling_tube = 0.0001
     hx.rfouling_shell = 0.0001
@@ -133,11 +133,9 @@ def _create_model(pressure_drop):
     shell = hx.hot_side
     tube = hx.cold_side
     iscale.set_scaling_factor(shell.area, 1e-1)
-    # ssf(hx.shell.heat, 1e-6)
+    iscale.set_scaling_factor(shell.heat, 1e-6)
     iscale.set_scaling_factor(tube.area, 1)
-    # ssf(hx.tube.heat, 1e-6)
-    iscale.set_scaling_factor(shell._enthalpy_flow, 1e-8)  # pylint: disable=W0212
-    iscale.set_scaling_factor(tube._enthalpy_flow, 1e-8)  # pylint: disable=W0212
+    iscale.set_scaling_factor(tube.heat, 1e-6)
     iscale.set_scaling_factor(shell.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(tube.enthalpy_flow_dx, 1e-7)
     iscale.set_scaling_factor(hx.heat_holdup, 1e-8)
@@ -213,7 +211,11 @@ def test_initialization(model_no_dP):
     assert degrees_of_freedom(m) == 0
     _check_model_statistics(m, deltaP=False)
 
-    m.fs.heat_exchanger.initialize_build(optarg=optarg)
+    initializer = m.fs.heat_exchanger.default_initializer(
+        solver="ipopt", solver_options=optarg
+    )
+    assert isinstance(initializer, CrossFlowHeatExchanger1DInitializer)
+    initializer.initialize(model=m.fs.heat_exchanger)
 
     assert degrees_of_freedom(m) == 0
     _check_model_statistics(m, deltaP=False)
@@ -226,8 +228,26 @@ def test_initialization(model_no_dP):
 
 
 @pytest.mark.integration
-def test_units(model_no_dP):
-    assert_units_consistent(model_no_dP.fs.heat_exchanger)
+def test_structural_issues_no_dP(model_no_dP):
+    dt = DiagnosticsToolbox(model_no_dP)
+    dt.assert_no_structural_warnings(ignore_evaluation_errors=True)
+
+
+@pytest.mark.integration
+def test_numerical_issues_no_dP(model_no_dP):
+    # Model will already be initialized if the component test is run,
+    # but reinitialize in case integration tests are run alone
+    initializer = model_no_dP.fs.heat_exchanger.default_initializer(
+        solver="ipopt", solver_options=optarg
+    )
+    initializer.initialize(model=model_no_dP.fs.heat_exchanger)
+
+    m_scaled = pyo.TransformationFactory("core.scale_model").create_using(
+        model_no_dP, rename=False
+    )
+
+    dt = DiagnosticsToolbox(m_scaled)
+    dt.assert_no_numerical_warnings()
 
 
 @pytest.fixture
@@ -243,7 +263,11 @@ def test_initialization_dP(model_dP):
     assert degrees_of_freedom(m) == 0
     _check_model_statistics(m, deltaP=True)
 
-    m.fs.heat_exchanger.initialize_build(optarg=optarg)
+    initializer = m.fs.heat_exchanger.default_initializer(
+        solver="ipopt", solver_options=optarg
+    )
+    assert isinstance(initializer, CrossFlowHeatExchanger1DInitializer)
+    initializer.initialize(m.fs.heat_exchanger)
 
     assert degrees_of_freedom(m) == 0
     _check_model_statistics(m, deltaP=True)
@@ -263,5 +287,23 @@ def test_initialization_dP(model_dP):
 
 
 @pytest.mark.integration
-def test_units_dP(model_dP):
-    assert_units_consistent(model_dP.fs.heat_exchanger)
+def test_structural_issues_dP(model_dP):
+    dt = DiagnosticsToolbox(model_dP)
+    dt.assert_no_structural_warnings(ignore_evaluation_errors=True)
+
+
+@pytest.mark.integration
+def test_numerical_issues_dP(model_dP):
+    # Model will already be initialized if the component test is run,
+    # but reinitialize in case integration tests are run alone
+    initializer = model_dP.fs.heat_exchanger.default_initializer(
+        solver="ipopt", solver_options=optarg
+    )
+    initializer.initialize(model=model_dP.fs.heat_exchanger)
+
+    m_scaled = pyo.TransformationFactory("core.scale_model").create_using(
+        model_dP, rename=False
+    )
+
+    dt = DiagnosticsToolbox(m_scaled)
+    dt.assert_no_numerical_warnings()

@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -15,7 +15,6 @@
 # pylint: disable=missing-function-docstring
 
 import os.path
-import warnings
 import pickle
 
 # Imports from third parties
@@ -42,7 +41,9 @@ from pyomo.core.expr.visitor import replace_expressions
 
 # Imports from IDAES namespace
 from idaes.core.surrogate.pysmo.utils import NumpyEvaluator
+import idaes.logger as idaeslog
 
+_log = idaeslog.getLogger(__name__)
 
 __author__ = "Oluwamayowa Amusat"
 
@@ -346,7 +347,7 @@ class PolynomialRegression:
             print("The number of cross-validation cases (3) is used.")
             number_of_crossvalidations = 3
         elif number_of_crossvalidations > 10:
-            warnings.warn(
+            _log.warning(
                 "The number of cross-validations entered is large. The simulation may take a while to run"
             )
         self.number_of_crossvalidations = number_of_crossvalidations
@@ -356,7 +357,7 @@ class PolynomialRegression:
             # pylint: disable-next=broad-exception-raised
             raise Exception("Maximum polynomial order must be an integer")
         elif maximum_polynomial_order > 10:
-            warnings.warn(
+            _log.warning(
                 "The maximum allowed polynomial order is 10. Value has been adjusted to 10."
             )
             maximum_polynomial_order = 10
@@ -485,7 +486,6 @@ class PolynomialRegression:
         self.fit_status = None
 
     def training_test_data_creation(self, additional_features=None):
-
         """
 
         The training_test_data_creation splits data into training and test data sets.
@@ -601,9 +601,7 @@ class PolynomialRegression:
         x_train_data = x_input_train_data
         # Generate the constant and pure power terms
         for i in range(2, polynomial_order + 1):
-            x_train_data = np.concatenate(
-                (x_train_data, x_input_train_data**i), axis=1
-            )
+            x_train_data = np.concatenate((x_train_data, x_input_train_data**i), axis=1)
 
         if multinomials == 1:
             # Next, generate first order multinomials
@@ -918,9 +916,9 @@ class PolynomialRegression:
 
         else:
             phi_vector = np.zeros((x_polynomial_data.shape[1], 1))
-            phi_vector[:, 0] = np.Inf
-            training_error = np.Inf
-            crossval_error = np.Inf
+            phi_vector[:, 0] = np.inf
+            training_error = np.inf
+            crossval_error = np.inf
 
         # print(poly_order, x_polynomial_data.shape[0], x_polynomial_data.shape[1], training_error, crossval_error)
 
@@ -1003,7 +1001,7 @@ class PolynomialRegression:
         print("\n------------------------------------------------------------")
         print("The final coefficients of the regression terms are: \n")
         print("k               |", beta[0, 0])
-        results_df = pd.concat([results_df, pd.Series({"k": beta[0, 0]})], axis=0)
+        results_df = pd.Series({"k": beta[0, 0]})
         if self.multinomials == 1:
             for i in range(1, order + 1):
                 for j in range(1, self.number_of_x_vars + 1):
@@ -1295,7 +1293,7 @@ class PolynomialRegression:
                     # PYLINT-WHY: pylint considers self.no_adaptive_samples to be None here
                     # pylint: disable=invalid-unary-operand-type
                     -self.no_adaptive_samples :,
-                    :
+                    :,
                     # pylint: enable=invalid-unary-operand-type
                 ]
                 self.regression_data = np.concatenate(
@@ -1452,9 +1450,7 @@ class PolynomialRegression:
             if r_square_opt > 0.95:
                 self.fit_status = "ok"
             else:
-                warnings.warn(
-                    "Polynomial regression generates poor fit for the dataset"
-                )
+                _log.warning("Polynomial regression generates poor fit for the dataset")
                 self.fit_status = "poor"
 
             self.pickle_save({"model": self})
@@ -1554,9 +1550,7 @@ class PolynomialRegression:
             if r_square > 0.95:
                 self.fit_status = "ok"
             else:
-                warnings.warn(
-                    "Polynomial regression generates poor fit for the dataset"
-                )
+                _log.warning("Polynomial regression generates poor fit for the dataset")
                 self.fit_status = "poor"
 
             self.pickle_save({"model": self})
@@ -1856,23 +1850,9 @@ class PolynomialRegression:
         # Evaluate confidence intervals, Tabulate and print results
         c_data = np.zeros((self.optimal_weights_array.shape[0], 4))
         c_data[:, 0] = self.optimal_weights_array[:, 0]
-        c_data[:, 1] = ss_reg_params[
-            :,
-        ]
-        c_data[:, 2] = (
-            self.optimal_weights_array[:, 0]
-            - t_dist
-            * ss_reg_params[
-                :,
-            ]
-        )
-        c_data[:, 3] = (
-            self.optimal_weights_array[:, 0]
-            + t_dist
-            * ss_reg_params[
-                :,
-            ]
-        )
+        c_data[:, 1] = ss_reg_params[:,]
+        c_data[:, 2] = self.optimal_weights_array[:, 0] - t_dist * ss_reg_params[:,]
+        c_data[:, 3] = self.optimal_weights_array[:, 0] + t_dist * ss_reg_params[:,]
 
         headers = [
             "Regression coeff.",

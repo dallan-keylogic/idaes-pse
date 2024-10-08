@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -2536,10 +2536,7 @@ tube side flows from 1 to 0""",
                         )
                         * b.head_ri**2
                         * b.head_ro**2
-                        / (
-                            (r * b.head_ri_scaling) ** 2
-                            * (b.head_ro**2 - b.head_ri**2)
-                        )
+                        / ((r * b.head_ri_scaling) ** 2 * (b.head_ro**2 - b.head_ri**2))
                     )
                 )
 
@@ -2869,7 +2866,7 @@ tube side flows from 1 to 0""",
 
             # rupture time calculation at crotch corner
             @self.Expression(
-                self.flowsheet().time, doc="Rupture Tme at Crotch Corner for Header"
+                self.flowsheet().time, doc="Rupture Time at Crotch Corner for Header"
             )
             def rupture_time_crotch_corner(b, t):
                 if value(b.sigma_eff_P1[t]) > 10:  # MPa

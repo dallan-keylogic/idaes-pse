@@ -276,10 +276,10 @@ def get_scaling_factor(c, default=None, warning=False, exception=False, hint=Non
     Returns:
         scaling factor (float)
     """
-    if c.is_indexed():
-        raise AttributeError(
-            f"Ambiguous which scaling factor to return for indexed component {c.name}."
-        )
+    # if c.is_indexed():
+    #     raise AttributeError(
+    #         f"Ambiguous which scaling factor to return for indexed component {c.name}."
+    #     )
     try:
         sf = c.parent_block().scaling_factor[c]
     except (AttributeError, KeyError):

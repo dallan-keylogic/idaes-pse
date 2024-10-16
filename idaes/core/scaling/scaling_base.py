@@ -73,6 +73,21 @@ CONFIG.declare(
         domain=float,
         description="Minimum value for constraint scaling factors.",
     ),
+)CONFIG.declare(
+    "max_expression_scaling_hint",
+    ConfigValue(
+        default=1e10,
+        domain=float,
+        description="Maximum value for expression scaling hints.",
+    ),
+)
+CONFIG.declare(
+    "min_expression_scaling_hint",
+    ConfigValue(
+        default=1e-10,
+        domain=float,
+        description="Minimum value for constraint scaling hints.",
+    ),
 )
 CONFIG.declare(
     "overwrite",
@@ -162,6 +177,35 @@ class ScalerBase:
             overwrite=overwrite,
         )
 
+    def set_expression_scaling_hint(
+        self, expression, scaling_factor: float, overwrite: bool = None
+    ):
+        """
+        Set scaling hint for expression.
+
+        Scaling factor is limited by min_expression_scaling_hint and max_expression_scaling_hint.
+
+        Args:
+            variable: VarData component to set scaling factor for.
+            scaling_factor: nominal scaling factor to apply. May be limited by max and min values.
+            overwrite: whether to overwrite existing scaling factor (if present).
+              Defaults to Scaler config setting.
+
+        Returns:
+            None
+
+        Raises:
+            TypeError if variable is not an instance of VarData
+        """
+        if not isinstance(variable, VarData):
+            raise TypeError(f"{variable} is not a variable (or is indexed).")
+        self._set_scaling_factor(
+            component=variable,
+            component_type="expression",
+            scaling_factor=scaling_factor,
+            overwrite=overwrite,
+        )
+
     def set_constraint_scaling_factor(
         self, constraint, scaling_factor: float, overwrite: bool = None
     ):
@@ -212,6 +256,9 @@ class ScalerBase:
         elif component_type == "constraint":
             maxsf = self.config.max_constraint_scaling_factor
             minsf = self.config.min_constraint_scaling_factor
+        elif component_type = "expression":
+            maxsf = self.config.max_expression_scaling_hint
+            minsf = self.config.min_expression_scaling_hint
         else:
             raise ValueError("Invalid value for component_type.")
 

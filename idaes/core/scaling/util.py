@@ -41,6 +41,8 @@ from pyomo.environ import (
 )
 from pyomo.core.base.block import BlockData
 from pyomo.core.base.var import VarData
+from pyomo.core.base.constraint import ConstraintData
+from pyomo.core.base.expression import ExpressionData
 from pyomo.core.base.param import ParamData
 from pyomo.core import expr as EXPR
 from pyomo.common.numeric_types import native_types
@@ -55,15 +57,12 @@ _log = idaeslog.getLogger(__name__)
 TAB = " " * 4
 
 
-def get_scaling_suffix(component):
+def get_scaling_factor_suffix(blk: BlockData):
     """
-    Get scaling suffix for component.
-
-    If component is not a Block, gets scaling suffix from parent block.
-    Creates a new suffix if one is not found.
+    Get scaling suffix from block.
 
     Args:
-        component: component to get suffix for
+        blk: component to get scaling factor suffix for
 
     Returns:
         Pyomo scaling Suffix
@@ -71,15 +70,17 @@ def get_scaling_suffix(component):
     Raises:
         TypeError is component is an IndexedBlock
     """
-    if isinstance(component, BlockData):
-        blk = component
-    elif isinstance(component, Block):
+    if isinstance(blk, BlockData):
+        pass
+    elif isinstance(blk, Block):
         raise TypeError(
             "IndexedBlocks cannot have scaling factors attached to them. "
             "Please assign scaling factors to the elements of the IndexedBlock."
         )
     else:
-        blk = component.parent_block()
+        raise TypeError(
+            f"Component {blk.name} was not a BlockData, instead it was a {type(blk)}"
+        )
 
     try:
         sfx = blk.scaling_factor
@@ -90,10 +91,61 @@ def get_scaling_suffix(component):
 
     return sfx
 
+def get_scaling_hint_suffix(blk: BlockData):
+    """
+    Get scaling suffix from block.
 
+    Creates a new suffix if one is not found.
+
+    Args:
+        blk: block to get suffix for
+
+    Returns:
+        Pyomo scaling hint Suffix
+
+    Raises:
+        TypeError is component is an IndexedBlock or non-block.
+    """
+    if isinstance(blk, BlockData):
+        pass
+    elif isinstance(blk, Block):
+        raise TypeError(
+            "IndexedBlocks cannot have scaling factors attached to them. "
+            "Please assign scaling factors to the elements of the IndexedBlock."
+        )
+    else:
+        raise TypeError(
+            f"Component {blk.name} was not a BlockData, instead it was a {type(blk)}"
+        )
+
+    try:
+        sfx = blk.scaling_hint
+    except AttributeError:
+        # No existing suffix, create one
+        _log.debug(f"Created new scaling hint suffix for {blk.name}")
+        sfx = blk.scaling_hint = Suffix(direction=Suffix.EXPORT)
+
+    return sfx
+
+def get_component_scaling_suffix(component):
+    blk = component.parent_block()
+    if isinstance(component, (VarData, ConstraintData)):
+        return get_scaling_factor_suffix(blk)
+    elif isinstance(component, ExpressionData):
+        return get_scaling_hint_suffix(blk)
+    else:
+        raise TypeError(
+            "Can only get scaling factors for VarData, ConstraintData, and (hints from) ExpressionData. "
+            f"Component {component.name} is instead {type(component)}."
+        )
+    
 def scaling_factors_to_dict(blk_or_suffix, descend_into: bool = True):
     """
-    Write scaling suffixes to a serializable json dict.
+    Write scaling factor and/or scaling hint suffixes to a serializable 
+    json dict. If a Block, indexed or otherwise is passed, this function 
+    collects both scaling factors and hints. If a suffix is passed 
+    directly, it serializes only that suffix (factors or hints) and leaves 
+    the other suffix (hints or factors) out of the resulting dict.
 
     Component objects are replaced by their local names so they can be
     serialized.
@@ -103,7 +155,8 @@ def scaling_factors_to_dict(blk_or_suffix, descend_into: bool = True):
         descend_into: for Blocks, whether to descend into any child blocks
 
     Returns
-        dict containing scaling factors indexed by component names
+        dict containing scaling factors and/or scaling hints indexed by 
+        component names
 
     Raises:
         TypeError if blk_or_suffix is not an instance of Block or Suffix
@@ -143,14 +196,14 @@ def scaling_factors_from_dict(
     blk_or_suffix, json_dict: dict, overwrite: bool = False, verify_names: bool = True
 ):
     """
-    Set scaling factors based on values in a serializable json dict.
+    Set scaling factors and/or scaling hints based on values in a serializable json dict.
 
     This method expects components to be referenced by their local names.
 
     Args:
         blk_or_suffix: Pyomo Block or Suffix object to set scaling factors on
-        json_dict: dict of scaling factors to load into model
-        overwrite: (bool) whether to overwrite existing scaling factors or not
+        json_dict: dict of scaling factors and/or scaling hints to load into model
+        overwrite: (bool) whether to overwrite existing scaling factors/hints or not
         verify_names: (bool) whether to verify that all names in dict exist on block
 
     Returns
@@ -249,8 +302,11 @@ def scaling_factors_from_json_file(
 
 
 def _collect_block_suffixes(block_data, descend_into=True):
-    suffix = get_scaling_suffix(block_data)
-    sdict = _suffix_to_dict(suffix)
+    sf_suffix = get_scaling_factor_suffix(block_data)
+    sh_suffix = get_scaling_hint_suffix(block_data)
+    sf_dict = _suffix_to_dict(sf_suffix)
+    sh_dict = _suffix_to_dict(sh_suffix)
+    sdict = sf_dict | sh_dict # Merge the dictionaries
 
     if descend_into:
         sdict["subblock_suffixes"] = {}
@@ -273,7 +329,7 @@ def _set_block_suffixes_from_dict(
 
     # Set local suffix values
     suffix = get_scaling_suffix(block_data)
-    _suffix_from_dict(suffix, sdict, verify_names=verify_names, overwrite=overwrite)
+    _scaling_suffixes_from_dict(suffix, sdict, verify_names=verify_names, overwrite=overwrite)
 
     if sb_dict is not None:
         # Get each subblock and apply function recursively
@@ -304,22 +360,25 @@ def _suffix_to_dict(suffix):
     return sdict
 
 
-def _suffix_from_dict(suffix, json_dict, verify_names=True, overwrite=False):
-    parent_block = suffix.parent_block()
-
+def _scaling_suffixes_from_dict(blk_data, json_dict, verify_names=True, overwrite=False):
+    sf_suffix = get_scaling_factor_suffix(block_data)
+    sh_suffix = get_scaling_hint_suffix(block_data)
     for k, v in json_dict.items():
         # Safety catch in case this gets left in by other functions
         if k == "parent_name":
             continue
 
-        comp = parent_block.find_component(k)
-        if comp is not None:
-            if overwrite or comp not in suffix:
-                suffix[comp] = v
-        elif verify_names:
-            raise ValueError(
-                f"Could not find component {k} on block {parent_block.name}."
-            )
+        comp = blk_data.find_component(k)
+        if comp is None:
+            if verify_names:
+                raise ValueError(
+                    f"Could not find component {k} on block {parent_block.name}."
+                )
+            else:
+                return
+        
+        if overwrite or comp not in suffix:
+            suffix[comp] = v
 
 
 def get_scaling_factor(component):
@@ -333,13 +392,15 @@ def get_scaling_factor(component):
         float scaling factor
 
     Raises:
-        TypeError if component is a Block
+        TypeError if component is not VarData, ConstraintData, or ExpressionData
     """
-    if isinstance(component, (Block, BlockData)):
-        raise TypeError("Blocks cannot have scaling factors.")
-
+    if component.isindexed():
+        raise TypeError(
+            f"Component {component.name} is indexed. It is ambiguous which scaling factor to return."
+        )
+    sfx = get_component_scaling_suffix(component)
+    
     try:
-        sfx = get_scaling_suffix(component)
         return sfx[component]
     except (AttributeError, KeyError):
         # No scaling factor found, return None
@@ -378,8 +439,12 @@ def set_scaling_factor(component, scaling_factor: float, overwrite: bool = False
             "Scaling factors must be strictly positive."
         )
 
-    # Get suffix and assign scaling factor
-    sfx = get_scaling_suffix(component)
+    if component.isindexed():
+        raise TypeError(
+            f"Component {component.name} is indexed. Set scaling factors for individual indices instead."
+        )        
+
+    sfx = get_scaling_factor_suffix(component)     
 
     if not overwrite and component in sfx:
         _log.debug(
@@ -399,9 +464,13 @@ def del_scaling_factor(component, delete_empty_suffix: bool = False):
         delete_empty_suffix: (bool) whether to delete scaling Suffix if it is
           empty after deletion.
     """
+    if component.isindexed():
+        raise TypeError(
+            f"Component {component.name} is indexed. It is ambiguous which scaling factor to delete."
+        )
     # Get suffix
     parent = component.parent_block()
-    sfx = get_scaling_suffix(parent)
+    sfx = get_scaling_factor_suffix(component)  
 
     # Delete entry for component if it exists
     # Pyomo handles case where value does not exist in suffix with a no-op
@@ -776,6 +845,8 @@ class NominalValueExtractionVisitor(EXPR.StreamBasedExpressionVisitor):
         EXPR.NPV_ExternalFunctionExpression: _get_nominal_value_external_function,
         EXPR.LinearExpression: _get_nominal_value_for_sum,
     }
+    def enterNode(self, node, data):
+        pass
 
     def exitNode(self, node, data):
         """Callback for :class:`pyomo.core.current.StreamBasedExpressionVisitor`. This

@@ -138,16 +138,15 @@ class TranslatingMixerInitializer(ModularInitializerBase):
                                 # Otherwise s is unindexed, right..? FIXME
                                 validation_sets = [{None} for i in range(len(i_block_list))]
                             # If a "flow" variable (i.e. extensive), sum inlets
-                            for k in s_vars[s]:
-                                s_vars[s][k].set_value(
-                                    sum(
-                                        value(
-                                            getattr(i_block_list[i][t], s)[k]
-                                            # TODO the attribute will always be generated, right?
-                                        )
-                                        for i in range(len(i_block_list))
-                                        if k in validation_sets[i]
+                            s_vars[s][k].set_value(
+                                sum(
+                                    value(
+                                        getattr(i_block_list[i][t], s)[k]
+                                        # TODO the attribute will always be generated, right?
                                     )
+                                    for i in range(len(i_block_list))
+                                    if k in validation_sets[i]
+                                )
                                 )
                         elif "mole_frac" in s:
                             if "mole_frac_comp" in s:
@@ -156,18 +155,17 @@ class TranslatingMixerInitializer(ModularInitializerBase):
                                     sum(value(i_block_list[i][t].flow_mol) for i in range(len(i_block_list))),
                                     1e-16 #Guard against zero flows
                                 )
-                                for k in s_vars[s]:
-                                    flow_mol_comp = sum(
-                                        value(
-                                            i_block_list[i][t].flow_mol_comp[k]
-                                            # TODO the attribute will always be generated, right?
-                                        )
-                                        for i in range(len(i_block_list))
-                                        if k in validation_sets[i]
+                                flow_mol_comp = sum(
+                                    value(
+                                        i_block_list[i][t].flow_mol_comp[k]
+                                        # TODO the attribute will always be generated, right?
                                     )
+                                    for i in range(len(i_block_list))
+                                    if k in validation_sets[i]
+                                )
                                 s_vars[s][k].set_value(flow_mol_comp/flow_mol)
                             
-                            elif "flow_phase_comp" in s:
+                            elif "mole_frac_phase_comp" in s:
                                 phase_sets = [i_block_list[i][t].phase_set for i in range(len(i_block_list))]
                                 phase_comp_sets = [i_block_list[i][t].phase_component_set for i in range(len(i_block_list))]
                                 p = k=[0]
@@ -193,16 +191,15 @@ class TranslatingMixerInitializer(ModularInitializerBase):
                             # Otherwise use average of inlets
                             # TODO need to add a step to iterate through and generate these values
                             # What is going to be here besides temperature or molar enthalpy? Volume?
-                            for k in s_vars[s]:
-                                s_vars[s][k].set_value(
-                                    sum(
-                                        value(
-                                            getattr(i_block_list[i][t], s)[k]
-                                        )
-                                        for i in range(len(i_block_list))
+                            s_vars[s][k].set_value(
+                                sum(
+                                    value(
+                                        getattr(i_block_list[i][t], s)[k]
                                     )
-                                    / len(i_block_list)
+                                    for i in range(len(i_block_list))
                                 )
+                                / len(i_block_list)
+                            )
 
         # Get initializer for mixed block
         minit = self.get_submodel_initializer(mblock)
@@ -227,6 +224,7 @@ class TranslatingMixerInitializer(ModularInitializerBase):
                 for t in model.flowsheet().time:
                     model.mixed_state[t].pressure.unfix()
             else:
+                # import pdb; pdb.set_trace()
                 with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
                     res = solver.solve(model, tee=slc.tee)
 

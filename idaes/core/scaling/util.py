@@ -845,8 +845,16 @@ class NominalValueExtractionVisitor(EXPR.StreamBasedExpressionVisitor):
         EXPR.NPV_ExternalFunctionExpression: _get_nominal_value_external_function,
         EXPR.LinearExpression: _get_nominal_value_for_sum,
     }
-    def enterNode(self, node, data):
-        pass
+    # Probably some errors here---check more closely
+    def beforeChild(self, node, child, child_idx):
+        if isinstance(child[child_idx], ExpressionData):
+            # Consider specific _get_scaling_factor_hint method
+            sf = get_scaling_factor(child[child_idx])
+            if sf is not None:
+                return (False, 1/sf)
+        return (True, None)
+            
+            
 
     def exitNode(self, node, data):
         """Callback for :class:`pyomo.core.current.StreamBasedExpressionVisitor`. This
@@ -857,6 +865,8 @@ class NominalValueExtractionVisitor(EXPR.StreamBasedExpressionVisitor):
 
         if nodetype in native_types:
             return [node]
+
+
 
         node_func = self.node_type_method_map.get(nodetype, None)
         if node_func is not None:

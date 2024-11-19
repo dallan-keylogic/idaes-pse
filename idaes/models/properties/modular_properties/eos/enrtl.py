@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -1078,9 +1078,14 @@ class ENRTL(Ideal):
         if not pobj.is_aqueous_phase():
             return Ideal.enth_mol_phase_comp(b, p, j)
 
-        if pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.true:
-            return b.enth_mol_phase_comp_ideal[p, j] + ENRTL.enth_mol_phase_comp_excess(b, p, j)
-        elif pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.apparent:
+        try:
+            enth_mol_phase_basis = pobj.config.equation_of_state_options["enth_mol_phase_basis"]
+        except KeyError:
+            enth_mol_phase_basis = EnthMolPhaseBasis.true
+
+        if enth_mol_phase_basis == EnthMolPhaseBasis.true:
+            return Ideal.enth_mol_phase_comp(b, p, j) + ENRTL.enth_mol_phase_comp_excess(b, p, j)
+        elif enth_mol_phase_basis == EnthMolPhaseBasis.apparent:
             raise AttributeError("Partial molar enthalpy is not well-defined when using apparent species as basis.")
         else:
             raise ConfigurationError
@@ -1090,15 +1095,31 @@ class ENRTL(Ideal):
         pobj = b.params.get_phase(p)
         if not pobj.is_aqueous_phase():
             return Ideal.enth_mol_phase(b, p, j)
-
-        if pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.true:
+        # In case no inherent reactions are present
+        try:
+            inherent_rxn_idx = b.params.inherent_reaction_idx
+        except AttributeError:
             enth_mol_ideal = sum(
-                b.mole_frac_phase_comp_true[p, j]
-                * b.enth_mol_phase_comp[p, j]
-                for j in b.components_in_phase(p, true_basis=True)
-            )
+                    b.mole_frac_phase_comp[p, j]
+                    * Ideal.enth_mol_phase_comp(b, p, j)
+                    for j in b.components_in_phase(p, true_basis=True)
+                )
+            return enth_mol_ideal + ENRTL.enth_mol_phase_excess(b, p)
+
+        try:
+            enth_mol_phase_basis = pobj.config.equation_of_state_options["enth_mol_phase_basis"]
+        except KeyError:
+            enth_mol_phase_basis = EnthMolPhaseBasis.true
+
+        if enth_mol_phase_basis == EnthMolPhaseBasis.true:
+            enth_mol_ideal = sum(
+                    b.mole_frac_phase_comp_true[p, j]
+                    * Ideal.enth_mol_phase_comp(b, p, j)
+                    for j in b.components_in_phase(p, true_basis=True)
+                )
+            return enth_mol_ideal + ENRTL.enth_mol_phase_excess(b, p)
             
-        elif pobj.config.equation_of_state_options["enth_mol_phase_basis"] == EnthMolPhaseBasis.apparent:
+        elif enth_mol_phase_basis == EnthMolPhaseBasis.apparent:
             enth_mol_ideal = (
                 sum(
                     b.mole_frac_phase_comp_apparent[p, j]
@@ -1112,7 +1133,7 @@ class ENRTL(Ideal):
                     # to be correct. flow_mol_phase might be more correct, but
                     # right now inherent reactions are broken for multiphase systems
                     / b.flow_mol # TODO Fix later
-                    for r in b.params.inherent_reaction_idx
+                    for r in inherent_rxn_idx
                 )
             )
         else:

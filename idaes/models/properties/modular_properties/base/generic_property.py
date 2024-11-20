@@ -368,8 +368,8 @@ class GenericParameterData(PhysicalParameterBlock):
                 Set(ordered=True, doc="Set of cations present in aqueous phase"),
             )
             self.add_component(
-                "zwitterion_set",
-                Set(ordered=True, doc="Set of neutral zwitterions present in aqueous phase"),
+                "true_solute_set",
+                Set(ordered=True, doc="Set of neutral speciation products present in aqueous phase"),
             )
             self.add_component(
                 "solvent_set",
@@ -429,7 +429,7 @@ class GenericParameterData(PhysicalParameterBlock):
             for j in self.cation_set:
                 true_species.append(j)
                 all_species.append(j)
-            for j in self.zwitterion_set:
+            for j in self.true_solute_set:
                 true_species.append(j)
                 all_species.append(j)
             for j in self.solvent_set:

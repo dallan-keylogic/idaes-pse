@@ -94,7 +94,7 @@ class ENRTL(Ideal):
                 ion_pair.append(i + ", " + j)
         b.ion_pair_set = Set(initialize=ion_pair)
 
-        comps = pblock.solvent_set | pblock.solute_set | b.ion_pair_set | pblock.zwitterion_set
+        comps = pblock.solvent_set | pblock.solute_set | b.ion_pair_set | pblock.true_solute_set
         comp_pairs = []
         comp_pairs_sym = []
         for i in comps:
@@ -145,8 +145,7 @@ class ENRTL(Ideal):
         pname = pobj.local_name
         units = b.params.get_metadata().derived_units
 
-        # For the purposes of eNRTL, zwitterions are "molecules" not "ions"
-        molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
+        molecular_set = b.params.solvent_set | b.params.solute_set | b.params.true_solute_set
 
         # Check options for alpha rule
         if (
@@ -187,20 +186,18 @@ class ENRTL(Ideal):
         else:
             ref_state = DefaultRefState
 
+        if (
+            pobj.config.equation_of_state_options is not None
+            and "add_poynting_correction" in pobj.config.equation_of_state_options
+        ):
+            add_poynting = pobj.config.equation_of_state_options["add_poynting"]
+        else:
+            add_poynting = False
+
         # ---------------------------------------------------------------------
         # Calculate composition terms
-        dimensionless_zero = Param(
-            initialize=0.0,
-            mutable=False,
-            doc="Dimensionless zero to avoid issue with AD (Pyomo 6.6.2)"
-        )
-        b.add_component(
-            pname + "_dimensionless_zero",
-            dimensionless_zero,
-        )
         # Ionic Strength
         def rule_I(b):  # Eqn 62
-            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
             if len(b.params.ion_set) > 0:
                 return 0.5 * sum(
                     b.mole_frac_phase_comp_true[pname, c]
@@ -208,7 +205,7 @@ class ENRTL(Ideal):
                     for c in b.params.ion_set
                 ) 
             else:
-                return dimensionless_zero # TODO get rid of this once Pyomo fixes their AD
+                return 0
 
         b.add_component(
             pname + "_ionic_strength", Expression(rule=rule_I, doc="Ionic strength")
@@ -865,26 +862,29 @@ class ENRTL(Ideal):
                 doc="Local contribution contribution to activity coefficient",
             ),
         )
-
-        def rule_log_gamma_poynting(b, j):
-            # TODO move to partial molar volume
-            T = b.temperature
-            v_comp = ENRTL.get_vol_mol_pure(b, "liq", j, T)
-            # TODO do we know if having a vapor pressure is mutually
-            # exclusive with being a Henry component?
-            if (
-                cobj(b, j).config.henry_component is not None
-                and pname in cobj(b, j).config.henry_component
-            ):
-                P_star = b.params.pressure_ref
-            elif cobj(b, j).config.has_vapor_pressure:
-                P_star = get_method(b, "pressure_sat_comp", j)(
-                    b, cobj(b, j), T
-                )
-            else:
-                P_star = b.params.pressure_ref
-            
-            return (b.pressure - P_star) * v_comp / (ENRTL.gas_constant(b) * T)
+        if add_poynting:
+            def rule_log_gamma_poynting(b, j):
+                # TODO move to partial molar volume
+                T = b.temperature
+                v_comp = ENRTL.get_vol_mol_pure(b, "liq", j, T)
+                # TODO do we know if having a vapor pressure is mutually
+                # exclusive with being a Henry component?
+                if (
+                    cobj(b, j).config.henry_component is not None
+                    and pname in cobj(b, j).config.henry_component
+                ):
+                    P_star = b.params.pressure_ref
+                elif cobj(b, j).config.has_vapor_pressure:
+                    P_star = get_method(b, "pressure_sat_comp", j)(
+                        b, cobj(b, j), T
+                    )
+                else:
+                    P_star = b.params.pressure_ref
+                
+                return (b.pressure - P_star) * v_comp / (ENRTL.gas_constant(b) * T)
+        else:
+            def rule_log_gamma_poynting(b, j):
+                return 0
 
         b.add_component(
             pname + "_log_gamma_poynting",
@@ -1328,8 +1328,7 @@ def log_gamma_lc(b, pname, s, X, G, tau):
 
     # Indices in expressions use same names as source paper
     # mp = m'
-    # For the purposes of eNRTL, zwitterions are "molecules"
-    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
+    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.true_solute_set
     aqu_species = b.params.true_species_set - b.params._non_aqueous_set
 
     if (pname, s) not in b.params.true_phase_component_set:
@@ -1471,7 +1470,7 @@ def log_gamma_lc(b, pname, s, X, G, tau):
         )
     
 def reduced_symmetric_gibbs_phase(b, X, G, tau):
-    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
+    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.true_solute_set
     aqu_species = b.params.true_species_set - b.params._non_aqueous_set
 
     #  Eqn. 20
@@ -1493,7 +1492,7 @@ def reduced_symmetric_gibbs_phase(b, X, G, tau):
 
 def reduced_symmetric_gibbs_phase_temperature_derivative(b, X, G, dG_dT, tau, dtau_dT):
     # Not dimensionless, units 1/T
-    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.zwitterion_set
+    molecular_set = b.params.solvent_set | b.params.solute_set | b.params.true_solute_set
     aqu_species = b.params.true_species_set - b.params._non_aqueous_set
 
     Gamma_m = sum(

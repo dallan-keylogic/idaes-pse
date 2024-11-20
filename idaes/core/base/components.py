@@ -589,12 +589,12 @@ class ApparentData(SoluteData):
         parent = self.parent_block()
         parent._apparent_set.add(self.local_name)  # pylint: disable=protected-access
 
-@declare_process_block_class("Zwitterion", block_class=Component)
-class ZwitterionData(SoluteData):
+@declare_process_block_class("TrueSolute", block_class=Component)
+class TrueSoluteData(SoluteData):
     """
-    Component type for uncharged zwitterion species (zwitterions with a net
-    charge should be classified as a Cation or Anion). These can exist only
-    in AqueousPhases, and are always solutes.
+    Component type for uncharged species that are in the true species set but not 
+    the apparent species set (like zwitterions). These can exist in only
+    AqueousPhases, and are always solutes.
     """
 
     CONFIG = SoluteData.CONFIG()
@@ -615,7 +615,7 @@ class ZwitterionData(SoluteData):
 
     def _add_to_component_list(self):
         """
-        Ions should not be used outside of electrolyte property methods
+        TrueSolutes are not supported outside of electrolyte property methods
         """
         raise PropertyPackageError(
             "{} Ion Component types should only be used with Aqueous "
@@ -630,6 +630,6 @@ class ZwitterionData(SoluteData):
         New Component types should overload this method
         """
         parent = self.parent_block()
-        parent.zwitterion_set.add(self.local_name)
+        parent.true_solute_set.add(self.local_name)
 
-__all_components__ = [Component, Solute, Solvent, Ion, Anion, Cation, Apparent, Zwitterion]
+__all_components__ = [Component, Solute, Solvent, Ion, Anion, Cation, Apparent, TrueSolute]

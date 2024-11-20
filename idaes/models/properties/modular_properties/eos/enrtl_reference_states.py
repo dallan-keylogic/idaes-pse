@@ -79,9 +79,8 @@ class Unsymmetric(object):
 
     @staticmethod
     def ndIdn(b, pname, i):
-        dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
         # Eqn 71
-        return dimensionless_zero
+        return 0
 
 
 class Symmetric(object):
@@ -95,14 +94,13 @@ class Symmetric(object):
     @staticmethod
     def ref_state(b, pname):
         def rule_x_ref(b, i):
-            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
             if i in b.params.ion_set:
                 # Eqn 66
                 return b.mole_frac_phase_comp_true[pname, i] / sum(
                     b.mole_frac_phase_comp_true[pname, j] for j in b.params.ion_set
                 )
             else:
-                return dimensionless_zero
+                return 0
 
         b.add_component(
             pname + "_x_ref", Expression(b.params.true_species_set, rule=rule_x_ref)
@@ -153,8 +151,7 @@ class InfiniteDilutionSingleSolvent(object):
         # No ions at infinite dilution, ionic strength is zero
 
         def rule_I_ref(b):
-            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
-            return dimensionless_zero
+            return 0
         
         b.add_component(
             pname + "_ionic_strength_ref",
@@ -164,12 +161,11 @@ class InfiniteDilutionSingleSolvent(object):
         def rule_log_gamma_born(b, s):
             pobj = b.params.get_phase(pname)
             ref_comp = pobj.ref_comp
-            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
 
             if not s in b.params.ion_set:
-                return dimensionless_zero
+                return 0
             if len(b.params.solvent_set) == 1:
-                return dimensionless_zero
+                return 0
             q_e = Constants.elemental_charge
             k_b = Constants.boltzmann_constant
             eps_vacuum = Constants.vacuum_electric_permittivity
@@ -230,7 +226,6 @@ class InfiniteDilutionSingleSolvent(object):
         def rule_log_gamma_lc_I0(b, s):
             pobj = b.params.get_phase(pname)
             ref_comp = pobj.ref_comp
-            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
 
             G = getattr(b, pname + "_G")
             tau = getattr(b, pname + "_tau")
@@ -244,8 +239,8 @@ class InfiniteDilutionSingleSolvent(object):
                 return Z * (G[s, ref_comp]*tau[s, ref_comp] + tau[ref_comp, s])
             elif s in b.params.solute_set:
                 return G[s, ref_comp]*tau[s, ref_comp] + tau[ref_comp, s]
-            elif s in b.params.solvent_set or s in b.params.zwitterion_set:
-                return dimensionless_zero
+            elif s in b.params.solvent_set or s in b.params.true_solute_set:
+                return 0
             else:
                 raise BurntToast(
                     f"{s} eNRTL model encountered unexpected component."
@@ -262,7 +257,6 @@ class InfiniteDilutionSingleSolvent(object):
         def rule_d_log_gamma_lc_I0_dT(b, s):
             pobj = b.params.get_phase(pname)
             ref_comp = pobj.ref_comp
-            dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
             units = b.params.get_metadata().derived_units
 
             G = getattr(b, pname + "_G")
@@ -287,8 +281,8 @@ class InfiniteDilutionSingleSolvent(object):
                     + G[s, ref_comp] * dtau_dT[s, ref_comp] 
                     + dtau_dT[ref_comp, s]
                 )
-            elif s in b.params.solvent_set or s in b.params.zwitterion_set:
-                return dimensionless_zero / units.TEMPERATURE
+            elif s in b.params.solvent_set or s in b.params.true_solute_set:
+                return 0 / units.TEMPERATURE
             else:
                 raise BurntToast(
                     f"{s} eNRTL model encountered unexpected component."
@@ -304,9 +298,8 @@ class InfiniteDilutionSingleSolvent(object):
         )
     @staticmethod
     def ndIdn(b, pname, i):
-        dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
         # Eqn 71
-        return dimensionless_zero
+        return 0
 
 
 def ndxdn(b, pname, i, j):
@@ -329,8 +322,6 @@ def _ref_shebang(b, pname):
     """
     # Defer import to avoid circular import
     from idaes.models.properties.modular_properties.eos.enrtl import log_gamma_lc
-
-    dimensionless_zero = getattr(b, pname + "_dimensionless_zero")
 
     def rule_I_ref(b):  # Eqn 62 evaluated at reference state
         x = getattr(b, pname + "_x_ref")
@@ -367,7 +358,7 @@ def _ref_shebang(b, pname):
         G = getattr(b, pname + "_G")
         tau = getattr(b, pname + "_tau")
         if not s in b.params.ion_set:
-            return dimensionless_zero
+            return 0
         else:
             return log_gamma_lc(b, pname, s, X, G, tau)
 
@@ -381,7 +372,7 @@ def _ref_shebang(b, pname):
     )
 
     def rule_log_gamma_born(b, s):
-        return dimensionless_zero
+        return 0
     b.add_component(
         pname + "_log_gamma_born",
         Expression(

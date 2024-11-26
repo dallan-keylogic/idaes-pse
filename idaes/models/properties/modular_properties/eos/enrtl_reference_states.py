@@ -128,7 +128,7 @@ class InfiniteDilutionSingleSolvent(object):
             # Rashin and Honig (1985) recommend 1.07 times the ion's "covalent radius"
             # in a vacuum if a hydrogen-bonding solvent is used. In principle, this
             # radius is different in different solvents, but in practice we don't
-            # data to correlate it
+            # have data to correlate it
             if not hasattr(cobj, "born_radius"):
                 cobj.born_radius = Var(
                     doc="Cavity radius from Born model of solvation",
@@ -149,13 +149,10 @@ class InfiniteDilutionSingleSolvent(object):
     @staticmethod
     def ref_state(b, pname):
         # No ions at infinite dilution, ionic strength is zero
-
-        def rule_I_ref(b):
-            return 0
         
         b.add_component(
             pname + "_ionic_strength_ref",
-            Expression(rule=rule_I_ref, doc="Ionic strength at reference state"),
+            Expression(expr=0, doc="Ionic strength at reference state"),
         )
 
         def rule_log_gamma_born(b, s):
@@ -200,9 +197,16 @@ class InfiniteDilutionSingleSolvent(object):
             if len(b.params.ion_set) == 0:
                 return 0 * units.ENERGY/units.AMOUNT
             else:
+                # Need this code to get correct units on d_eps_solvent_dT
+                # if it evaluates to 0. See Pyomo issue 3258
+                if d_eps_solvent_dT.expr == 0:
+                    expr = 1
+                else:
+                    expr = 1 + T / eps_solvent * d_eps_solvent_dT
                 return pyunits.convert(
                     N_A * (q_e)**2/(8 * pi * eps_vacuum * eps_solvent)
-                    * (1 + T / eps_solvent * d_eps_solvent_dT)
+                    # * (1 + T / eps_solvent * d_eps_solvent_dT)
+                    * expr
                     * sum(
                         b.mole_frac_phase_comp_true[pname, s]
                         * abs(cobj(b, s).config.charge) ** 2

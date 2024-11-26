@@ -15,6 +15,8 @@ Tests for eNRTL methods
 
 Author: Andrew Lee
 """
+from copy import deepcopy
+
 import pytest
 
 from pyomo.environ import (
@@ -31,7 +33,8 @@ from pyomo.util.check_units import assert_units_equivalent
 
 from idaes.core import AqueousPhase, Solvent, Solute, Apparent, Anion, Cation
 from idaes.core.util.constants import Constants
-from idaes.models.properties.modular_properties.eos.enrtl import ENRTL
+from idaes.models.properties.modular_properties.eos.enrtl import ENRTL, EnthMolPhaseBasis
+from idaes.models.properties.modular_properties.eos.enrtl_reference_states import InfiniteDilutionSingleSolvent
 from idaes.models.properties.modular_properties.base.generic_property import (
     GenericParameterBlock,
     StateIndex,
@@ -89,6 +92,116 @@ configuration = {
     "pressure_ref": 1e5,
     "temperature_ref": 300,
 }
+
+def _test_common(model):
+    assert isinstance(model.state[1].Liq_X, Expression)
+    assert len(model.state[1].Liq_X) == 6
+    for j in model.state[1].Liq_X:
+        if j in ["H2O", "C6H12"]:
+            # _X should be mole_frac_phase_comp_true
+            assert str(model.state[1].Liq_X[j].expr) == str(
+                model.state[1].mole_frac_phase_comp_true["Liq", j]
+            )
+        else:
+            # _X should be mutiplied by |charge|
+            assert str(model.state[1].Liq_X[j].expr) == str(
+                model.state[1].mole_frac_phase_comp_true["Liq", j]
+                * abs(model.params.get_component(j).config.charge)
+            )
+
+    assert isinstance(model.state[1].Liq_Y, Expression)
+    assert len(model.state[1].Liq_Y) == 4
+    for j in model.state[1].Liq_Y:
+        if j in ["H+", "Na+"]:
+            assert str(model.state[1].Liq_Y[j].expr) == str(
+                model.state[1].Liq_X[j]
+                / (model.state[1].Liq_X["Na+"] + model.state[1].Liq_X["H+"])
+            )
+        else:
+            assert str(model.state[1].Liq_Y[j].expr) == str(
+                model.state[1].Liq_X[j]
+                / (model.state[1].Liq_X["Cl-"] + model.state[1].Liq_X["OH-"])
+            )
+
+    assert isinstance(model.state[1].Liq_ionic_strength, Expression)
+    assert len(model.state[1].Liq_ionic_strength) == 1
+    assert str(model.state[1].Liq_ionic_strength.expr) == str(
+        0.5
+        * (
+            model.params.get_component("Cl-").config.charge ** 2
+            * model.state[1].mole_frac_phase_comp_true["Liq", "Cl-"]
+            + model.params.get_component("OH-").config.charge ** 2
+            * model.state[1].mole_frac_phase_comp_true["Liq", "OH-"]
+            + model.params.get_component("Na+").config.charge ** 2
+            * model.state[1].mole_frac_phase_comp_true["Liq", "Na+"]
+            + model.params.get_component("H+").config.charge ** 2
+            * model.state[1].mole_frac_phase_comp_true["Liq", "H+"]
+        )
+    )
+
+    assert isinstance(model.state[1].Liq_A_DH, Expression)
+    assert len(model.state[1].Liq_A_DH) == 1
+    assert_units_equivalent(model.state[1].Liq_A_DH, pyunits.dimensionless)
+    assert str(model.state[1].Liq_A_DH.expr) == str(
+        (1 / 3)
+        * (
+            2
+            * Constants.pi
+            * Constants.avogadro_number
+            / model.state[1].Liq_vol_mol_solvent
+        )
+        ** 0.5
+        * (
+            Constants.elemental_charge**2
+            / (
+                4
+                * Constants.pi
+                * model.state[1].Liq_relative_permittivity_solvent
+                * Constants.vacuum_electric_permittivity
+                * Constants.boltzmann_constant
+                * model.state[1].temperature
+            )
+        )
+        ** (3 / 2)
+    )
+
+    assert isinstance(model.state[1].Liq_log_gamma_pdh, Expression)
+    assert len(model.state[1].Liq_log_gamma_pdh) == 6
+    for j in model.state[1].Liq_log_gamma_pdh:
+        assert j in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+        if j in ["H2O", "C6H12"]:
+            assert str(model.state[1].Liq_log_gamma_pdh[j].expr) == str(
+                (
+                    2
+                    * model.state[1].Liq_A_DH
+                    * model.state[1].Liq_ionic_strength ** (3 / 2)
+                    / (1 + 14.9 * model.state[1].Liq_ionic_strength ** (1 / 2))
+                )
+            )
+
+    assert isinstance(model.state[1].Liq_log_gamma_lc_I, Expression)
+    assert len(model.state[1].Liq_log_gamma_lc_I) == 6
+    for k in model.state[1].Liq_log_gamma_lc_I:
+        assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+
+    assert isinstance(model.state[1].Liq_log_gamma_lc, Expression)
+    assert len(model.state[1].Liq_log_gamma_lc) == 6
+    for k in model.state[1].Liq_log_gamma_lc:
+        assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+        assert str(model.state[1].Liq_log_gamma_lc[k].expr) == str(
+            model.state[1].Liq_log_gamma_lc_I[k]
+            - model.state[1].Liq_log_gamma_lc_I0[k]
+        )
+
+    assert isinstance(model.state[1].Liq_log_gamma, Expression)
+    assert len(model.state[1].Liq_log_gamma) == 6
+    for k, v in model.state[1].Liq_log_gamma.items():
+        assert str(model.state[1].Liq_log_gamma[k].expr) == str(
+            model.state[1].Liq_log_gamma_pdh[k]
+            + model.state[1].Liq_log_gamma_lc[k]
+            + model.state[1].Liq_log_gamma_born[k]
+            + model.state[1].Liq_log_gamma_poynting[k]
+        )
 
 def _test_constant_alpha(model):
     assert isinstance(model.state[1].Liq_alpha, Expression)
@@ -872,6 +985,18 @@ class TestStateBlockSymmetric(object):
     @pytest.mark.unit
     def test_common(self, model):
         # Reference state composition
+        _test_common(model)
+
+        assert isinstance(model.state[1].Liq_relative_permittivity_solvent, Expression)
+        assert len(model.state[1].Liq_relative_permittivity_solvent) == 1
+        assert str(model.state[1].Liq_relative_permittivity_solvent.expr) == (
+            str(model.params.get_component("H2O").relative_permittivity_liq_comp)
+        )
+
+        assert isinstance(model.state[1].Liq_vol_mol_solvent, Expression)
+        assert len(model.state[1].Liq_vol_mol_solvent) == 1
+        assert str(model.state[1].Liq_vol_mol_solvent.expr) == "1/(42.0*mol/m**3)"
+
         assert isinstance(model.state[1].Liq_x_ref, Expression)
         assert len(model.state[1].Liq_x_ref) == 6
         for k in model.state[1].Liq_x_ref:
@@ -889,21 +1014,6 @@ class TestStateBlockSymmetric(object):
                     )
                 )
 
-        assert isinstance(model.state[1].Liq_X, Expression)
-        assert len(model.state[1].Liq_X) == 6
-        for j in model.state[1].Liq_X:
-            if j in ["H2O", "C6H12"]:
-                # _X should be mole_frac_phase_comp_true
-                assert str(model.state[1].Liq_X[j].expr) == str(
-                    model.state[1].mole_frac_phase_comp_true["Liq", j]
-                )
-            else:
-                # _X should be mutiplied by |charge|
-                assert str(model.state[1].Liq_X[j].expr) == str(
-                    model.state[1].mole_frac_phase_comp_true["Liq", j]
-                    * abs(model.params.get_component(j).config.charge)
-                )
-
         assert isinstance(model.state[1].Liq_X_ref, Expression)
         assert len(model.state[1].Liq_X_ref) == 6
         for j in model.state[1].Liq_X_ref:
@@ -918,36 +1028,6 @@ class TestStateBlockSymmetric(object):
                     model.state[1].Liq_x_ref[j]
                     * abs(model.params.get_component(j).config.charge)
                 )
-
-        assert isinstance(model.state[1].Liq_Y, Expression)
-        assert len(model.state[1].Liq_Y) == 4
-        for j in model.state[1].Liq_Y:
-            if j in ["H+", "Na+"]:
-                assert str(model.state[1].Liq_Y[j].expr) == str(
-                    model.state[1].Liq_X[j]
-                    / (model.state[1].Liq_X["Na+"] + model.state[1].Liq_X["H+"])
-                )
-            else:
-                assert str(model.state[1].Liq_Y[j].expr) == str(
-                    model.state[1].Liq_X[j]
-                    / (model.state[1].Liq_X["Cl-"] + model.state[1].Liq_X["OH-"])
-                )
-
-        assert isinstance(model.state[1].Liq_ionic_strength, Expression)
-        assert len(model.state[1].Liq_ionic_strength) == 1
-        assert str(model.state[1].Liq_ionic_strength.expr) == str(
-            0.5
-            * (
-                model.params.get_component("Cl-").config.charge ** 2
-                * model.state[1].mole_frac_phase_comp_true["Liq", "Cl-"]
-                + model.params.get_component("OH-").config.charge ** 2
-                * model.state[1].mole_frac_phase_comp_true["Liq", "OH-"]
-                + model.params.get_component("Na+").config.charge ** 2
-                * model.state[1].mole_frac_phase_comp_true["Liq", "Na+"]
-                + model.params.get_component("H+").config.charge ** 2
-                * model.state[1].mole_frac_phase_comp_true["Liq", "H+"]
-            )
-        )
 
         assert isinstance(model.state[1].Liq_ionic_strength_ref, Expression)
         assert len(model.state[1].Liq_ionic_strength_ref) == 1
@@ -965,61 +1045,6 @@ class TestStateBlockSymmetric(object):
             )
         )
 
-        assert isinstance(model.state[1].Liq_vol_mol_solvent, Expression)
-        assert len(model.state[1].Liq_vol_mol_solvent) == 1
-        assert str(model.state[1].Liq_vol_mol_solvent.expr) == "1/(42.0*mol/m**3)"
-
-        assert isinstance(model.state[1].Liq_relative_permittivity_solvent, Expression)
-        assert len(model.state[1].Liq_relative_permittivity_solvent) == 1
-        assert str(model.state[1].Liq_relative_permittivity_solvent.expr) == (
-            str(model.params.get_component("H2O").relative_permittivity_liq_comp)
-        )
-
-        assert isinstance(model.state[1].Liq_A_DH, Expression)
-        assert len(model.state[1].Liq_A_DH) == 1
-        assert_units_equivalent(model.state[1].Liq_A_DH, pyunits.dimensionless)
-        assert str(model.state[1].Liq_A_DH.expr) == str(
-            (1 / 3)
-            * (
-                2
-                * Constants.pi
-                * Constants.avogadro_number
-                / model.state[1].Liq_vol_mol_solvent
-            )
-            ** 0.5
-            * (
-                Constants.elemental_charge**2
-                / (
-                    4
-                    * Constants.pi
-                    * model.state[1].Liq_relative_permittivity_solvent
-                    * Constants.vacuum_electric_permittivity
-                    * Constants.boltzmann_constant
-                    * model.state[1].temperature
-                )
-            )
-            ** (3 / 2)
-        )
-
-        assert isinstance(model.state[1].Liq_log_gamma_pdh, Expression)
-        assert len(model.state[1].Liq_log_gamma_pdh) == 6
-        for j in model.state[1].Liq_log_gamma_pdh:
-            assert j in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
-            if j in ["H2O", "C6H12"]:
-                assert str(model.state[1].Liq_log_gamma_pdh[j].expr) == str(
-                    (
-                        2
-                        * model.state[1].Liq_A_DH
-                        * model.state[1].Liq_ionic_strength ** (3 / 2)
-                        / (1 + 14.9 * model.state[1].Liq_ionic_strength ** (1 / 2))
-                    )
-                )
-
-        assert isinstance(model.state[1].Liq_log_gamma_lc_I, Expression)
-        assert len(model.state[1].Liq_log_gamma_lc_I) == 6
-        for k in model.state[1].Liq_log_gamma_lc_I:
-            assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
-
         assert isinstance(model.state[1].Liq_log_gamma_lc_I0, Expression)
         assert len(model.state[1].Liq_log_gamma_lc_I0) == 6
         for k in model.state[1].Liq_log_gamma_lc_I0:
@@ -1030,15 +1055,6 @@ class TestStateBlockSymmetric(object):
                 assert str(model.state[1].Liq_log_gamma_lc_I0[k].expr) != str(
                     model.state[1].Liq_log_gamma_lc_I[k].expr
                 )
-
-        assert isinstance(model.state[1].Liq_log_gamma_lc, Expression)
-        assert len(model.state[1].Liq_log_gamma_lc) == 6
-        for k in model.state[1].Liq_log_gamma_lc:
-            assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
-            assert str(model.state[1].Liq_log_gamma_lc[k].expr) == str(
-                model.state[1].Liq_log_gamma_lc_I[k]
-                - model.state[1].Liq_log_gamma_lc_I0[k]
-            )
 
         # The Born term is zero for a symmetric reference state
         # The Poynting term is set to zero by default
@@ -1051,17 +1067,6 @@ class TestStateBlockSymmetric(object):
             for k in expr:
                 assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
                 assert str(expr[k].expr) == "0.0"
-        
-
-        assert isinstance(model.state[1].Liq_log_gamma, Expression)
-        assert len(model.state[1].Liq_log_gamma) == 6
-        for k, v in model.state[1].Liq_log_gamma.items():
-            assert str(model.state[1].Liq_log_gamma[k].expr) == str(
-                model.state[1].Liq_log_gamma_pdh[k]
-                + model.state[1].Liq_log_gamma_lc[k]
-                + model.state[1].Liq_log_gamma_born[k]
-                + model.state[1].Liq_log_gamma_poynting[k]
-            )
 
     @pytest.mark.unit
     def test_alpha(self, model):
@@ -1105,3 +1110,224 @@ class TestProperties(object):
             value(-Constants.gas_constant * 300 * log(0.1670306) / 18e-6), rel=1e-6
         ) == value(model.state[1].pressure_osm_phase["Liq"])
 
+class TestStateBlockInfiniteDilutionSingleSolventNoBorn(object):
+    @pytest.fixture(scope="class")
+    def model(self):
+        m = ConcreteModel()
+        config_local = deepcopy(configuration)
+        config_local["phases"]["Liq"]["equation_of_state_options"] = {
+            "property_basis": "true",
+            "reference_state": InfiniteDilutionSingleSolvent,
+            "reference_component": "H2O",
+            "enth_mol_phase_basis": EnthMolPhaseBasis.apparent,
+        }
+        config_local["components"]["Na+"]["parameter_data"] = {
+            "born_radius": (1.0, pyunits.angstrom)
+        }
+        config_local["components"]["Cl-"]["parameter_data"] = {
+            "born_radius": (2.0, pyunits.angstrom)
+        }
+        config_local["components"]["H+"]["parameter_data"] = {
+            "born_radius": (3.0, pyunits.angstrom)
+        }
+        config_local["components"]["OH-"]["parameter_data"] = {
+            "born_radius": (4.0, pyunits.angstrom)
+        }
+        m.params = GenericParameterBlock(**config_local)
+
+        m.state = m.params.build_state_block([1])
+
+        # Need to set a value of T for checking expressions later
+        m.state[1].temperature.set_value(300)
+
+        return m
+
+    @pytest.mark.unit
+    def test_common(self, model):
+        # Reference state composition
+        _test_common(model)
+
+        assert isinstance(model.state[1].Liq_relative_permittivity_solvent, Expression)
+        assert len(model.state[1].Liq_relative_permittivity_solvent) == 1
+        assert str(model.state[1].Liq_relative_permittivity_solvent.expr) == (
+            str(model.params.get_component("H2O").relative_permittivity_liq_comp)
+        )
+
+        assert isinstance(model.state[1].Liq_ionic_strength_ref, Expression)
+        assert len(model.state[1].Liq_ionic_strength_ref) == 1
+        assert str(model.state[1].Liq_ionic_strength_ref.expr) == str(0.0)
+
+        assert isinstance(model.state[1].Liq_log_gamma_lc_I0, Expression)
+        assert len(model.state[1].Liq_log_gamma_lc_I0) == 6
+        for k in model.state[1].Liq_log_gamma_lc_I0:
+            assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+        G = getattr(model.state[1],"Liq_G")
+        tau = getattr(model.state[1],"Liq_tau")
+        assert str(model.state[1].Liq_log_gamma_lc_I0["H2O"].expr) == "0.0"
+        assert str(model.state[1].Liq_log_gamma_lc_I0["C6H12"].expr) == str(
+            G["C6H12","H2O"] * tau["C6H12","H2O"] + tau["H2O", "C6H12"] 
+        )
+        for k in ["Na+", "H+", "Cl-", "OH-"]:
+            z = abs(model.params.get_component(k).config.charge)
+            assert k in ["Na+", "H+", "Cl-", "OH-"]
+            assert str(model.state[1].Liq_log_gamma_lc_I0[k].expr) == str(
+                z * (G[k,"H2O"] * tau[k,"H2O"] + tau["H2O", k])
+            )
+
+        # The Born term is zero when we consider C6H12 as a solute and not a solvent
+        # The Poynting term is set to zero by default
+        for expr in [
+            model.state[1].Liq_log_gamma_born,
+            model.state[1].Liq_log_gamma_poynting
+        ]:
+            assert isinstance(expr, Expression)
+            assert len(expr) == 6
+            for k in expr:
+                assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+                assert str(expr[k].expr) == "0.0"
+        
+    @pytest.mark.unit
+    def test_alpha(self, model):
+        _test_constant_alpha(model)
+
+    @pytest.mark.unit
+    def test_G(self, model):
+        _test_G_constant_alpha_and_tau(model)
+
+    @pytest.mark.unit
+    def test_tau(self, model):
+        _test_constant_tau(model)
+
+class TestStateBlockInfiniteDilutionSingleSolventWithBorn(object):
+    @pytest.fixture(scope="class")
+    def model(self):
+        m = ConcreteModel()
+        config_local = deepcopy(configuration)
+        config_local["components"]["C6H12"]["type"] = Solvent
+        config_local["phases"]["Liq"]["equation_of_state_options"] = {
+            "property_basis": "true",
+            "reference_state": InfiniteDilutionSingleSolvent,
+            "reference_component": "H2O",
+            "enth_mol_phase_basis": EnthMolPhaseBasis.apparent,
+        }
+        config_local["components"]["Na+"]["parameter_data"] = {
+            "born_radius": (1.0, pyunits.angstrom)
+        }
+        config_local["components"]["Cl-"]["parameter_data"] = {
+            "born_radius": (2.0, pyunits.angstrom)
+        }
+        config_local["components"]["H+"]["parameter_data"] = {
+            "born_radius": (3.0, pyunits.angstrom)
+        }
+        config_local["components"]["OH-"]["parameter_data"] = {
+            "born_radius": (4.0, pyunits.angstrom)
+        }
+        m.params = GenericParameterBlock(**config_local)
+
+        m.state = m.params.build_state_block([1])
+        m.state[1].enth_mol_phase_comp = Var(m.params.phase_list, m.params.component_list)
+
+        # Need to set a value of T for checking expressions later
+        m.state[1].temperature.set_value(300)
+
+        return m
+
+    @pytest.mark.unit
+    def test_common(self, model):
+        # Reference state composition
+        _test_common(model)
+
+        assert isinstance(model.state[1].Liq_vol_mol_solvent, Expression)
+        assert len(model.state[1].Liq_vol_mol_solvent) == 1
+        assert str(model.state[1].Liq_vol_mol_solvent.expr) == str(
+            (
+                1 / (42.0 * pyunits.mol / pyunits.m**3)
+                * model.state[1].mole_frac_phase_comp["Liq", "H2O"]
+                + 1 / (42.0 * pyunits.mol / pyunits.m**3)
+                * model.state[1].mole_frac_phase_comp["Liq", "C6H12"]
+            ) / ( 
+                model.state[1].mole_frac_phase_comp["Liq", "H2O"]
+                + model.state[1].mole_frac_phase_comp["Liq", "C6H12"]
+            )
+        )
+
+        assert isinstance(model.state[1].Liq_relative_permittivity_solvent, Expression)
+        assert len(model.state[1].Liq_relative_permittivity_solvent) == 1
+        assert str(model.state[1].Liq_relative_permittivity_solvent.expr) == str(
+            (
+                model.state[1].mole_frac_phase_comp_true["Liq", "H2O"]
+                * model.params.get_component("H2O").relative_permittivity_liq_comp
+                * model.params.get_component("H2O").mw
+                + model.state[1].mole_frac_phase_comp_true["Liq", "C6H12"]
+                * model.params.get_component("C6H12").relative_permittivity_liq_comp
+                * model.params.get_component("C6H12").mw
+            ) / (
+                model.state[1].mole_frac_phase_comp_true["Liq", "H2O"]
+                * model.params.get_component("H2O").mw
+                + model.state[1].mole_frac_phase_comp_true["Liq", "C6H12"]
+                * model.params.get_component("C6H12").mw
+            )
+        )
+
+        assert isinstance(model.state[1].Liq_ionic_strength_ref, Expression)
+        assert len(model.state[1].Liq_ionic_strength_ref) == 1
+        assert str(model.state[1].Liq_ionic_strength_ref.expr) == str(0.0)
+
+        assert isinstance(model.state[1].Liq_log_gamma_lc_I0, Expression)
+        assert len(model.state[1].Liq_log_gamma_lc_I0) == 6
+        for k in model.state[1].Liq_log_gamma_lc_I0:
+            assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+        G = getattr(model.state[1],"Liq_G")
+        tau = getattr(model.state[1],"Liq_tau")
+        assert str(model.state[1].Liq_log_gamma_lc_I0["H2O"].expr) == "0.0"
+        assert str(model.state[1].Liq_log_gamma_lc_I0["C6H12"].expr) == "0.0"
+        for k in ["Na+", "H+", "Cl-", "OH-"]:
+            z = abs(model.params.get_component(k).config.charge)
+            assert str(model.state[1].Liq_log_gamma_lc_I0[k].expr) == str(
+                z * (G[k,"H2O"] * tau[k,"H2O"] + tau["H2O", k])
+            )
+
+        expr = model.state[1].Liq_log_gamma_born
+        for k in expr:
+            assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+
+        assert str(expr["H2O"].expr) == str(0.0)
+        assert str(expr["C6H12"].expr) == str(0.0)
+        for k in ["Na+", "H+", "Cl-", "OH-"]:
+            z = abs(model.params.get_component(k).config.charge)
+            rb = model.params.get_component(k).born_radius
+            tmp = str(
+                (z * Constants.elemental_charge)**2
+                / (
+                    8
+                    * Constants.pi
+                    * Constants.vacuum_electric_permittivity
+                    * Constants.boltzmann_constant
+                    * model.state[1].temperature
+                    * rb
+                ) * (
+                    1 / model.state[1].Liq_relative_permittivity_solvent
+                    - 1 / model.params.get_component("H2O").relative_permittivity_liq_comp
+                )
+            )
+            assert str(expr[k].expr) == tmp
+
+        # The Poynting term is set to zero by default
+        expr = model.state[1].Liq_log_gamma_poynting
+        assert isinstance(expr, Expression)
+        assert len(expr) == 6
+        for k in expr:
+            assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+            assert str(expr[k].expr) == "0.0"
+        
+    @pytest.mark.unit
+    def test_alpha(self, model):
+        _test_constant_alpha(model)
+
+    @pytest.mark.unit
+    def test_G(self, model):
+        _test_G_constant_alpha_and_tau(model)
+
+    @pytest.mark.unit
+    def test_tau(self, model):
+        _test_constant_tau(model)

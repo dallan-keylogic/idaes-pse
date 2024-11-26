@@ -918,11 +918,6 @@ class StandardPropertySet(PropertySetBase):
         doc="Log of Molar Concentration",
         units=pyunits.dimensionless,
     )
-    log_pressure = PropertyMetadata(
-        name="log_fug",
-        doc="Log of Fugacity",
-        units=pyunits.dimensionless,
-    )
     log_henry = PropertyMetadata(
         name="log_henry",
         doc="Log of Henry Constant",
@@ -971,6 +966,11 @@ class StandardPropertySet(PropertySetBase):
     log_pressure_sat = PropertyMetadata(
         name="log_pressure_sat",
         doc="Log of Saturation Pressure",
+        units=pyunits.dimensionless,
+    )
+    log_fug = PropertyMetadata(
+        name="log_fug",
+        doc="Log of Fugacity",
         units=pyunits.dimensionless,
     )
 

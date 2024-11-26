@@ -16,6 +16,8 @@ Framework for generic property packages
 # TODO: Pylint complains about variables with _x names as they are built by sub-classes
 # pylint: disable=protected-access
 
+from copy import deepcopy
+
 # Import Pyomo libraries
 from pyomo.environ import (
     Block,
@@ -313,9 +315,9 @@ class GenericParameterData(PhysicalParameterBlock):
 
         for p, d in self.config.phases.items():
             # Create a copy of the phase config dict
-            d = dict(d)
+            d_copy = deepcopy(d)
 
-            ptype = d.pop("type", None)
+            ptype = d_copy.pop("type", None)
 
             if ptype is None:
                 _log.warning(
@@ -342,7 +344,7 @@ class GenericParameterData(PhysicalParameterBlock):
                 # If there is an aqueous phase, set _electrolyte = True
                 self._electrolyte = True
                 # Check that specified property package supports electrolytes
-                eos = d["equation_of_state"]
+                eos = d_copy["equation_of_state"]
                 if (
                     not hasattr(eos, "electrolyte_support")
                     or not eos.electrolyte_support
@@ -353,8 +355,7 @@ class GenericParameterData(PhysicalParameterBlock):
                             self.name, p, eos
                         )
                     )
-
-            self.add_component(str(p), ptype(**d))
+            self.add_component(str(p), ptype(**d_copy))
 
         # Check if we need to create electrolyte component lists
         if self._electrolyte:

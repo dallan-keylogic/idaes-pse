@@ -71,8 +71,11 @@ class PhaseData(ProcessBlockData):
     )
     CONFIG.declare(
         "equation_of_state_options",
-        ConfigValue(
-            default=None,
+        ConfigDict(
+            # TODO look into pyomo.common.config.DynamicImplicitDomain to get the domain from the EOS
+            # Can't immediately implement it, though, because it would break user EoS which don't
+            # have to use ConfigBlocks
+            implicit=True,
             description="Options for equation of state",
             doc="""A dict or ConfigBlock of options to be used when setting
                 up equation of state for phase.""",

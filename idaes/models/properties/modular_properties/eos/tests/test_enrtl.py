@@ -202,6 +202,19 @@ def _test_common(model):
             + model.state[1].Liq_log_gamma_born[k]
             + model.state[1].Liq_log_gamma_poynting[k]
         )
+    # assert isinstance(model.state[1].enth_mol_phase, Expression)
+    # assert len(model.state[1].enth_mol_phase) == 1
+    # for k in model.state[1].enth_mol_phase:
+    #     assert k in {"Liq"}
+    #     enth_mol_ideal = sum(
+    #         model.state[1].mole_frac_phase_comp_true["Liq", j]
+    #         * model.state[1].enth_mol_phase_comp["Liq", j]
+    #         for j in model.state[1].components_in_phase("Liq", true_basis=True)
+    #     )
+    #     enth_mol_excess = (
+
+    #     )
+    #     assert enth_mol_ideal
 
 def _test_constant_alpha(model):
     assert isinstance(model.state[1].Liq_alpha, Expression)
@@ -976,6 +989,7 @@ class TestStateBlockSymmetric(object):
         m.params = GenericParameterBlock(**configuration)
 
         m.state = m.params.build_state_block([1])
+        m.state[1].enth_mol_phase_comp = Var(m.params.phase_list, m.params.component_list)
 
         # Need to set a value of T for checking expressions later
         m.state[1].temperature.set_value(300)
@@ -1136,6 +1150,7 @@ class TestStateBlockInfiniteDilutionSingleSolventNoBorn(object):
         m.params = GenericParameterBlock(**config_local)
 
         m.state = m.params.build_state_block([1])
+        m.state[1].enth_mol_phase_comp = Var(m.params.phase_list, m.params.component_list)
 
         # Need to set a value of T for checking expressions later
         m.state[1].temperature.set_value(300)

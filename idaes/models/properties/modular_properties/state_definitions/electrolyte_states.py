@@ -25,7 +25,7 @@ from idaes.models.properties.modular_properties.base.generic_property import Sta
 from idaes.models.properties.modular_properties.base.utility import (
     get_bounds_from_config,
 )
-from idaes.core.util.exceptions import BurntToast
+from idaes.core.util.exceptions import BurntToast, ConfigurationError
 from idaes.core.util.misc import add_object_reference
 from idaes.core.base.components import IonData, ApparentData, TrueSoluteData
 import idaes.logger as idaeslog
@@ -41,6 +41,7 @@ def define_electrolyte_state(b):
     elif b.params.config.state_components == StateIndex.apparent:
         _apparent_species_state(b)
     else:
+        # TODO: Shouldn't this be a configuration error?
         raise BurntToast(
             "{} - unrecognized value for state_components "
             "argument - this should never happen. Please "
@@ -213,6 +214,12 @@ def _apparent_species_scaling(b):
 
 
 def _true_species_state(b):
+    if b.has_inherent_reactions:
+        raise NotImplementedError(
+            f"{b.name} - inherent reactions are not supported at present with "
+            "a true species basis for components."
+        )
+
     # Create references to base state vars
     add_object_reference(b, "flow_mol_true", b.flow_mol)
     b.flow_mol_phase_true = Reference(b.flow_mol_phase)
@@ -261,6 +268,7 @@ def _true_species_state(b):
                     * b.flow_mol_phase_comp_true[p, ions[1]]
                     / (total_charge * cobj.config.dissociation_species[ions[1]])
                 )
+            # TODO can we get rid of this hardcoding?
             elif j == "H2O":
                 # Special case for water
                 # Need to generalise to cover other cases with weak acids

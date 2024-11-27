@@ -160,6 +160,7 @@ class ENRTL(Ideal):
             ].return_dalpha_dT_expression
         else:
             alpha_rule = DefaultAlphaRule.return_alpha_expression
+            # TODO what about existing applications with custom alpha rule?
             dalpha_dT_rule = DefaultAlphaRule.return_dalpha_dT_expression
 
         # Check options for tau rule
@@ -175,6 +176,7 @@ class ENRTL(Ideal):
             ].return_dtau_dT_expression
         else:
             tau_rule = DefaultTauRule.return_tau_expression
+            # TODO what about existing applications with custom tau rule?
             dtau_dT_rule = DefaultTauRule.return_dtau_dT_expression
 
         # Check options for reference state
@@ -512,24 +514,18 @@ class ENRTL(Ideal):
         )
         
         # Calculate G terms
-        b.add_component(
-            pname + "_G_default",
-            Param(initialize=1.0, doc="Constant value of G used in eNRTL"),
-        )
 
         def _G_appr(b, pobj, i, j, T):  # Eqn 23
             pname = pobj.local_name
-            G_default = getattr(b, pname + "_G_default")
             if i != j:
                 return exp(
                     -alpha_rule(b, pobj, i, j, T) * tau_rule(b, pobj, i, j, T)
                 )
             else:
-                return G_default
+                return 1
 
         def rule_G_expr(b, i, j):
             Y = getattr(b, pname + "_Y")
-            G_default = getattr(b, pname + "_G_default")
 
             if (pname, i) not in b.params.true_phase_component_set or (
                 pname,
@@ -576,7 +572,7 @@ class ENRTL(Ideal):
                 else:
                     # This term does not exist for single cation systems
                     # However, need a valid result to calculate tau
-                    return G_default
+                    return 1
             elif i in b.params.anion_set and j in b.params.cation_set:
                 # Eqn 43
                 if len(b.params.anion_set) > 1:
@@ -590,7 +586,7 @@ class ENRTL(Ideal):
                 else:
                     # This term does not exist for single anion systems
                     # However, need a valid result to calculate tau
-                    return G_default
+                    return 1
             elif (i in b.params.cation_set and j in b.params.cation_set) or (
                 i in b.params.anion_set and j in b.params.anion_set
             ):
@@ -1071,40 +1067,41 @@ class ENRTL(Ideal):
             "Heat capacity deliberately left unimplemented due to complications with inherent reactions"
         )
 
-    @staticmethod
-    def enth_mol_phase_comp(b, p, j):
-        # TODO we might be able to give a sensible answer to this via Perry (1981)
-        pobj = b.params.get_phase(p)
-        if not pobj.is_aqueous_phase():
-            return Ideal.enth_mol_phase_comp(b, p, j)
+    # @staticmethod
+    # def enth_mol_phase_comp(b, p, j):
+    #     # TODO we might be able to give a sensible answer to this via Perry (1981)
+    #     pobj = b.params.get_phase(p)
+    #     if not pobj.is_aqueous_phase():
+    #         return Ideal.enth_mol_phase_comp(b, p, j)
 
-        try:
-            enth_mol_phase_basis = pobj.config.equation_of_state_options["enth_mol_phase_basis"]
-        except KeyError:
-            enth_mol_phase_basis = EnthMolPhaseBasis.true
+    #     try:
+    #         enth_mol_phase_basis = pobj.config.equation_of_state_options["enth_mol_phase_basis"]
+    #     except KeyError:
+    #         enth_mol_phase_basis = EnthMolPhaseBasis.true
 
-        if enth_mol_phase_basis == EnthMolPhaseBasis.true:
-            return Ideal.enth_mol_phase_comp(b, p, j) + ENRTL.enth_mol_phase_comp_excess(b, p, j)
-        elif enth_mol_phase_basis == EnthMolPhaseBasis.apparent:
-            raise AttributeError("Partial molar enthalpy is not well-defined when using apparent species as basis.")
-        else:
-            raise ConfigurationError
+    #     if enth_mol_phase_basis == EnthMolPhaseBasis.true:
+    #         return Ideal.enth_mol_phase_comp(b, p, j) + ENRTL.enth_mol_phase_comp_excess(b, p, j)
+    #     elif enth_mol_phase_basis == EnthMolPhaseBasis.apparent:
+    #         raise AttributeError("Partial molar enthalpy is not well-defined when using apparent species as basis.")
+    #     else:
+    #         raise ConfigurationError
 
     @staticmethod
     def enth_mol_phase(b, p):
         pobj = b.params.get_phase(p)
         if not pobj.is_aqueous_phase():
-            return Ideal.enth_mol_phase(b, p, j)
+            # TODO we need to fix this for nonaqueous phases
+            return Ideal.enth_mol_phase(b, p)
         # In case no inherent reactions are present
         try:
             inherent_rxn_idx = b.params.inherent_reaction_idx
         except AttributeError:
             enth_mol_ideal = sum(
-                    b.mole_frac_phase_comp[p, j]
+                    b.mole_frac_phase_comp_true[p, j]
                     * Ideal.enth_mol_phase_comp(b, p, j)
                     for j in b.components_in_phase(p, true_basis=True)
                 )
-            return enth_mol_ideal + ENRTL.enth_mol_phase_excess(b, p)
+            return enth_mol_ideal + ENRTL._enth_mol_phase_excess(b, p)
 
         try:
             enth_mol_phase_basis = pobj.config.equation_of_state_options["enth_mol_phase_basis"]
@@ -1117,7 +1114,7 @@ class ENRTL(Ideal):
                     * Ideal.enth_mol_phase_comp(b, p, j)
                     for j in b.components_in_phase(p, true_basis=True)
                 )
-            return enth_mol_ideal + ENRTL.enth_mol_phase_excess(b, p)
+            return enth_mol_ideal + ENRTL._enth_mol_phase_excess(b, p)
             
         elif enth_mol_phase_basis == EnthMolPhaseBasis.apparent:
             enth_mol_ideal = (
@@ -1144,7 +1141,7 @@ class ENRTL(Ideal):
             b.flow_mol_phase_comp_true[p, j] 
             for j in b.components_in_phase(p, true_basis=True)
         )
-        return enth_mol_ideal + flow_true / b.flow_mol * ENRTL.enth_mol_phase_excess(b, p)
+        return enth_mol_ideal + flow_true / b.flow_mol * ENRTL._enth_mol_phase_excess(b, p)
 
     @staticmethod
     def energy_internal_mol_phase(b, p):
@@ -1215,16 +1212,8 @@ class ENRTL(Ideal):
             )
 
 
-    # @staticmethod
-    # def enth_mol_phase_excess(b, p):
-    #     return sum(
-    #         b.mole_frac_phase_comp_true[p, j]
-    #         * ENRTL.enth_mol_phase_comp_excess(b, p, j)
-    #         for j in b.components_in_phase(p, true_basis=True)
-    #     )
-
     @staticmethod
-    def enth_mol_phase_excess(b, p):
+    def _enth_mol_phase_excess(b, p):
         pobj = b.params.get_phase(p)
         pname = pobj.local_name
         if not pobj.is_aqueous_phase():
@@ -1260,7 +1249,6 @@ class ENRTL(Ideal):
         v = pyunits.convert(
             getattr(b, pname + "_vol_mol_solvent"), pyunits.m**3 / pyunits.mol
         )
-        # TODO correct unit handling
         dv_dT = differentiate(
             v,
             b.temperature,
@@ -1273,9 +1261,22 @@ class ENRTL(Ideal):
         Ix = getattr(b, pname + "_ionic_strength")
         rho = ClosestApproach
         # Temperature derivative of Debye Huckel term
-        dA_dT = -A_DH / 2 * (
-            1/v * dv_dT + 3 * (1/eps) * d_eps_dT
-        )
+
+        # Leaving this equation commented out here to make it clear what
+        # the workaround code below is doing.
+        # dA_dT = -A_DH / 2 * (
+        #     1/v * dv_dT + 3 * (1/eps) * d_eps_dT
+        # )
+
+        # Need to test whether these derivatives are zero or not. If they are zero
+        # they don't have appropriate units, so we need to just not add them
+        # due to Pyomo issue 3258
+        expr = 0
+        if  dv_dT != 0:
+            expr += 1/v * dv_dT
+        if d_eps_dT != 0:
+            expr += 3 * (1/eps) * d_eps_dT
+        dA_dT = -A_DH / 2 * expr
 
         # There's an additional term involving the derivative
         # of rho wrt temperature (see Pitzer and Simonson, 1986),
@@ -1295,26 +1296,6 @@ class ENRTL(Ideal):
             + enth_mol_phase_excess_DH
             + enth_mol_phase_excess_born
         )
-    
-    # @staticmethod
-    # def _create_d_log_gamma_dT(b, p):
-    #     pobj = b.params.get_phase(p)
-    #     pname = pobj.local_name
-    #     def rule_d_log_gamma_dT(b, j, pname):
-    #         log_gamma = getattr(b, f"{pname}_log_gamma")
-    #         return differentiate(
-    #             expr=log_gamma[j],
-    #             wrt=b.temperature,
-    #             mode=Modes.reverse_symbolic
-    #         )
-    #     b.add_component(
-    #         pname + "_d_log_gamma_dT",
-    #         Expression(
-    #             b.params.true_species_set,
-    #             rule=partial(rule_d_log_gamma_dT, pname=pname),
-    #             doc=f"Temperature derivative of {pname} activity coefficient",
-    #         ),
-    #     )
 
 
 

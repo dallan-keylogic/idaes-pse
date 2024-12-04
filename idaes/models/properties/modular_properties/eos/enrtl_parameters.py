@@ -32,6 +32,9 @@ class ConstantAlpha(object):
 
     @staticmethod
     def build_parameters(b):
+        """Looks for user assigned value for alpha, and if not present uses
+        a value of 0.3 for molecule-molecule interactions and 0.2 for molecule-
+        ion and ion-ion interactions."""
         param_block = b.parent_block()
 
         # Get user provided values for alpha (if present)
@@ -97,6 +100,9 @@ class ConstantAlpha(object):
 
     @staticmethod
     def return_alpha_expression(b, pobj, i, j, T):
+        """For the component pair (i, j), return the assigned (constant)
+        value for alpha. If i==j, return the default value of 0.2.
+        """
         if (i, j) in pobj.alpha:
             return pobj.alpha[i, j]
         elif (j, i) in pobj.alpha:
@@ -110,6 +116,8 @@ class ConstantAlpha(object):
             )
     @staticmethod
     def return_dalpha_dT_expression(b, pobj, i, j, T):
+        """Returns the derivative of alpha with respect to temperature.
+        Since alpha is constant, the value returned is zero."""
         units = b.params.get_metadata().derived_units
         return 0 / units.TEMPERATURE
 
@@ -119,6 +127,8 @@ class ConstantTau(object):
 
     @staticmethod
     def build_parameters(b):
+        """Looks for a user-assigned value for tau, and, if absent, assigns
+        the default value of 0."""
         param_block = b.parent_block()
 
         # Get user provided values for tau (if present)
@@ -177,6 +187,96 @@ class ConstantTau(object):
             return 0
         elif i == j:
             return 0
+        else:
+            raise BurntToast(
+                "{} tau rule encountered unexpected index {}. Please contact"
+                "the IDAES Developers with this bug.".format(b.name, (i, j))
+            )
+
+class TwoParameterTau(object):
+    """Class in which Tau is broken into enthalpic and entropic components """
+
+    @staticmethod
+    def build_parameters(b):
+        param_block = b.parent_block()
+        units = param_block.get_metadata().derived_units
+
+        # Get user provided values for tau (if present)
+        try:
+            tau_A_data = param_block.config.parameter_data[b.local_name + "_tau_A"]
+        except KeyError:
+            tau_A_data = {}
+
+        try:
+            tau_B_data = param_block.config.parameter_data[b.local_name + "_tau_B"]
+        except KeyError:
+            tau_B_data = {}
+
+        # Check for unused parameters in tau_data
+        for data in tau_A_data, tau_B_data:
+            for i, j in data.keys():
+                if (i, j) not in b.component_pair_set:
+                    raise ConfigurationError(
+                        "{} eNRTL tau parameter provided for invalid "
+                        "component pair {}. Please check typing and only provide "
+                        "parameters for valid species pairs.".format(b.name, (i, j))
+                    )
+
+        def tau_A_init(b, i, j):
+            try:
+                return tau_A_data[(i, j)]
+            except KeyError:
+                # Default interaction value is 0
+                return 0
+        
+        def tau_B_init(b, i, j):
+            try:
+                return tau_B_data[(i, j)]
+            except KeyError:
+                # Default interaction value is 0
+                return 0
+
+        b.add_component(
+            "tau_A",
+            Var(
+                b.component_pair_set,
+                within=Reals,
+                initialize=tau_A_init,
+                doc="Binary interaction energy parameters",
+                units=pyunits.dimensionless,
+            ),
+        )
+
+        b.add_component(
+            "tau_B",
+            Var(
+                b.component_pair_set,
+                within=Reals,
+                initialize=tau_B_init,
+                doc="Binary interaction energy parameters",
+                units=units["temperature"],
+            ),
+        )
+
+    @staticmethod
+    def return_tau_expression(b, pobj, i, j, T):
+        if (i, j) in pobj.tau_A:
+            return pobj.tau_A[i, j] + pobj.tau_B[i, j] / T
+        elif i == j:
+            return 0
+        else:
+            raise BurntToast(
+                "{} tau rule encountered unexpected index {}. Please contact"
+                "the IDAES Developers with this bug.".format(b.name, (i, j))
+            )
+        
+    @staticmethod
+    def return_dtau_dT_expression(b, pobj, i, j, T):
+        if (i, j) in pobj.tau_A:
+            return -pobj.tau_B[i, j] / T ** 2
+        elif i == j:
+            units = b.params.get_metadata().derived_units
+            return 0 / units.TEMPERATURE
         else:
             raise BurntToast(
                 "{} tau rule encountered unexpected index {}. Please contact"

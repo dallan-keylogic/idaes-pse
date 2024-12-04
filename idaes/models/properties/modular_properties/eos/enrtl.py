@@ -55,7 +55,7 @@ from idaes.models.properties.modular_properties.phase_equil.henry import (
 )
 
 from .ideal import Ideal
-from .enrtl_reference_states import Symmetric
+from .enrtl_reference_states import Symmetric, Unsymmetric, InfiniteDilutionSingleSolvent
 from .enrtl_parameters import ConstantAlpha, ConstantTau
 
 
@@ -398,6 +398,7 @@ class ENRTL(Ideal):
                         for k in b.params.cation_set
                     )
                 else:
+                    # TODO is this correct?
                     return alpha_default
             elif i in b.params.anion_set and j in b.params.cation_set:
                 # Eqn 35
@@ -410,6 +411,7 @@ class ENRTL(Ideal):
                         for k in b.params.anion_set
                     )
                 else:
+                    # TODO is this correct?
                     return alpha_default
             elif (i in b.params.cation_set and j in b.params.cation_set) or (
                 i in b.params.anion_set and j in b.params.anion_set
@@ -807,12 +809,22 @@ class ENRTL(Ideal):
                         / (1 + rho * I0**0.5)
                         * ref_state.ndIdn(b, pname, j)
                     )
-                else:
+                # Explicitly check for valid reference states
+                # as a check for anybody who might add another reference
+                # state in the future (if there are still any left)
+                elif (
+                    pobj._reference_state_enrtl is InfiniteDilutionSingleSolvent
+                    or pobj._reference_state_enrtl is Unsymmetric
+                ):
                     # Need to explicitly remove I0**-0.5 so it doesn't get evaluated for I0=0
                     return -A * (
                         (2 * z**2 / rho)
                         * log((1 + rho * Ix**0.5))
                         + (z**2 * Ix**0.5 - 2 * Ix ** (3 / 2)) / (1 + rho * Ix**0.5)
+                    )
+                else:
+                    raise BurntToast(
+                        "{} eNRTL model encountered unexpected reference state option.".format(pobj._reference_state_enrtl)
                     )
             else:
                 raise BurntToast(

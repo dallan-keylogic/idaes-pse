@@ -194,10 +194,12 @@ class ConstantTau(object):
             )
 
 class TwoParameterTau(object):
-    """Class in which Tau is broken into enthalpic and entropic components """
+    """Class in which tau = A + B/T """
 
     @staticmethod
     def build_parameters(b):
+        """Builds the parameters A and B, with zero as the
+        default parameter for both."""
         param_block = b.parent_block()
         units = param_block.get_metadata().derived_units
 
@@ -260,6 +262,7 @@ class TwoParameterTau(object):
 
     @staticmethod
     def return_tau_expression(b, pobj, i, j, T):
+        """Returns tau = A + B/T. If i==j, then returns 0."""
         if (i, j) in pobj.tau_A:
             return pobj.tau_A[i, j] + pobj.tau_B[i, j] / T
         elif i == j:
@@ -272,6 +275,7 @@ class TwoParameterTau(object):
         
     @staticmethod
     def return_dtau_dT_expression(b, pobj, i, j, T):
+        """Returns dtau/dT. If i==j, then returns 0."""
         if (i, j) in pobj.tau_A:
             return -pobj.tau_B[i, j] / T ** 2
         elif i == j:

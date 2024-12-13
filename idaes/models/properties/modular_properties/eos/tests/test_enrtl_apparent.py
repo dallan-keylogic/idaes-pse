@@ -13,7 +13,7 @@
 """
 Tests for eNRTL methods
 
-Author: Andrew Lee
+Author: Douglas Allan
 """
 from copy import deepcopy
 
@@ -32,10 +32,12 @@ from pyomo.environ import (
     Var,
 )
 from pyomo.util.check_units import assert_units_equivalent
+from pyomo.common import unittest as pyo_unittest
 from pyomo.core.expr.sympy_tools import sympyify_expression
 
 from idaes.core import AqueousPhase, Solvent, Solute, Apparent, Anion, Cation
 from idaes.core.util.constants import Constants
+from idaes.models.properties.modular_properties.eos.ideal import Ideal
 from idaes.models.properties.modular_properties.eos.enrtl import ENRTL, EnthMolPhaseBasis
 from idaes.models.properties.modular_properties.eos.enrtl_reference_states import InfiniteDilutionSingleSolvent
 from idaes.models.properties.modular_properties.base.generic_property import (
@@ -331,19 +333,6 @@ def _test_common(model):
             + model.state[1].Liq_log_gamma_born[k]
             + model.state[1].Liq_log_gamma_poynting[k]
         )
-    # assert isinstance(model.state[1].enth_mol_phase, Expression)
-    # assert len(model.state[1].enth_mol_phase) == 1
-    # for k in model.state[1].enth_mol_phase:
-    #     assert k in {"Liq"}
-    #     enth_mol_ideal = sum(
-    #         model.state[1].mole_frac_phase_comp_true["Liq", j]
-    #         * model.state[1].enth_mol_phase_comp["Liq", j]
-    #         for j in model.state[1].components_in_phase("Liq", true_basis=True)
-    #     )
-    #     enth_mol_excess = (
-
-    #     )
-    #     assert enth_mol_ideal
 
 def _test_constant_alpha(model):
     assert isinstance(model.state[1].Liq_alpha, Expression)
@@ -589,9 +578,11 @@ def _test_G_constant_alpha_two_parameter_tau(model):
             assert str(model.state[1].Liq_G[ion, mol].expr) == str(G_ion_mol)
             _, sympy_expr = sympyify_expression(model.state[1].Liq_dG_dT[mol, ion].expr - dG_mol_ion_dT)
             assert sy.simplify(sympy_expr) == 0
+            # pyo_unittest.assertExpressionsStructurallyEqual(model.state[1].Liq_dG_dT[mol, ion].expr, dG_mol_ion_dT)
             # assert str(model.state[1].Liq_dG_dT[mol, ion].expr) == str(dG_mol_ion_dT)
             _, sympy_expr = sympyify_expression(model.state[1].Liq_dG_dT[ion, mol].expr - dG_ion_mol_dT)
             assert sy.simplify(sympy_expr) == 0
+            # pyo_unittest.assertExpressionsStructurallyEqual(model.state[1].Liq_dG_dT[ion, mol].expr, dG_ion_mol_dT)
             # assert str(model.state[1].Liq_dG_dT[ion, mol].expr) == str(dG_ion_mol_dT)
 
     # Ion-ion interactions
@@ -694,30 +685,22 @@ def _test_two_parameter_tau(model):
                 -model.params.Liq.tau_B[i, j] / (model.state[1].temperature**2)
             )
 
-    assert False
-
     for i, j in model.state[1].Liq_tau:
-        if (i, j) not in [
-            ("H2O", "H2O"),
-            ("H2O", "C6H12"),
-            ("C6H12", "H2O"),
-            ("C6H12", "C6H12"),
-        ]:
+        if i not in _uncharged_components_set and j not in _uncharged_components_set:
             assert str(model.state[1].Liq_tau[i, j].expr) == str(
                 -log(model.state[1].Liq_G[i, j]) / model.state[1].Liq_alpha[i, j]
             )
 
     # Like species interactions
-    assert ("Na+", "Na+") not in model.state[1].Liq_tau
-    assert ("Na+", "H+") not in model.state[1].Liq_tau
-    assert ("H+", "Na+") not in model.state[1].Liq_tau
-    assert ("H+", "H+") not in model.state[1].Liq_tau
-    assert ("Cl-", "Cl-") not in model.state[1].Liq_tau
-    assert ("Cl-", "OH-") not in model.state[1].Liq_tau
-    assert ("OH-", "Cl-") not in model.state[1].Liq_tau
-    assert ("OH-", "OH-") not in model.state[1].Liq_tau
+    for ion1 in _charged_components_set:
+        for ion2 in _charged_components_set:
+            if (
+                (ion1 in _cation_set and ion2 in _cation_set)
+                or (ion1 in _anion_set and ion2 in _anion_set)
+            ):
+                assert (ion1, ion2) not in model.state[1].Liq_tau
 
-class TestStateBlockSymmetric(object):
+class TestStateBlockInfiniteDilutionSingleSolvent(object):
     @pytest.fixture(scope="class")
     def model(self):
         m = ConcreteModel()
@@ -821,6 +804,28 @@ class TestStateBlockSymmetric(object):
         for k in expr:
             assert k in _all_components_set
             assert str(expr[k].expr) == "0.0"
+
+        
+        assert isinstance(model.state[1].enth_mol_phase, Expression)
+        assert len(model.state[1].enth_mol_phase) == 1
+        for k in model.state[1].enth_mol_phase:
+            assert k in {"Liq"}
+            enth_mol_ideal = (
+                sum(
+                    model.state[1].mole_frac_phase_comp_apparent["Liq", j]
+                    * Ideal.enth_mol_phase_comp(model.state[1], "Liq", j)
+                    for j in model.state[1].components_in_phase("Liq", true_basis=True)
+                )
+                + sum(
+                    model.state[1].apparent_inherent_reaction_extent[r]
+                    * model.state[1].dh_rxn[r]
+                    for r in model.params.inherent_reaction_idx
+                ) / model.state[1].flow_mol_phase["Liq"]
+            )
+            enth_mol_excess = (
+                0
+            )
+            assert enth_mol_ideal
 
     @pytest.mark.unit
     def test_alpha(self, model):

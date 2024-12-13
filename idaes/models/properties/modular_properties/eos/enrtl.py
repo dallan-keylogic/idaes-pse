@@ -106,6 +106,21 @@ class ENRTL(Ideal):
         b.component_pair_set = Set(initialize=comp_pairs)
         b.component_pair_set_symmetric = Set(initialize=comp_pairs_sym)
 
+        def rule_interaction_set(b, k):
+            pblock = b.parent_block()
+            comps = pblock.solvent_set | pblock.solute_set | pblock.ion_set | pblock.true_solute_set
+            if k in pblock.cation_set:
+                return comps - pblock.cation_set
+            elif k in pblock.anion_set:
+                return comps - pblock.anion_set
+            else:
+                return comps
+            
+        b.interaction_set = Set(
+            comps,
+            initialize=rule_interaction_set
+        )
+
         # Check options for alpha rule
         if (
             b.config.equation_of_state_options is not None
@@ -147,6 +162,8 @@ class ENRTL(Ideal):
 
         molecular_set = b.params.solvent_set | b.params.solute_set | b.params.true_solute_set
 
+        create_derivative_expressions = True
+
         # Check options for alpha rule
         if (
             pobj.config.equation_of_state_options is not None
@@ -155,12 +172,15 @@ class ENRTL(Ideal):
             alpha_rule = pobj.config.equation_of_state_options[
                 "alpha_rule"
             ].return_alpha_expression
-            dalpha_dT_rule = pobj.config.equation_of_state_options[
-                "alpha_rule"
-            ].return_dalpha_dT_expression
+            try:
+                dalpha_dT_rule = pobj.config.equation_of_state_options[
+                    "alpha_rule"
+                ].return_dalpha_dT_expression
+            except AttributeError:
+                create_derivative_expressions = False
+                _log.warning("No temperature derivative method exists for user-provided alpha function.")
         else:
             alpha_rule = DefaultAlphaRule.return_alpha_expression
-            # TODO what about existing applications with custom alpha rule?
             dalpha_dT_rule = DefaultAlphaRule.return_dalpha_dT_expression
 
         # Check options for tau rule
@@ -171,12 +191,15 @@ class ENRTL(Ideal):
             tau_rule = pobj.config.equation_of_state_options[
                 "tau_rule"
             ].return_tau_expression
-            dtau_dT_rule = pobj.config.equation_of_state_options[
-                "tau_rule"
-            ].return_dtau_dT_expression
+            try:
+                dtau_dT_rule = pobj.config.equation_of_state_options[
+                    "tau_rule"
+                ].return_dtau_dT_expression
+            except AttributeError:
+                create_derivative_expressions = False
+                _log.warning("No temperature derivative method exists for user-provided tau function.")
         else:
             tau_rule = DefaultTauRule.return_tau_expression
-            # TODO what about existing applications with custom tau rule?
             dtau_dT_rule = DefaultTauRule.return_dtau_dT_expression
 
         # Check options for reference state
@@ -213,16 +236,30 @@ class ENRTL(Ideal):
             pname + "_ionic_strength", Expression(rule=rule_I, doc="Ionic strength")
         )
 
-        # Calculate mixing factors
-        def rule_X(b, j):  # Eqn 21
+        def rule_coordination_number(b, j):
             if (pname, j) not in b.params.true_phase_component_set:
                 return Expression.Skip
             elif j in b.params.cation_set or j in b.params.anion_set:
-                return b.mole_frac_phase_comp_true[pname, j] * abs(
-                    cobj(b, j).config.charge
-                )
+                return abs(cobj(b, j).config.charge)
             else:
-                return b.mole_frac_phase_comp_true[pname, j]
+                return 1
+            
+        b.add_component(
+            pname + "_coordination_number",
+            Expression(
+                b.params.true_species_set,
+                rule=rule_coordination_number,
+                doc="Coordination number"
+            )
+        )
+
+        # Calculate mixing factors
+        def rule_X(b, j):  # Eqn 21
+            kappa = getattr(b, pname + "_coordination_number")
+            if (pname, j) not in b.params.true_phase_component_set:
+                return Expression.Skip
+            else:
+                return kappa[j] * b.mole_frac_phase_comp_true[pname, j]
 
         b.add_component(
             pname + "_X",
@@ -243,8 +280,6 @@ class ENRTL(Ideal):
             X = getattr(b, pname + "_X")
             return X[j] / sum(X[i] for i in dom)  # Eqns 36 and 37
 
-        # Y is a charge ratio, and thus independent of x for symmetric state
-        # TODO: This may need to change for the unsymmetric state
         b.add_component(
             pname + "_Y",
             Expression(b.params.ion_set, rule=rule_Y, doc="Charge composition"),
@@ -434,86 +469,6 @@ class ENRTL(Ideal):
                 doc="Non-randomness parameters",
             ),
         )
-
-        def rule_dalpha_dT_expr(b, i, j):
-            Y = getattr(b, pname + "_Y")
-
-            if (pname, i) not in b.params.true_phase_component_set or (
-                pname,
-                j,
-            ) not in b.params.true_phase_component_set:
-                return Expression.Skip
-            elif (i in molecular_set) and (j in molecular_set):
-                # alpha equal user provided parameters
-                return dalpha_dT_rule(b, pobj, i, j, b.temperature)
-            elif i in b.params.cation_set and j in molecular_set:
-                # Eqn 32
-                return sum(
-                    Y[k] * dalpha_dT_rule(b, pobj, (i + ", " + k), j, b.temperature)
-                    for k in b.params.anion_set
-                )
-            elif j in b.params.cation_set and i in molecular_set:
-                # Eqn 32
-                return sum(
-                    Y[k] * dalpha_dT_rule(b, pobj, (j + ", " + k), i, b.temperature)
-                    for k in b.params.anion_set
-                )
-            elif i in b.params.anion_set and j in molecular_set:
-                # Eqn 33
-                return sum(
-                    Y[k] * dalpha_dT_rule(b, pobj, (k + ", " + i), j, b.temperature)
-                    for k in b.params.cation_set
-                )
-            elif j in b.params.anion_set and i in molecular_set:
-                # Eqn 33
-                return sum(
-                    Y[k] * dalpha_dT_rule(b, pobj, (k + ", " + j), i, b.temperature)
-                    for k in b.params.cation_set
-                )
-            elif i in b.params.cation_set and j in b.params.anion_set:
-                # Eqn 34
-                if len(b.params.cation_set) > 1:
-                    return sum(
-                        Y[k]
-                        * dalpha_dT_rule(
-                            b, pobj, (i + ", " + j), (k + ", " + j), b.temperature
-                        )
-                        for k in b.params.cation_set
-                    )
-                else:
-                    return 0 / units.TEMPERATURE
-            elif i in b.params.anion_set and j in b.params.cation_set:
-                # Eqn 35
-                if len(b.params.anion_set) > 1:
-                    return sum(
-                        Y[k]
-                        * dalpha_dT_rule(
-                            b, pobj, (j + ", " + i), (j + ", " + k), b.temperature
-                        )
-                        for k in b.params.anion_set
-                    )
-                else:
-                    return 0 / units.TEMPERATURE
-            elif (i in b.params.cation_set and j in b.params.cation_set) or (
-                i in b.params.anion_set and j in b.params.anion_set
-            ):
-                # No like-ion interactions
-                return Expression.Skip
-            else:
-                raise BurntToast(
-                    "{} eNRTL model encountered unexpected component pair {}.".format(
-                        b.name, (i, j)
-                    )
-                )
-        b.add_component(
-            pname + "_dalpha_dT",
-            Expression(
-                b.params.true_species_set,
-                b.params.true_species_set,
-                rule=rule_dalpha_dT_expr,
-                doc="Non-randomness parameters",
-            ),
-        )
         
         # Calculate G terms
 
@@ -611,114 +566,6 @@ class ENRTL(Ideal):
             ),
         )
 
-        b.add_component(
-            pname + "_dG_dT_default",
-            Param(
-                initialize=0.0,
-                mutable=True, # Mutable has to be true for Params with units
-                units=1/units.TEMPERATURE,
-                doc="Derivative of constant value of G used in eNRTL"
-            ),
-        )
-
-        def rule_dG_dT_expr(b, i, j):
-            Y = getattr(b, pname + "_Y")
-            G = getattr(b, pname+"_G")
-            dG_dT_default = getattr(b, pname + "_dG_dT_default")
-                
-            def _dG_dT_appr(b, pobj, i, j, T):
-                if i != j:
-                    return -_G_appr(
-                        b, pobj, i, j, b.temperature
-                    ) * (
-                        dalpha_dT_rule(b, pobj, i, j, T) * tau_rule(b, pobj, i, j, T)
-                        + alpha_rule(b, pobj, i, j, T) * dtau_dT_rule(b, pobj, i, j, T)
-                    )
-                else:
-                    return dG_dT_default
-
-            if (pname, i) not in b.params.true_phase_component_set or (
-                pname,
-                j,
-            ) not in b.params.true_phase_component_set:
-                return Expression.Skip
-            elif (i in molecular_set) and (j in molecular_set):
-                # G comes directly from parameters
-                return _dG_dT_appr(b, pobj, i, j, b.temperature)
-            elif i in b.params.cation_set and j in molecular_set:
-                # Eqn 38
-                return sum(
-                    Y[k] * _dG_dT_appr(b, pobj, (i + ", " + k), j, b.temperature)
-                    for k in b.params.anion_set
-                )
-            elif i in molecular_set and j in b.params.cation_set:
-                # Eqn 40
-                return sum(
-                    Y[k] * _dG_dT_appr(b, pobj, i, (j + ", " + k), b.temperature)
-                    for k in b.params.anion_set
-                )
-            elif i in b.params.anion_set and j in molecular_set:
-                # Eqn 39
-                return sum(
-                    Y[k] * _dG_dT_appr(b, pobj, (k + ", " + i), j, b.temperature)
-                    for k in b.params.cation_set
-                )
-            elif i in molecular_set and j in b.params.anion_set:
-                # Eqn 41
-                return sum(
-                    Y[k] * _dG_dT_appr(b, pobj, i, (k + ", " + j), b.temperature)
-                    for k in b.params.cation_set
-                )
-            elif i in b.params.cation_set and j in b.params.anion_set:
-                # Eqn 42
-                if len(b.params.cation_set) > 1:
-                    return sum(
-                        Y[k]
-                        * _dG_dT_appr(
-                            b, pobj, (i + ", " + j), (k + ", " + j), b.temperature
-                        )
-                        for k in b.params.cation_set
-                    )
-                else:
-                    # This term does not exist for single cation systems
-                    # However, need a valid result to calculate tau
-                    return dG_dT_default
-            elif i in b.params.anion_set and j in b.params.cation_set:
-                # Eqn 43
-                if len(b.params.anion_set) > 1:
-                    return sum(
-                        Y[k]
-                        * _dG_dT_appr(
-                            b, pobj, (j + ", " + i), (j + ", " + k), b.temperature
-                        )
-                        for k in b.params.anion_set
-                    )
-                else:
-                    # This term does not exist for single anion systems
-                    # However, need a valid result to calculate tau
-                    return dG_dT_default
-            elif (i in b.params.cation_set and j in b.params.cation_set) or (
-                i in b.params.anion_set and j in b.params.anion_set
-            ):
-                # No like-ion interactions
-                return Expression.Skip
-            else:
-                raise BurntToast(
-                    "{} eNRTL model encountered unexpected component pair {}.".format(
-                        b.name, (i, j)
-                    )
-                )
-
-        b.add_component(
-            pname + "_dG_dT",
-            Expression(
-                b.params.true_species_set,
-                b.params.true_species_set,
-                rule=rule_dG_dT_expr,
-                doc="Temperature derivative of local interaction G term",
-            ),
-        )
-
         # Calculate tau terms
         def rule_tau_expr(b, i, j):
             if (pname, i) not in b.params.true_phase_component_set or (
@@ -749,41 +596,238 @@ class ENRTL(Ideal):
                 doc="Binary interaction energy parameters",
             ),
         )
-        def rule_dtau_dT_expr(b, i, j):
-            if (pname, i) not in b.params.true_phase_component_set or (
-                pname,
-                j,
-            ) not in b.params.true_phase_component_set:
-                return Expression.Skip
-            elif (i in molecular_set) and (j in molecular_set):
-                # tau equal to parameter
-                return dtau_dT_rule(b, pobj, i, j, b.temperature)
-            elif (i in b.params.cation_set and j in b.params.cation_set) or (
-                i in b.params.anion_set and j in b.params.anion_set
-            ):
-                # No like-ion interactions
-                return Expression.Skip
-            else:
-                alpha = getattr(b, pname + "_alpha")
-                dalpha_dT = getattr(b, pname + "_dalpha_dT")
-                G = getattr(b, pname + "_G")
-                dG_dT = getattr(b, pname + "_dG_dT")
-                tau = getattr(b, pname + "_tau")
-                # Eqn 44
-                return -(
-                    1 / (G[i, j] * alpha[i,j]) * dG_dT[i, j]
-                    + tau[i, j] / alpha[i, j] * dalpha_dT[i, j]
-                )
 
-        b.add_component(
-            pname + "_dtau_dT",
-            Expression(
-                b.params.true_species_set,
-                b.params.true_species_set,
-                rule=rule_dtau_dT_expr,
-                doc="Temperature derivative of binary interaction energy parameters",
-            ),
-        )
+        if create_derivative_expressions:
+            def rule_dalpha_dT_expr(b, i, j):
+                Y = getattr(b, pname + "_Y")
+
+                if (pname, i) not in b.params.true_phase_component_set or (
+                    pname,
+                    j,
+                ) not in b.params.true_phase_component_set:
+                    return Expression.Skip
+                elif (i in molecular_set) and (j in molecular_set):
+                    # alpha equal user provided parameters
+                    return dalpha_dT_rule(b, pobj, i, j, b.temperature)
+                elif i in b.params.cation_set and j in molecular_set:
+                    # Eqn 32
+                    return sum(
+                        Y[k] * dalpha_dT_rule(b, pobj, (i + ", " + k), j, b.temperature)
+                        for k in b.params.anion_set
+                    )
+                elif j in b.params.cation_set and i in molecular_set:
+                    # Eqn 32
+                    return sum(
+                        Y[k] * dalpha_dT_rule(b, pobj, (j + ", " + k), i, b.temperature)
+                        for k in b.params.anion_set
+                    )
+                elif i in b.params.anion_set and j in molecular_set:
+                    # Eqn 33
+                    return sum(
+                        Y[k] * dalpha_dT_rule(b, pobj, (k + ", " + i), j, b.temperature)
+                        for k in b.params.cation_set
+                    )
+                elif j in b.params.anion_set and i in molecular_set:
+                    # Eqn 33
+                    return sum(
+                        Y[k] * dalpha_dT_rule(b, pobj, (k + ", " + j), i, b.temperature)
+                        for k in b.params.cation_set
+                    )
+                elif i in b.params.cation_set and j in b.params.anion_set:
+                    # Eqn 34
+                    if len(b.params.cation_set) > 1:
+                        return sum(
+                            Y[k]
+                            * dalpha_dT_rule(
+                                b, pobj, (i + ", " + j), (k + ", " + j), b.temperature
+                            )
+                            for k in b.params.cation_set
+                        )
+                    else:
+                        return 0 / units.TEMPERATURE
+                elif i in b.params.anion_set and j in b.params.cation_set:
+                    # Eqn 35
+                    if len(b.params.anion_set) > 1:
+                        return sum(
+                            Y[k]
+                            * dalpha_dT_rule(
+                                b, pobj, (j + ", " + i), (j + ", " + k), b.temperature
+                            )
+                            for k in b.params.anion_set
+                        )
+                    else:
+                        return 0 / units.TEMPERATURE
+                elif (i in b.params.cation_set and j in b.params.cation_set) or (
+                    i in b.params.anion_set and j in b.params.anion_set
+                ):
+                    # No like-ion interactions
+                    return Expression.Skip
+                else:
+                    raise BurntToast(
+                        "{} eNRTL model encountered unexpected component pair {}.".format(
+                            b.name, (i, j)
+                        )
+                    )
+            b.add_component(
+                pname + "_dalpha_dT",
+                Expression(
+                    b.params.true_species_set,
+                    b.params.true_species_set,
+                    rule=rule_dalpha_dT_expr,
+                    doc="Non-randomness parameters",
+                ),
+            )
+
+            b.add_component(
+                pname + "_dG_dT_default",
+                Param(
+                    initialize=0.0,
+                    mutable=True, # Mutable has to be true for Params with units
+                    units=1/units.TEMPERATURE,
+                    doc="Derivative of constant value of G used in eNRTL"
+                ),
+            )
+
+            def rule_dG_dT_expr(b, i, j):
+                Y = getattr(b, pname + "_Y")
+                G = getattr(b, pname+"_G")
+                dG_dT_default = getattr(b, pname + "_dG_dT_default")
+                    
+                def _dG_dT_appr(b, pobj, i, j, T):
+                    if i != j:
+                        return -_G_appr(
+                            b, pobj, i, j, b.temperature
+                        ) * (
+                            dalpha_dT_rule(b, pobj, i, j, T) * tau_rule(b, pobj, i, j, T)
+                            + alpha_rule(b, pobj, i, j, T) * dtau_dT_rule(b, pobj, i, j, T)
+                        )
+                    else:
+                        return dG_dT_default
+
+                if (pname, i) not in b.params.true_phase_component_set or (
+                    pname,
+                    j,
+                ) not in b.params.true_phase_component_set:
+                    return Expression.Skip
+                elif (i in molecular_set) and (j in molecular_set):
+                    # G comes directly from parameters
+                    return _dG_dT_appr(b, pobj, i, j, b.temperature)
+                elif i in b.params.cation_set and j in molecular_set:
+                    # Eqn 38
+                    return sum(
+                        Y[k] * _dG_dT_appr(b, pobj, (i + ", " + k), j, b.temperature)
+                        for k in b.params.anion_set
+                    )
+                elif i in molecular_set and j in b.params.cation_set:
+                    # Eqn 40
+                    return sum(
+                        Y[k] * _dG_dT_appr(b, pobj, i, (j + ", " + k), b.temperature)
+                        for k in b.params.anion_set
+                    )
+                elif i in b.params.anion_set and j in molecular_set:
+                    # Eqn 39
+                    return sum(
+                        Y[k] * _dG_dT_appr(b, pobj, (k + ", " + i), j, b.temperature)
+                        for k in b.params.cation_set
+                    )
+                elif i in molecular_set and j in b.params.anion_set:
+                    # Eqn 41
+                    return sum(
+                        Y[k] * _dG_dT_appr(b, pobj, i, (k + ", " + j), b.temperature)
+                        for k in b.params.cation_set
+                    )
+                elif i in b.params.cation_set and j in b.params.anion_set:
+                    # Eqn 42
+                    if len(b.params.cation_set) > 1:
+                        return sum(
+                            Y[k]
+                            * _dG_dT_appr(
+                                b, pobj, (i + ", " + j), (k + ", " + j), b.temperature
+                            )
+                            for k in b.params.cation_set
+                        )
+                    else:
+                        # This term does not exist for single cation systems
+                        # However, need a valid result to calculate tau
+                        return dG_dT_default
+                elif i in b.params.anion_set and j in b.params.cation_set:
+                    # Eqn 43
+                    if len(b.params.anion_set) > 1:
+                        return sum(
+                            Y[k]
+                            * _dG_dT_appr(
+                                b, pobj, (j + ", " + i), (j + ", " + k), b.temperature
+                            )
+                            for k in b.params.anion_set
+                        )
+                    else:
+                        # This term does not exist for single anion systems
+                        # However, need a valid result to calculate tau
+                        return dG_dT_default
+                elif (i in b.params.cation_set and j in b.params.cation_set) or (
+                    i in b.params.anion_set and j in b.params.anion_set
+                ):
+                    # No like-ion interactions
+                    return Expression.Skip
+                else:
+                    raise BurntToast(
+                        "{} eNRTL model encountered unexpected component pair {}.".format(
+                            b.name, (i, j)
+                        )
+                    )
+
+            b.add_component(
+                pname + "_dG_dT",
+                Expression(
+                    b.params.true_species_set,
+                    b.params.true_species_set,
+                    rule=rule_dG_dT_expr,
+                    doc="Temperature derivative of local interaction G term",
+                ),
+            )
+
+
+            def rule_dtau_dT_expr(b, i, j):
+                if (pname, i) not in b.params.true_phase_component_set or (
+                    pname,
+                    j,
+                ) not in b.params.true_phase_component_set:
+                    return Expression.Skip
+                elif (i in molecular_set) and (j in molecular_set):
+                    # tau equal to parameter
+                    return dtau_dT_rule(b, pobj, i, j, b.temperature)
+                elif (i in b.params.cation_set and j in b.params.cation_set) or (
+                    i in b.params.anion_set and j in b.params.anion_set
+                ):
+                    # No like-ion interactions
+                    return Expression.Skip
+                else:
+                    alpha = getattr(b, pname + "_alpha")
+                    dalpha_dT = getattr(b, pname + "_dalpha_dT")
+                    G = getattr(b, pname + "_G")
+                    dG_dT = getattr(b, pname + "_dG_dT")
+                    tau = getattr(b, pname + "_tau")
+                    # Eqn 44
+                    return -(
+                        1 / (G[i, j] * alpha[i,j]) * dG_dT[i, j]
+                        + tau[i, j] / alpha[i, j] * dalpha_dT[i, j]
+                    )
+
+            b.add_component(
+                pname + "_dtau_dT",
+                Expression(
+                    b.params.true_species_set,
+                    b.params.true_species_set,
+                    rule=rule_dtau_dT_expr,
+                    doc="Temperature derivative of binary interaction energy parameters",
+                ),
+            )
+        else:
+            _log.warning(
+                "Because of missing temperature derivative expressions in user-provided "
+                "alpha and tau functions, excess enthalpy cannot be calculated. Use of "
+                "an energy balance will result in an error."
+            )
         # Calculate reference state
         ref_state.ref_state(b, pname)
 
@@ -1138,12 +1182,11 @@ class ENRTL(Ideal):
                 + sum(
                     b.apparent_inherent_reaction_extent[r]
                     * b.dh_rxn[r]
-                    # This flow_mol needs to be apparent for get_enthalpy_flow_terms
-                    # to be correct. flow_mol_phase might be more correct, but
-                    # right now inherent reactions are broken for multiphase systems
-                    / b.flow_mol # TODO Fix later
                     for r in inherent_rxn_idx
-                )
+                # This flow_mol needs to be apparent for get_enthalpy_flow_terms
+                # to be correct. It would be better to modify that directly, but
+                # this is what we can do for the moment.
+                ) / b.flow_mol_phase[p]
             )
         else:
             raise ConfigurationError
@@ -1153,7 +1196,7 @@ class ENRTL(Ideal):
             b.flow_mol_phase_comp_true[p, j] 
             for j in b.components_in_phase(p, true_basis=True)
         )
-        return enth_mol_ideal + flow_true / b.flow_mol * ENRTL._enth_mol_phase_excess(b, p)
+        return enth_mol_ideal + flow_true / b.flow_mol_phase["Liq"] * ENRTL._enth_mol_phase_excess(b, p)
 
     @staticmethod
     def energy_internal_mol_phase(b, p):

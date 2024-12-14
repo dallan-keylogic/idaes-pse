@@ -106,19 +106,35 @@ class ENRTL(Ideal):
         b.component_pair_set = Set(initialize=comp_pairs)
         b.component_pair_set_symmetric = Set(initialize=comp_pairs_sym)
 
+        true_comps = pblock.solvent_set | pblock.solute_set | pblock.ion_set | pblock.true_solute_set
+
         def rule_interaction_set(b, k):
             pblock = b.parent_block()
-            comps = pblock.solvent_set | pblock.solute_set | pblock.ion_set | pblock.true_solute_set
+            true_comps = pblock.solvent_set | pblock.solute_set | pblock.ion_set | pblock.true_solute_set
             if k in pblock.cation_set:
-                return comps - pblock.cation_set
+                return true_comps - pblock.cation_set
             elif k in pblock.anion_set:
-                return comps - pblock.anion_set
+                return true_comps - pblock.anion_set
             else:
-                return comps
+                return true_comps
             
         b.interaction_set = Set(
-            comps,
+            true_comps,
             initialize=rule_interaction_set
+        )
+
+        def coordination_number_init(b, j):
+            pblock = b.parent_block()
+            if j in pblock or j in pblock:
+                return abs(cobj(b, j).config.charge)
+            else:
+                return 1
+            
+        b.coordination_number =  Param(
+            pblock.true_species_set,
+            initialize=coordination_number_init,
+            doc="Coordination number",
+            mutable=False
         )
 
         # Check options for alpha rule
@@ -236,26 +252,10 @@ class ENRTL(Ideal):
             pname + "_ionic_strength", Expression(rule=rule_I, doc="Ionic strength")
         )
 
-        def rule_coordination_number(b, j):
-            if (pname, j) not in b.params.true_phase_component_set:
-                return Expression.Skip
-            elif j in b.params.cation_set or j in b.params.anion_set:
-                return abs(cobj(b, j).config.charge)
-            else:
-                return 1
-            
-        b.add_component(
-            pname + "_coordination_number",
-            Expression(
-                b.params.true_species_set,
-                rule=rule_coordination_number,
-                doc="Coordination number"
-            )
-        )
-
         # Calculate mixing factors
         def rule_X(b, j):  # Eqn 21
-            kappa = getattr(b, pname + "_coordination_number")
+            pobj = getattr(b.params, pname)
+            kappa = pobj.coordination_number
             if (pname, j) not in b.params.true_phase_component_set:
                 return Expression.Skip
             else:
@@ -597,6 +597,32 @@ class ENRTL(Ideal):
             ),
         )
 
+        def rule_Omega_I_expr(b, j):
+            X = getattr(b, pname + "_X")
+            return Omega_func(b, pname, j, X)
+
+        b.add_component(
+            pname + "_Omega_I",
+            Expression(
+                b.params.true_species_set,
+                rule=rule_Omega_I_expr,
+                doc="Local interaction Omega term",
+            ),
+        )
+
+        def rule_F_I_expr(b, j):
+            X = getattr(b, pname + "_X")
+            return F_func(b, pname, j, X)
+
+        b.add_component(
+            pname + "_F_I",
+            Expression(
+                b.params.true_species_set,
+                rule=rule_F_I_expr,
+                doc="Local interaction F term",
+            ),
+        )
+
         if create_derivative_expressions:
             def rule_dalpha_dT_expr(b, i, j):
                 Y = getattr(b, pname + "_Y")
@@ -887,10 +913,10 @@ class ENRTL(Ideal):
         # Local contribution to activity coefficient
         def rule_log_gamma_lc_I(b, s):
             X = getattr(b, pname + "_X")
-            G = getattr(b, pname + "_G")
-            tau = getattr(b, pname + "_tau")
+            F = getattr(b, pname + "_F_I")
+            Omega = getattr(b, pname + "_Omega_I")
 
-            return log_gamma_lc(b, pname, s, X, G, tau)
+            return log_gamma_lc_F_Omega(b, pname, s, X, F, Omega)
 
         b.add_component(
             pname + "_log_gamma_lc_I",
@@ -1351,6 +1377,43 @@ class ENRTL(Ideal):
             + enth_mol_phase_excess_DH
             + enth_mol_phase_excess_born
         )
+
+def Omega_func(b, pname, s, X):
+    pobj = getattr(b.params, pname)
+    G = getattr(b, pname + "_G")
+    return sum(
+        X[k] * G[k, s] for k in pobj.interaction_set[s]
+    )    
+
+def F_func(b, pname, s, X):
+    pobj = getattr(b.params, pname)
+    G = getattr(b, pname + "_G")
+    tau = getattr(b, pname + "_tau")
+    return sum(
+        X[k] * G[k, s] * tau[k, s] for k in pobj.interaction_set[s]
+    )
+
+
+def log_gamma_lc_F_Omega(b, pname, s, X, F, Omega):
+    # New function for calculating local contribution terms
+    # 
+    pobj = getattr(b.params, pname)
+    kappa = pobj.coordination_number
+    G = getattr(b, pname + "_G")
+    tau = getattr(b, pname + "_tau")
+
+    if (pname, s) not in b.params.true_phase_component_set:
+        # Non-aqueous component
+        return Expression.Skip
+    
+    return kappa[s] * (
+        F[s] / Omega[s] + sum(
+            X[k] * G[s, k] / Omega[k] * (
+                tau[s, k] - F[k] / Omega[k]
+            )
+            for k in pobj.interaction_set[s]
+        )
+    )
 
 
 

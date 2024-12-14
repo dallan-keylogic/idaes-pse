@@ -24,6 +24,7 @@ from pyomo.environ import (
     Expression,
     exp,
     log,
+    Param,
     Set,
     units as pyunits,
     value,
@@ -93,11 +94,18 @@ configuration = {
     "temperature_ref": 300,
 }
 
+molecule_set = ["H2O", "C6H12"]
+cation_set = ["Na+", "H+"]
+anion_set = ["Cl-", "OH-"]
+ion_set = cation_set + anion_set
+
+true_component_set = ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+
 def _test_common(model):
     assert isinstance(model.state[1].Liq_X, Expression)
     assert len(model.state[1].Liq_X) == 6
     for j in model.state[1].Liq_X:
-        if j in ["H2O", "C6H12"]:
+        if j in molecule_set:
             # _X should be mole_frac_phase_comp_true
             assert str(model.state[1].Liq_X[j].expr) == str(
                 model.state[1].mole_frac_phase_comp_true["Liq", j]
@@ -112,7 +120,7 @@ def _test_common(model):
     assert isinstance(model.state[1].Liq_Y, Expression)
     assert len(model.state[1].Liq_Y) == 4
     for j in model.state[1].Liq_Y:
-        if j in ["H+", "Na+"]:
+        if j in cation_set:
             assert str(model.state[1].Liq_Y[j].expr) == str(
                 model.state[1].Liq_X[j]
                 / (model.state[1].Liq_X["Na+"] + model.state[1].Liq_X["H+"])
@@ -168,8 +176,8 @@ def _test_common(model):
     assert isinstance(model.state[1].Liq_log_gamma_pdh, Expression)
     assert len(model.state[1].Liq_log_gamma_pdh) == 6
     for j in model.state[1].Liq_log_gamma_pdh:
-        assert j in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
-        if j in ["H2O", "C6H12"]:
+        assert j in true_component_set
+        if j in molecule_set:
             assert str(model.state[1].Liq_log_gamma_pdh[j].expr) == str(
                 (
                     2
@@ -179,15 +187,55 @@ def _test_common(model):
                 )
             )
 
+    assert isinstance(model.state[1].Liq_Omega_I, Expression)
+    assert len(model.state[1].Liq_Omega_I) == 6
+    for k in model.state[1].Liq_Omega_I:
+        assert k in true_component_set
+        assert str(model.state[1].Liq_Omega_I[k].expr) == str(
+            sum(
+                model.state[1].Liq_X[j]
+                * model.state[1].Liq_G[j, k]
+                for j in model.params.Liq.interaction_set[k]
+            )
+        )
+
+    assert isinstance(model.state[1].Liq_F_I, Expression)
+    assert len(model.state[1].Liq_F_I) == 6
+    for k in model.state[1].Liq_F_I:
+        assert k in true_component_set
+        assert str(model.state[1].Liq_F_I[k].expr) == str(
+            sum(
+                model.state[1].Liq_X[j]
+                * model.state[1].Liq_G[j, k]
+                * model.state[1].Liq_tau[j, k]
+                for j in model.params.Liq.interaction_set[k]
+            )
+        )
+
     assert isinstance(model.state[1].Liq_log_gamma_lc_I, Expression)
     assert len(model.state[1].Liq_log_gamma_lc_I) == 6
     for k in model.state[1].Liq_log_gamma_lc_I:
-        assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+        assert k in true_component_set
+        assert str(model.state[1].Liq_log_gamma_lc_I[k].expr) == str(
+            model.params.Liq.coordination_number[k] * (
+                model.state[1].Liq_F_I[k] / model.state[1].Liq_Omega_I[k]
+                + sum(
+                    model.state[1].Liq_X[j]
+                    * model.state[1].Liq_G[k, j]
+                    / model.state[1].Liq_Omega_I[j]
+                    * (
+                      model.state[1].Liq_tau[k, j]
+                      - model.state[1].Liq_F_I[j] / model.state[1].Liq_Omega_I[j]
+                    )
+                    for j in model.params.Liq.interaction_set[k]
+                )
+            )
+        )
 
     assert isinstance(model.state[1].Liq_log_gamma_lc, Expression)
     assert len(model.state[1].Liq_log_gamma_lc) == 6
     for k in model.state[1].Liq_log_gamma_lc:
-        assert k in ["H2O", "C6H12", "Na+", "H+", "Cl-", "OH-"]
+        assert k in true_component_set
         assert str(model.state[1].Liq_log_gamma_lc[k].expr) == str(
             model.state[1].Liq_log_gamma_lc_I[k]
             - model.state[1].Liq_log_gamma_lc_I0[k]
@@ -802,6 +850,18 @@ class TestParameters(object):
         m = ConcreteModel()
 
         m.params = GenericParameterBlock(**configuration)
+
+        assert isinstance(m.params.Liq.coordination_number, Param)
+        assert len(m.params.Liq.coordination_number) == len(true_component_set)
+        for k in m.params.Liq.coordination_number:
+            if k in molecule_set:
+                # _X should be mole_frac_phase_comp_true
+                assert value(m.params.Liq.coordination_number[k]) == 1
+            else:
+                # _X should be mutiplied by |charge|
+                assert value(m.params.Liq.coordination_number[k]) == abs(
+                    m.params.get_component(k).config.charge
+                )
 
         assert isinstance(m.params.Liq.ion_pair_set, Set)
         assert len(m.params.Liq.ion_pair_set) == 4

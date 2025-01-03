@@ -23,7 +23,7 @@ from pyomo.common.config import Bool
 
 _log = logging.getLogger(__name__)
 # Default release version if no options provided for get-extensions
-default_binary_release = "3.4.0"
+default_binary_release = "3.4.2"
 # Where to download releases from get-extensions
 release_base_url = "https://github.com/IDAES/idaes-ext/releases/download"
 # Where to get release checksums
@@ -69,6 +69,7 @@ binary_distro_map = {
     "xubuntu1804": "ubuntu1804",
     "xubuntu2004": "ubuntu2004",
     "xubuntu2204": "ubuntu2204",
+    "pop22": "ubuntu2204",
 }
 # Machine map
 binary_arch_map = {

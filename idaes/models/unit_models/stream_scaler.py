@@ -14,47 +14,33 @@
 Unit model to adjust size of streams to represent, for example, a stream being split across several identical units,
 which are then all modeled as a single IDAES unit
 """
-from enum import Enum
 from functools import partial
 
 from pyomo.environ import (
     Block,
-    check_optimal_termination,
-    Param,
     PositiveReals,
-    Reals,
-    RangeSet,
     units as pyunits,
     Var,
 )
 from pyomo.network import Port
-from pyomo.common.config import ConfigBlock, ConfigValue, In, ListOf, Bool
+from pyomo.common.config import ConfigBlock, ConfigValue, In
 
 from idaes.core import (
     declare_process_block_class,
     UnitModelBlockData,
     useDefault,
-    MaterialBalanceType,
-    MaterialFlowBasis,
 )
 from idaes.core.util.config import (
     is_physical_parameter_block,
-    is_state_block,
-)
-from idaes.core.util.exceptions import (
-    BurntToast,
-    ConfigurationError,
-    PropertyNotSupportedError,
-    InitializationError,
 )
 from idaes.core.base.var_like_expression import VarLikeExpression
-from idaes.core.util.math import smooth_min
 from idaes.core.util.tables import create_stream_table_dataframe
 import idaes.core.util.scaling as iscale
-from idaes.core.solvers import get_solver
 import idaes.logger as idaeslog
 
-__author__ = "Douglas Allan"
+from idaes.models.unit_models.feed import FeedInitializer as StreamScalerInitializer
+
+__author__ = "Douglas Allan, Tanner Polley"
 
 
 # Set up logger
@@ -64,8 +50,11 @@ _log = idaeslog.getLogger(__name__)
 @declare_process_block_class("StreamScaler")
 class StreamScalerData(UnitModelBlockData):
     """
-    TODO
+    Unit model to adjust size of streams to represent, for example, a stream being split across several identical units,
+    which are then all modeled as a single IDAES unit
     """
+
+    default_initializer = StreamScalerInitializer
 
     CONFIG = ConfigBlock()
     CONFIG.declare(
@@ -138,17 +127,17 @@ see property package for documentation.}""",
         self._get_property_package()
         self._get_indexing_sets()
 
-        self.inlet_block = self.config.property_package.build_state_block(
-                self.flowsheet().time, doc="Material properties at inlet", **tmp_dict
+        self.properties = self.config.property_package.build_state_block(
+            self.flowsheet().time, doc="Material properties at inlet", **tmp_dict
         )
-        self.outlet_block = Block()
+        self.scaled_expressions = Block()
         self.multiplier = Var(
             initialize=1,
             domain=PositiveReals,
             units=pyunits.dimensionless,
-            doc="Factor by which to scale dimensionless streams"
+            doc="Factor by which to scale dimensionless streams",
         )
-        self.add_inlet_port(name="inlet", block=self.inlet_block)
+        self.add_inlet_port(name="inlet", block=self.properties)
         self.outlet = Port(doc="Outlet port")
 
         def rule_scale_var(b, *args, var=None):
@@ -160,17 +149,13 @@ see property package for documentation.}""",
         for var_name in self.inlet.vars.keys():
             var = getattr(self.inlet, var_name)
             if "flow" in var_name:
-                rule=partial(rule_scale_var, var=var)
+                rule = partial(rule_scale_var, var=var)
             else:
-                rule=partial(rule_no_scale_var, var=var)
-            self.outlet_block.add_component(
-                var_name,
-                VarLikeExpression(
-                    var.index_set(),
-                    rule=rule
-                )
+                rule = partial(rule_no_scale_var, var=var)
+            self.scaled_expressions.add_component(
+                var_name, VarLikeExpression(var.index_set(), rule=rule)
             )
-            expr = getattr(self.outlet_block, var_name)
+            expr = getattr(self.scaled_expressions, var_name)
             self.outlet.add(expr, var_name)
 
     def initialize_build(
@@ -198,13 +183,11 @@ see property package for documentation.}""",
             If hold_states is True, returns a dict containing flags for which
             states were fixed during initialization.
         """
-        init_log = idaeslog.getInitLogger(blk.name, outlvl, tag="unit")
-        solve_log = idaeslog.getSolveLogger(blk.name, outlvl, tag="unit")
 
         # Create solver
 
         # Initialize inlet state blocks
-        flags = blk.inlet_block.initialize(
+        flags = blk.properties.initialize(
             outlvl=outlvl,
             optarg=optarg,
             solver=solver,
@@ -230,12 +213,12 @@ see property package for documentation.}""",
         Returns:
             None
         """
-        blk.inlet_block.release_state(flags, outlvl=outlvl)
+        blk.properties.release_state(flags, outlvl=outlvl)
 
     def _get_stream_table_contents(self, time_point=0):
         io_dict = {
             "Inlet": self.inlet,
-            "Outlet": self.outlet,
+            # "Outlet": self.outlet,
         }
         return create_stream_table_dataframe(io_dict, time_point=time_point)
 
@@ -245,11 +228,17 @@ see property package for documentation.}""",
 
         # Need to pass on scaling factors from the property block to the outlet
         # VarLikeExpressions so arcs get scaled right
-        scale = 1/self.multiplier.value
+        if self.multiplier.value == 0:
+            default = 1
+        else:
+            default = 1 / self.multiplier.value
+
+        scale = iscale.get_scaling_factor(
+            self.multiplier, default=default, warning=False
+        )
         for var_name in self.inlet.vars.keys():
             var = getattr(self.inlet, var_name)
             outlet_expr = getattr(self.outlet, var_name)
             for key, subvar in var.items():
                 sf = iscale.get_scaling_factor(subvar, default=1, warning=True)
-                iscale.set_scaling_factor(outlet_expr[key],scale*sf)
-        
+                iscale.set_scaling_factor(outlet_expr[key], scale * sf)

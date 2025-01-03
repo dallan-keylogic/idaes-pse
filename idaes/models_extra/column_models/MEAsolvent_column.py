@@ -69,18 +69,11 @@ from idaes.core.solvers.petsc import (
 )
 from idaes.core.initialization import BlockTriangularizationInitializer
 from idaes.core.util.initialization import _fix_vars, _restore_fixedness
-# from idaes.models_extra.column_models.enhancement_factor_model_pseudo_second_order import (
-#     make_enhancement_factor_model,
-#     initialize_enhancement_factor_model
-# )
-from idaes.models_extra.column_models.enhancement_factor_model_pseudo_second_order_explicit import (
+from idaes.models_extra.column_models.enhancement_factor_model_pseudo_second_order_jinliang import (
     make_enhancement_factor_model,
+    enhancement_factor_initial_guess,
     initialize_enhancement_factor_model
 )
-# from idaes.models_extra.column_models.enhancement_factor_model_third_order import (
-#     make_enhancement_factor_model,
-#     initialize_enhancement_factor_model
-# )
 from idaes.core.surrogate.surrogate_block import SurrogateBlock
 __author__ = "Paul Akula, John Eslick, Anuja Deshpande, Andrew Lee, Douglas Allan"
 
@@ -146,41 +139,40 @@ class MEAColumnData(PackedColumnData):
             doc="Liquid phase mass transfer coefficient",
         )
 
-        self.log_enhancement_factor = Var(
+        self.omega = Var(
             self.flowsheet().time,
             self.liquid_phase.length_domain,
+            initialize=0.05,
+            # bounds=(-500, 500),
             units=pyunits.dimensionless,
-            bounds=(None, 100), #  100 is about where we start getting AMPL evaluation errors due to overflow
-            initialize=5,
-            doc="Natural logarithm of the enhancement factor",
+            doc="Product of enhancement factor with function of dimensionless concentration",
         )
-
-        @self.Expression(
+        self.omega_slack = Var(
             self.flowsheet().time,
             self.liquid_phase.length_domain,
-            doc="Enhancement factor",
+            initialize=0.05,
+            bounds=(0, None),
+            units=pyunits.dimensionless,
+            doc="Intermediate to avoid singularity",
         )
-        def enhancement_factor(blk, t, x):
-            if x == blk.liquid_phase.length_domain.last():
-                return Expression.Skip
-            else:
-                return exp(blk.log_enhancement_factor[t, x])
 
-        @self.Expression(
+        @self.Constraint(
             self.flowsheet().time,
-            self.vapor_phase.length_domain,
-            doc="Intermediate for calculating CO2 mass transfer driving force",
+            self.liquid_phase.length_domain,
         )
-        def psi(blk, t, x):
-            if x == blk.vapor_phase.length_domain.first():
-                return Expression.Skip
-            else:
-                zb = self.liquid_phase.length_domain.prev(x)
-                return (
-                    blk.enhancement_factor[t, zb]
-                    * blk.mass_transfer_coeff_liq[t, zb, "CO2"]
-                    / blk.mass_transfer_coeff_vap[t, x, "CO2"]
+        def omega_slack_eqn(blk, t, x):
+            if x == blk.liquid_phase.length_domain.last():
+                return Constraint.Skip
+            zf = blk.liquid_phase.length_domain.next(x)
+            return blk.omega_slack[t, x] == 1000 * ( # Hardcoded scaling factor
+                1 + blk.mass_transfer_coeff_liq[t, x, "CO2"]
+                * blk.omega[t, x]
+                / (
+                    blk.liquid_phase.properties[t, x].henry["Liq","CO2"]
+                    * blk.mass_transfer_coeff_vap[t, zf, "CO2"]
                 )
+            )
+
 
         @self.Constraint(
             self.flowsheet().time,
@@ -191,34 +183,33 @@ class MEAColumnData(PackedColumnData):
         def pressure_at_interface(blk, t, x, j):
             if x == blk.vapor_phase.length_domain.first():
                 return Constraint.Skip
-            else:
-                zb = self.liquid_phase.length_domain.prev(x)
-                lprops = blk.liquid_phase.properties[t, zb]
-                henrycomp = lprops.params.get_component(j).config.henry_component
-                Pressure = pyunits.convert(
-                    blk.vapor_phase.properties[t, x].pressure,
-                    to_units=lunits("pressure"),
-                )
-                if henrycomp is not None and "Liq" in henrycomp:
-                    return blk.mass_transfer_driving_force[t, x, j] == (
-                        blk.psi[t, x]
-                        / (
-                            blk.psi[t, x]
-                            + blk.liquid_phase.properties[t, zb].henry["Liq", j]
-                        )
-                        * (
-                            blk.vapor_phase.properties[t, x].mole_frac_comp[j]
-                            * Pressure
-                            - lprops.conc_mol_phase_comp_true["Liq", j]
-                            * blk.liquid_phase.properties[t, zb].henry["Liq", j]
-                        )
-                    )
-                else:
-                    return blk.mass_transfer_driving_force[t, x, j] == (
-                        blk.vapor_phase.properties[t, x].mole_frac_comp[j] * Pressure
-                        - lprops.mole_frac_phase_comp_true["Liq", j]
-                        * lprops.pressure_sat_comp[j]
-                    )
+            # if j != "CO2":
+            #     return 1 == blk.vapor_phase.properties[t, x].fug_phase_comp["Vap", j] / blk.pressure_equil[t, x, j]
+
+            # zp = self.vapor_phase.length_domain.prev(x)
+            
+            # # Pressures are in vapor units, 
+            # return (
+            #     blk.vapor_phase.properties[t, x].fug_phase_comp["Vap", "CO2"]
+            #     / blk.pressure_equil[t, x, "CO2"]
+            # ) == (
+            #     1
+            #     + blk.mass_transfer_coeff_liq[t, zp, "CO2"]
+            #     * blk.omega[t, zp]
+            #     / (
+            #         blk.liquid_phase.properties[t, zp].henry["Liq","CO2"]
+            #         * blk.mass_transfer_coeff_vap[t, x, "CO2"]
+            #     )
+            # )
+            if j != "CO2":
+                return blk.pressure_equil[t, x, j] == blk.vapor_phase.properties[t, x].fug_phase_comp["Vap", j]
+
+            zp = self.vapor_phase.length_domain.prev(x)
+            
+            # Pressures are in vapor units, 
+            return blk.vapor_phase.properties[t, x].fug_phase_comp["Vap", "CO2"] == (
+                blk.pressure_equil[t, x, "CO2"] * blk.omega_slack[t, zp] / 1000 
+            )
 
     def build(self):
         super().build()
@@ -1067,7 +1058,8 @@ class MEAColumnData(PackedColumnData):
                 return Constraint.Skip
             else:
                 return 3 * blk.log_heat_transfer_coeff_base[t, x] == 3 * (
-                    blk.log_mass_transfer_coeff_vap[t, x, "CO2"] + blk.log_pressure_vap[t, x]
+                    blk.log_mass_transfer_coeff_vap[t, x, "CO2"]
+                    + blk.log_pressure_vap[t, x]
                 ) + 2 * blk.log_therm_cond_vap[t, x] + blk.log_cp_mol_vap[t, x] - 2 * (
                     blk.log_dens_mol_vap[t, x] + blk.log_diffus_vap_comp[t, x, "CO2"]
                 )
@@ -1148,114 +1140,6 @@ class MEAColumnData(PackedColumnData):
             rule=rule_heat_transfer_coeff,
             doc="Vap-Liq heat transfer correction by Ackmann factor",
         )
-
-
-        if self.config.surrogate_enhancement_factor_model is None:
-            self.enhancement_factor_vars, self.enhancement_factor_constraints = make_enhancement_factor_model(
-                self,
-                lunits,
-                kinetics="Luo"
-            )
-        else:
-            self.CO2_loading = Var(
-                self.flowsheet().time,
-                self.liquid_phase.length_domain,
-                units=pyunits.dimensionless,
-                initialize=0.3
-            )
-            @self.Constraint(self.flowsheet().time, self.liquid_phase.length_domain)
-            def CO2_loading_eqn(blk, t, x):
-                if x == blk.liquid_phase.length_domain.last():
-                    return Constraint.Skip
-                return (
-                    self.CO2_loading[t, x] 
-                    * self.liquid_phase.properties[t, x].mole_frac_comp["MEA"]
-                    == self.liquid_phase.properties[t, x].mole_frac_comp["CO2"]
-                )
-            
-            self.H2O_loading = Var(
-                self.flowsheet().time,
-                self.liquid_phase.length_domain,
-                units=pyunits.dimensionless,
-                initialize=7.5
-            )
-            @self.Constraint(self.flowsheet().time, self.liquid_phase.length_domain)
-            def H2O_loading_eqn(blk, t, x):
-                if x == blk.liquid_phase.length_domain.last():
-                    return Constraint.Skip
-                return (
-                    self.H2O_loading[t, x] 
-                    * self.liquid_phase.properties[t, x].mole_frac_comp["MEA"]
-                    == self.liquid_phase.properties[t, x].mole_frac_comp["H2O"]
-                )
-            self.log_pCO2 = Var(
-                self.flowsheet().time,
-                self.liquid_phase.length_domain, #  Going to phase shift this in the constraint
-                units=pyunits.dimensionless,
-                initialize=6,
-                doc="Logarithm of vapor phase vapor pressure of CO2"
-            )
-            @self.Constraint(self.flowsheet().time, self.liquid_phase.length_domain)
-            def log_pCO2_eqn(blk, t, x):
-                if x == blk.liquid_phase.length_domain.last():
-                    return Constraint.Skip
-                zf = blk.liquid_phase.length_domain.next(x)
-                pressure = pyunits.convert(
-                    blk.vapor_phase.properties[t, zf].pressure,
-                    to_units=lunits("pressure"),
-                )
-                return (
-                    exp(self.log_pCO2[t, x]) * lunits("pressure")
-                    == pressure
-                    * self.vapor_phase.properties[t, zf].mole_frac_comp["CO2"]
-                )
-            self._temperature_liquid = Reference(
-                self.liquid_phase.properties[:,:].temperature,
-                ctype=Var
-            )
-            self._mass_transfer_coeff_liq_CO2 = Reference(
-                self.mass_transfer_coeff_liq[:, :, "CO2"],
-                ctype=Var
-            )
-            self._mass_transfer_coeff_vap_CO2 = Reference(
-                self.mass_transfer_coeff_vap[:, :, "CO2"],
-                ctype=Var
-            )
-        
-            self.enhancement_factor_surrogate = SurrogateBlock(
-                self.flowsheet().time,
-                self.liquid_phase.length_domain,
-                concrete=True
-            )
-            for t in self.flowsheet().time:
-                for x in self.liquid_phase.length_domain:
-                    self.enhancement_factor_surrogate[t, x].build_model(
-                        self.config.surrogate_enhancement_factor_model,
-                        input_vars=[
-                            self.CO2_loading[t, x],
-                            self.H2O_loading[t, x],
-                            self.log_pCO2[t, x],
-                            self._temperature_liquid[t, x],
-                            self._mass_transfer_coeff_liq_CO2[t, x],
-                            self._mass_transfer_coeff_vap_CO2[t, x]
-                        ],
-                        output_vars=[self.log_enhancement_factor[t, x]],
-                        use_surrogate_bounds=False,
-                    )
-                    if x == self.liquid_phase.length_domain.last():
-                        self.enhancement_factor_surrogate[t, x].deactivate()
-            self.enhancement_factor_vars = ComponentSet([
-                self.CO2_loading,
-                self.H2O_loading,
-                self.log_pCO2,
-                self.log_enhancement_factor,
-            ])
-            self.enhancement_factor_constraints = ComponentSet([
-                self.CO2_loading_eqn,
-                self.H2O_loading_eqn,
-                self.log_pCO2_eqn,
-                self.enhancement_factor_surrogate,
-            ])
 
         # Flood point calculations
 
@@ -1400,6 +1284,10 @@ class MEAColumnData(PackedColumnData):
                     blk.flood_fraction[t, x] * blk.gas_velocity_fld[t, x]
                     == blk.velocity_vap[t, x]
                 )
+            
+        vars, cons = make_enhancement_factor_model(self, lunits=lunits)
+        self.enhancement_factor_vars = vars
+        self.enhancement_factor_constraints = cons
 
     # Scaling Routine
     def calculate_scaling_factors(self):
@@ -1460,8 +1348,14 @@ class MEAColumnData(PackedColumnData):
                 )
                 cst(self.log_dens_mass_vap_eqn[t, x_vap], sf_rho_v)
 
-                sf = gsf(self.vapor_phase.properties[t, x_vap].pressure)
-                cst(self.log_pressure_vap_eqn[t, x_vap], sf)
+                sf_P = gsf(self.vapor_phase.properties[t, x_vap].pressure)
+                cst(self.log_pressure_vap_eqn[t, x_vap], sf_P)
+                for j in self.vapor_phase.properties[t, x_vap].component_list:
+                    sf_y = gsf(self.vapor_phase.properties[t, x_vap].mole_frac_comp[j])
+                    if (t, x_vap, j) in self.pressure_equil:
+                        ssf(self.pressure_equil[t, x_vap, j], sf_y*sf_P)
+                        cst(self.pressure_at_interface[t, x_vap, j], sf_y*sf_P)
+
 
                 sf = iscale.get_scaling_factor(
                     self.vapor_phase.properties[t, x_vap].dens_mol_phase["Vap"],
@@ -1541,26 +1435,6 @@ class MEAColumnData(PackedColumnData):
                     )
                     cst(self.log_diffus_vap_comp_eqn[t, x_vap, j], sf)
 
-                if self.config.surrogate_enhancement_factor_model is not None:
-                    sf_x_CO2 = gsf(self.liquid_phase.properties[t, x_liq].mole_frac_comp["CO2"])
-                    sf_x_MEA = gsf(self.liquid_phase.properties[t, x_liq].mole_frac_comp["MEA"])
-                    sf_x_H2O = gsf(self.liquid_phase.properties[t, x_liq].mole_frac_comp["H2O"])
-                    
-                    ssf(self.CO2_loading[t, x_liq], sf_x_CO2/sf_x_MEA)
-                    cst(self.CO2_loading_eqn[t, x_liq], sf_x_CO2)
-
-                    ssf(self.H2O_loading[t, x_liq], sf_x_H2O/sf_x_MEA)
-                    cst(self.H2O_loading_eqn[t, x_liq], sf_x_H2O)
-
-                    sf_units = pyunits.convert_value(
-                        1,
-                        from_units=1 / lunits("pressure"),
-                        to_units=1 / vunits("pressure")
-                    )
-
-                    sf_P_vap = sf_units * gsf(self.vapor_phase.properties[t, x_vap].pressure)
-                    sf_CO2_vap = gsf(self.vapor_phase.properties[t, x_vap].mole_frac_comp["CO2"])
-                    cst(self.log_pCO2_eqn[t, x_liq], sf_P_vap*sf_CO2_vap)
 
         # TODO bring this into new form later
         for (t, x), con in self.heat_transfer_coeff_eqn.items():
@@ -1600,7 +1474,6 @@ class MEAColumnData(PackedColumnData):
                     self.liquid_phase.enthalpy_transfer[t, x], default=1, warning=True
                 ),
             )
-
 
     def set_init_values_correlation_vars(blk, nfe, mode):
         """
@@ -1788,77 +1661,6 @@ class MEAColumnData(PackedColumnData):
             201.2884216,
         ]
 
-        # Define enhancement factor known values
-        if mode == "absorber":
-            enhancement_factor_values = [
-                10.59208019,
-                10.83945557,
-                11.08225811,
-                11.3273241,
-                11.5773751,
-                11.83479677,
-                12.10215397,
-                12.38234194,
-                12.6787182,
-                12.99526603,
-                13.33681033,
-                13.70931137,
-                14.12027367,
-                14.57932831,
-                15.09908116,
-                15.69637908,
-                16.39424972,
-                17.2249598,
-                18.23499171,
-                19.49343044,
-                21.10665852,
-                23.24523241,
-                26.19540321,
-                30.46301154,
-                36.99441863,
-                47.67140404,
-                66.4626304,
-                101.9815504,
-                169.7954706,
-                258.2290563,
-                1,
-            ]
-        elif mode == "stripper":
-            enhancement_factor_values = [
-                23.68,
-                22.39,
-                21.25,
-                20.24,
-                19.78,
-                18.93,
-                18.15,
-                17.45,
-                17.12,
-                16.80,
-                16.21,
-                15.93,
-                15.41,
-                15.16,
-                14.92,
-                14.47,
-                14.25,
-                14.05,
-                13.85,
-                13.66,
-                13.48,
-                13.29,
-                13.12,
-                12.8,
-                12.64,
-                12.5,
-                12.36,
-                12.25,
-                12.21,
-                12.38,
-                1,
-            ]
-        else:
-            raise RuntimeError
 
         nfe_base = len(interfacial_area_values) - 1
         x_nfe_list_base = [i / nfe_base for i in range(nfe_base + 1)]
@@ -1896,10 +1698,6 @@ class MEAColumnData(PackedColumnData):
             )
             interfacial_area_values = interfarea_interp
 
-            enhfactor_interp = interpolate_init_values(
-                nfe + 1, x_nfe_list_base, enhancement_factor_values
-            )
-            enhancement_factor_values = enhfactor_interp
 
         # Fix values for all correlation variables
         for i, x in enumerate(blk.vapor_phase.length_domain):
@@ -1918,13 +1716,9 @@ class MEAColumnData(PackedColumnData):
             if x == blk.liquid_phase.length_domain.last():
                 blk.mass_transfer_coeff_liq[0, x, "CO2"].fix(0.001)
                 blk.holdup_liq[0, x].fix(0.001)
-                blk.log_enhancement_factor[0, x].fix(0)
             else:
                 blk.mass_transfer_coeff_liq[0, x, "CO2"].fix(k_l_co2_values[i])
                 blk.holdup_liq[0, x].fix(0.01)
-                blk.log_enhancement_factor[0, x].fix(
-                    log(enhancement_factor_values[i])
-                )
 
     # =========================================================================
     # Model initialization routine
@@ -1971,6 +1765,7 @@ class MEAColumnData(PackedColumnData):
 
         unit_constraints = [
             "pressure_at_interface",
+            "omega_slack_eqn",
             "interphase_mass_transfer_eqn",
             "liquid_mass_transfer_eqn",
             "vapor_mass_transfer_eqn",
@@ -2047,7 +1842,8 @@ class MEAColumnData(PackedColumnData):
         blk.set_init_values_correlation_vars(nfe, mode)
 
         # Interface pressure
-        blk.mass_transfer_driving_force.fix()
+        blk.pressure_equil.fix()
+        blk.omega_slack.fix()
 
         # Molar flux
         blk.interphase_mass_transfer.fix(0.0)
@@ -2115,6 +1911,9 @@ class MEAColumnData(PackedColumnData):
             hold_state=True,
         )
 
+        # Need diffusivity calculated
+        enhancement_factor_initial_guess(blk)
+
         # Calculate log variables of (supposed to be fixed) parameters
         for var, eqn in blk.log_parameter_var_eqn_map.items():
             for k in eqn:
@@ -2158,8 +1957,26 @@ class MEAColumnData(PackedColumnData):
         # ---------------------------------------------------------------------
         init_log.info("Step 3: Interface equilibrium")
 
-        blk.mass_transfer_driving_force.unfix()
+        blk.pressure_equil.unfix()
         blk.pressure_at_interface.activate()
+        blk.omega_slack.unfix()
+        blk.omega_slack_eqn.activate()
+        for t in blk.flowsheet().time:
+            for x in blk.liquid_phase.length_domain:
+                if x == blk.liquid_phase.length_domain.last():
+                    continue
+                zf = blk.liquid_phase.length_domain.next(x)
+                blk.omega_slack[t, x] = max(
+                    1000*value(
+                        1 + blk.mass_transfer_coeff_liq[t, x, "CO2"]
+                        * blk.omega[t, x]
+                        / (
+                            blk.liquid_phase.properties[t, x].henry["Liq","CO2"]
+                            * blk.mass_transfer_coeff_vap[t, zf, "CO2"]
+                        )
+                    ),
+                    1e-4
+                )
 
         with idaeslog.solver_log(solve_log, idaeslog.DEBUG) as slc:
             res = opt.solve(blk, tee=slc.tee)
@@ -2289,8 +2106,8 @@ class MEAColumnData(PackedColumnData):
             "Initializing interfacial area - degrees_of_freedom = {}".format(
                 degrees_of_freedom(blk)
             )
-        )           
-        
+        )
+
         # Confusing naming convention: log_var_eqn are always of the form exp(log_var) == var.
         # log_area_interfacial is defined from the performance equation area_interfacial_eqn
         # and then area_interfacial is back-calculated from the exponential relationship
@@ -2350,7 +2167,7 @@ class MEAColumnData(PackedColumnData):
         for c in mass_transfer_coeff_vap_constraints:
             getattr(blk, c).activate()
 
-        for t in  blk.flowsheet().time:
+        for t in blk.flowsheet().time:
             for x in blk.vapor_phase.length_domain:
                 if x == blk.liquid_phase.length_domain.first():
                     pass
@@ -2422,46 +2239,12 @@ class MEAColumnData(PackedColumnData):
         for var in blk.enhancement_factor_vars:
             var.unfix()
 
-        if blk.config.surrogate_enhancement_factor_model is None:
-            initialize_enhancement_factor_model(
-                blk, 
-                outlvl=outlvl,
-                optarg=optarg,
-                solver=solver,
-            )
-        else:
-            for t in blk.flowsheet().time:
-                for x in blk.liquid_phase.length_domain:
-                    if x == blk.liquid_phase.length_domain.last():
-                        blk.enhancement_factor_surrogate[t, x].deactivate()
-                        continue
-                    zf = blk.liquid_phase.length_domain.next(x)
-                    blk.CO2_loading[t, x].set_value(
-                        value(
-                            blk.liquid_phase.properties[t, x].mole_frac_comp["CO2"]
-                            / blk.liquid_phase.properties[t, x].mole_frac_comp["MEA"]
-                        )
-                    )
-                    blk.H2O_loading[t, x].set_value(
-                        value(
-                            blk.liquid_phase.properties[t, x].mole_frac_comp["H2O"]
-                            / blk.liquid_phase.properties[t, x].mole_frac_comp["MEA"]
-                        )
-                    )
-                    pressure = pyunits.convert(
-                        blk.vapor_phase.properties[t, zf].pressure,
-                        to_units=lunits("pressure")
-                    )
-                    blk.log_pCO2[t, x].set_value(
-                        value(
-                            log(
-                                pressure
-                                * blk.vapor_phase.properties[t, zf].mole_frac_comp["CO2"]
-                            )
-                        )
-                    )
-                        
-        
+        initialize_enhancement_factor_model(
+	        blk,
+            outlvl=outlvl,
+            optarg=optarg,
+            solver=solver,
+	    )
 
         init_log.info("Step 11b: Solve model with initialized enhancement factor")
 
@@ -2473,7 +2256,7 @@ class MEAColumnData(PackedColumnData):
         # ---------------------------------------------------------------------
         init_log.info("Step 12: Heat transfer coefficient constraint")
         init_log.info(
-            "Initializing heat transfer coefficent - degrees_of_freedom = {}".format(
+            "Initializing heat transfer coefficient - degrees_of_freedom = {}".format(
                 degrees_of_freedom(blk)
             )
         )

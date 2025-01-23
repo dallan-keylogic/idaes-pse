@@ -330,6 +330,15 @@ class SolidOxideCellData(UnitModelBlockData):
             description="If True, add a heat loss variable at the x1 edge of either the interconnect (if present) or oxygen channel",
         ),
     )
+    CONFIG.declare(
+        "log_exchange_current_modifier",
+        ConfigValue(
+            domain=Bool,
+            default=False,
+            description="If True, add log_exchange_current_modifier Var to both triple phase boundaries "
+            "to be connected to degradation models",
+        ),
+    )
 
     def build(self):
         super().build()
@@ -653,6 +662,7 @@ class SolidOxideCellData(UnitModelBlockData):
             include_temperature_x_thermo=include_temp_x_thermo,
             below_electrolyte=True,
             voltage_drop_custom=self.config.voltage_drop_custom,
+            log_exchange_current_modifier=self.config.log_exchange_current_modifier,
         )
         self.oxygen_triple_phase_boundary = soc.SocTriplePhaseBoundary(
             has_holdup=False,
@@ -673,6 +683,7 @@ class SolidOxideCellData(UnitModelBlockData):
             include_temperature_x_thermo=include_temp_x_thermo,
             below_electrolyte=False,
             voltage_drop_custom=self.config.voltage_drop_custom,
+            log_exchange_current_modifier=self.config.log_exchange_current_modifier,
         )
         if self.config.thin_electrolyte:
             if self.config.control_volume_xfaces_electrolyte is not None:

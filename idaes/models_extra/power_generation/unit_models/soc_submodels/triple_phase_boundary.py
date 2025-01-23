@@ -376,7 +376,7 @@ class SocTriplePhaseBoundaryData(UnitModelBlockData):
             for j in b.reacting_gas_list:
                 out += expo[j] * b.log_mole_frac_comp[t, iz, j]
             if b.config.log_exchange_current_modifier:
-                out += b.log_exchange_current_modifier
+                out += b.log_exchange_current_modifier[t, iz]
             return out
 
         # Butler Volmer equation

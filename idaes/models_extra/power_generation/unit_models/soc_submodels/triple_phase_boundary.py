@@ -287,7 +287,7 @@ class SocTriplePhaseBoundaryData(UnitModelBlockData):
             self.log_exchange_current_modifier = pyo.Var(
                 tset,
                 iznodes,
-                units=pyo.dimensionless,
+                units=pyo.units.dimensionless,
                 doc="Custom modifier to exchange current for degradation modeling",               
             )
 

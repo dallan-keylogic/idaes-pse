@@ -3,7 +3,7 @@
 # Framework (IDAES IP) was produced under the DOE Institute for the
 # Design of Advanced Energy Systems (IDAES).
 #
-# Copyright (c) 2018-2023 by the software owners: The Regents of the
+# Copyright (c) 2018-2024 by the software owners: The Regents of the
 # University of California, through Lawrence Berkeley National Laboratory,
 # National Technology & Engineering Solutions of Sandia, LLC, Carnegie Mellon
 # University, West Virginia University Research Corporation, et al.
@@ -1735,6 +1735,16 @@ argument).""",
         raise BalanceTypeNotSupportedError(
             "{} OD control volumes do not support "
             "add_total_energy_balances.".format(self.name)
+        )
+
+    def add_isothermal_constraint(self, *args, **kwargs):
+        """
+        Requires ExtendedControlVolume1D
+        """
+        raise BalanceTypeNotSupportedError(
+            f"{self.name} ControlVolume1D does not support isothermal energy balances. "
+            "Please consider using ExtendedControlVolume1D in your model if you require "
+            "support for isothermal balances."
         )
 
     def add_total_pressure_balances(self, has_pressure_change=False, custom_term=None):

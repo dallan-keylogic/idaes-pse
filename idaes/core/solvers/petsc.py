@@ -1187,3 +1187,110 @@ def get_initial_condition_problem(
     )
     _sub_problem_scaling_suffix(model, subsystem)
     return subsystem
+
+def get_integration_problem(
+    model,
+    time,
+    integration_time,
+    tprev=None,
+    representative_time=None,
+    initial_constraints=None,
+    initial_variables=None,
+    detect_initial=True,
+    fix_initial=True,
+    flattened_problem=None,
+):
+    """
+    Solve a DAE problem step by step using the PETSc DAE solver.  This
+    integrates from one time point to the next.
+
+    Args:
+        model (Block): Pyomo model to solve
+        time (ContinuousSet): Time set
+        integration_time (Element of time): The timepoint at which integration *ends*.
+        representative_time (Element of time): A timepoint at which the DAE system is at its "normal" state
+            after the constraints and variables associated with the initial time point
+            have passed. Typically the next element of time after initial_time. Not needed
+            if flattened_problem is provided.
+        initial_constraints (list): Constraints to solve in the initial
+            condition solve step.  Since the time-indexed constraints are picked
+            up automatically, this generally includes non-time-indexed
+            constraints.
+        initial_variables (list): This is a list of variables to fix after the
+            initial condition solve step.  If these variables were originally
+            unfixed, they will be unfixed at the end of the solve. This usually
+            includes non-time-indexed variables that are calculated along with
+            the initial conditions.
+        detect_initial (bool): If True, add non-time-indexed variables and
+            constraints to initial_variables and initial_constraints.
+        flattened_problem (dict): Dictionary returned by get_flattened_problem.
+            If not provided, get_flattened_problem will be called at representative_time.
+
+    Returns (Pyomo Block):
+        Block containing References to variables and constraints used in initial condition
+        problem, ready to be solved as the initial condition problem.
+    """
+    if initial_variables is None:
+        initial_variables = []
+    # list of constraints to add to the initial condition problem
+    if initial_constraints is None:
+        initial_constraints = []
+
+    if flattened_problem is None:
+        if representative_time is None:
+            raise RuntimeError(
+                "The user must supply either the flattened problem or a representative time."
+            )
+        flattened_problem = _get_flattened_problem(
+            model=model, time=time, representative_time=representative_time
+        )
+
+    if tprev is None:
+        tprev = time.prev(integration_time)
+
+    if detect_initial:
+        rvset = ComponentSet(flattened_problem["timeless_variables"])
+        ivset = ComponentSet(initial_variables)
+        initial_variables = list(ivset | rvset)
+        # If detect_initial, solve the non-time-indexed variables and
+        # constraints with the initial conditions
+        const_no_t_set = ComponentSet(flattened_problem["timeless_constraints"])
+        const_init_set = ComponentSet(initial_constraints)
+        initial_constraints = list(const_no_t_set | const_init_set)
+
+    if fix_initial:
+        for var in initial_variables:
+            var.fix()
+
+    deriv_diff_map = _get_derivative_differential_data_map(model, time)
+
+    constraints = [
+        con[integration_time] for con in flattened_problem["time_constraints"] if integration_time in con
+    ]
+    variables = [var[integration_time] for var in flattened_problem["time_variables"]]
+
+    subsystem = create_subsystem_block(
+        constraints,
+        variables,
+    )
+
+    # Not sure if this step really belongs here
+    differential_vars = _set_dae_suffixes_from_variables(
+        subsystem,
+        variables,
+        deriv_diff_map,
+    )
+    # We need to check if there are derivatives in the problem before
+    # sending this to the solver.  We'll assume that if you are using
+    # this and don't have any differential equations, you are making a
+    # mistake.
+    if len(differential_vars) < 1:
+        raise RuntimeError(
+            f"No differential equations found at t = {integration_time}, not a DAE"
+        )
+    # if the initial condition is specified and there are no
+    # initial constraints, don't try to solve.
+
+    _copy_time(flattened_problem["time_variables"], tprev, integration_time)
+    _sub_problem_scaling_suffix(model, subsystem)
+    return subsystem

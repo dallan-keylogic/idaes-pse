@@ -1735,7 +1735,12 @@ class DiagnosticsToolbox:
         if len(warnings) > 0:
             raise AssertionError(f"Numerical issues found ({len(warnings)}).")
 
-    def report_structural_issues(self, stream=None):
+    def report_structural_issues(
+        self,
+        stream=None,
+        ignore_evaluation_errors: bool = False,
+        ignore_unit_consistency: bool = False,
+    ):
         """
         Generates a summary report of any structural issues identified in the model provided
         and suggests next steps for debugging the model.
@@ -1762,7 +1767,10 @@ class DiagnosticsToolbox:
             )
         stats = _collect_model_statistics(self._model)
 
-        warnings, next_steps = self._collect_structural_warnings()
+        warnings, next_steps = self._collect_structural_warnings(
+            ignore_evaluation_errors=ignore_evaluation_errors,
+            ignore_unit_consistency=ignore_unit_consistency,
+        )
         cautions = self._collect_structural_cautions()
 
         _write_report_section(

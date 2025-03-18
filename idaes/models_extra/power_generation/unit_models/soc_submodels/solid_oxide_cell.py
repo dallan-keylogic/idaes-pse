@@ -766,7 +766,7 @@ class SolidOxideCellData(UnitModelBlockData):
                 self.total_heat_loss = pyo.Var(
                     tset,
                     initialize=0,
-                    units=pyo.units.W / pyo.units.m**2,
+                    units=pyo.units.W,
                     doc="Heat lost to the environment"
                 )
                 interconnect_heat_flux_x1 = None # Submodel will automatically generate term
@@ -828,8 +828,8 @@ class SolidOxideCellData(UnitModelBlockData):
                 def total_heat_loss_eqn(b, t, iz):
                     # Equal heat loss flux across the entire surface
                     # Sign change in order to make "heat loss" positive
-                    return b.total_heat_loss[t] == (
-                        -b.heat_loss_flux[t, iz] 
+                    return b.heat_loss_flux[t, iz] == (
+                        -b.total_heat_loss[t]
                         / b.length_y
                         / b.length_z
                     )

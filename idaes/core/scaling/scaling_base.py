@@ -24,6 +24,7 @@ from pyomo.common.config import (
 )
 from pyomo.core.base.constraint import ConstraintData
 from pyomo.core.base.var import VarData
+from pyomo.core.base.expression import ExpressionData
 
 from idaes.core.scaling.util import get_scaling_factor, set_scaling_factor
 import idaes.logger as idaeslog
@@ -73,7 +74,8 @@ CONFIG.declare(
         domain=float,
         description="Minimum value for constraint scaling factors.",
     ),
-)CONFIG.declare(
+)
+CONFIG.declare(
     "max_expression_scaling_hint",
     ConfigValue(
         default=1e10,
@@ -197,10 +199,10 @@ class ScalerBase:
         Raises:
             TypeError if variable is not an instance of VarData
         """
-        if not isinstance(variable, VarData):
-            raise TypeError(f"{variable} is not a variable (or is indexed).")
+        if not isinstance(expression, ExpressionData):
+            raise TypeError(f"{expression} is not a variable (or is indexed).")
         self._set_scaling_factor(
-            component=variable,
+            component=expression,
             component_type="expression",
             scaling_factor=scaling_factor,
             overwrite=overwrite,
@@ -256,7 +258,7 @@ class ScalerBase:
         elif component_type == "constraint":
             maxsf = self.config.max_constraint_scaling_factor
             minsf = self.config.min_constraint_scaling_factor
-        elif component_type = "expression":
+        elif component_type == "expression":
             maxsf = self.config.max_expression_scaling_hint
             minsf = self.config.min_expression_scaling_hint
         else:

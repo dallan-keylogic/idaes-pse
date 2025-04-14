@@ -23,31 +23,23 @@ Packed Solvent Column Model for MEA systems
 import numpy as np
 
 # Import Pyomo libraries
-import pyomo.opt
 from pyomo.environ import (
-    ConcreteModel,
     value,
     Var,
-    NonNegativeReals,
     Param,
-    TransformationFactory,
     Constraint,
     Expression,
-    Objective,
-    SolverStatus,
-    TerminationCondition,
     check_optimal_termination,
     assert_optimal_termination,
     exp,
     log,
     units as pyunits,
     Set,
-    Reference,
 )
-from pyomo.common.collections import ComponentSet, ComponentMap
+from pyomo.common.collections import ComponentMap
 
 from pyomo.util.calc_var_value import calculate_variable_from_constraint
-from pyomo.common.config import ConfigValue, Bool
+from pyomo.common.config import ConfigValue
 
 # Import IDAES Libraries
 from idaes.core.util.constants import Constants as CONST
@@ -56,24 +48,11 @@ from idaes.models_extra.column_models.solvent_column import PackedColumnData
 from idaes.core.util.model_statistics import degrees_of_freedom
 from idaes.core import declare_process_block_class
 from idaes.core.util.exceptions import InitializationError
+import idaes.core.util.scaling as iscale
 from idaes.core.solvers.get_solver import get_solver
 import idaes.logger as idaeslog
 
-from idaes.core.solvers import use_idaes_solver_configuration_defaults
-import idaes.core.util.scaling as iscale
-from pyomo.util.subsystems import (
-    create_subsystem_block,
-)
-from idaes.core.solvers.petsc import (
-    _sub_problem_scaling_suffix,
-)
-from idaes.core.initialization import BlockTriangularizationInitializer
-from idaes.core.util.initialization import _fix_vars, _restore_fixedness
-from idaes.models_extra.column_models.enhancement_factor_model_pseudo_second_order_explicit import (
-    make_enhancement_factor_model,
-    initialize_enhancement_factor_model
-)
-from idaes.core.surrogate.surrogate_block import SurrogateBlock
+from idaes.models_extra.column_models.enhancement_factor_model_pseudo_second_order_explicit import PseudoSecondOrderExplicit
 __author__ = "Paul Akula, John Eslick, Anuja Deshpande, Andrew Lee, Douglas Allan"
 
 
@@ -86,15 +65,17 @@ class MEAColumnData(PackedColumnData):
     CONFIG = PackedColumnData.CONFIG()
 
     CONFIG.declare(
-        "corrected_hx_coeff_eqn",
+        "enhancement_factor_model",
         ConfigValue(
-            default=False,
-            domain=Bool,
-            description="Use heat transfer equation appropriate for large material fluxes",
-            doc="""Boolean flag indicating whether to use correction factor for heat transfer
-            equation appropriate for when 'large' material transfer fluxes are in column.
-            Warning: using the correction factor when fluxes are 'small' can result in badly
-            conditioned problem.""",
+            default=PseudoSecondOrderExplicit,
+            description="Enhancement factor model to use in column",
+        ),
+    )
+    CONFIG.declare(
+        "enhancement_factor_kwargs",
+        ConfigValue(
+            default=None,
+            description="Keyword arguments to pass when making enhancement factor model",
         ),
     )
 
@@ -199,6 +180,10 @@ class MEAColumnData(PackedColumnData):
                     )
     def build(self):
         super().build()
+        if self.config.enhancement_factor_kwargs is None:
+            enhancement_factor_kwargs = {}
+        else:
+            enhancement_factor_kwargs = self.config.enhancement_factor_kwargs
 
         # ---------------------------------------------------------------------
         # Unit level sets
@@ -501,7 +486,7 @@ class MEAColumnData(PackedColumnData):
         self.velocity_vap = Var(
             self.flowsheet().time,
             self.vapor_phase.length_domain,
-            domain=NonNegativeReals,
+            bounds=(0, None),
             initialize=2,
             units=lunits("velocity"),
             doc="Vapor superficial velocity",
@@ -510,7 +495,7 @@ class MEAColumnData(PackedColumnData):
         self.velocity_liq = Var(
             self.flowsheet().time,
             self.liquid_phase.length_domain,
-            domain=NonNegativeReals,
+            bounds=(0, None),
             initialize=0.01,
             units=pyunits.m / pyunits.s,
             doc="Liquid superficial velocity",
@@ -730,7 +715,6 @@ class MEAColumnData(PackedColumnData):
         # from information we have, but the channel size appears only in this equation for the set of correlations
         # we are using. Technically that parameter exists in the SolventColumn model, but we have nothing on which
         # to base its value.
-        # TODO Bring definition of these parameters into flowsheets
         self.holdup_parAlpha = Param(
             initialize=3.185966,
             units=1 / (lunits("length") * (lunits("acceleration") ** (2 / 3))),
@@ -1049,88 +1033,26 @@ class MEAColumnData(PackedColumnData):
                     blk.log_dens_mol_vap[t, x] + blk.log_diffus_vap_comp[t, x, "CO2"]
                 )
 
-        if self.config.corrected_hx_coeff_eqn:
-            self.Ack_intermediate = Var(
-                self.flowsheet().time,
-                self.vapor_phase.length_domain,
-                bounds=(None, 100),
-                initialize=1,
-                doc="Ackmann factor as intermediate variable",
-            )
-
-            def rule_Ack_intermediate(blk, t, x):
-                if x == blk.vapor_phase.length_domain.first():
-                    return Constraint.Skip
-                else:
-                    return 1e-3 * blk.Ack_intermediate[
-                        t, x
-                    ] * blk.heat_transfer_coeff_base[t, x] * blk.area_interfacial[
-                        t, x
-                    ] * blk.area_column == -1e-3 * sum(
-                        blk.vapor_phase.properties[t, x].cp_mol_phase_comp["Vap", j]
-                        * blk.interphase_mass_transfer[t, x, j]
-                        for j in equilibrium_comp
-                    )
-
-            self.Ack_intermediate_eqn = Constraint(
-                self.flowsheet().time,
-                self.vapor_phase.length_domain,
-                rule=rule_Ack_intermediate,
-                doc="Constraint to calculate Ackmann factor",
-            )
-            # This formulation is bad. Because Ack_intermediate can be and often is near zero, the denominator is
-            # often near singular. Fortunately, in those cases, the numerator should also be near zero in such a
-            # way that the singularities cancel out, but that's only at a solved state, not intermediate iterations.
-            # Bringing (1 - exp(blk.Ack_intermediate[t, x])) to the other side just moves the singularity from the
-            # derivative calculation to the Jacobian inversion, which might allow IPOPT's regularization to save you
-            # but also causes a catastrophic loss of precision in the equation.
-
-            # In the event we need to re-enable this equation, one can write h_corrected = h_base * Ack/(exp(Ack) - 1).
-            # When calculating x/(exp(x) - 1) directly, the numerator and denominator will both go to zero at the same
-            # rate at the same time, so should behave better more often. We can also take the approximation
-            # x/(exp(x) - 1) ~= 1 - x/2 + x**2/12 - x**4/720 + O(x**6) to avoid even worrying about division by zero.
-
-            # Warning: blk.heat_transfer_coeff_base has units W/(m**2 K) as expected, but blk.heat_transfer_coeff has
-            # units W/(m K) because it isn't actually a heat transfer coefficient, but a heat transfer coefficient
-            # multiplied by heat transfer area per unit column length.
-
-            # Please double check calculations before using them directly.
-            # Doug A.
-            def rule_heat_transfer_coeff(blk, t, x):
-                if x == blk.vapor_phase.length_domain.first():
-                    return Constraint.Skip
-                else:
-                    return blk.heat_transfer_coeff[t, x] == sum(
-                        blk.vapor_phase.properties[t, x].cp_mol_phase_comp["Vap", j]
-                        * blk.interphase_mass_transfer[t, x, j]
-                        for j in equilibrium_comp
-                    ) / (1 - exp(blk.Ack_intermediate[t, x]))
-
-        else:
-
-            def rule_heat_transfer_coeff(blk, t, x):
-                if x == blk.vapor_phase.length_domain.first():
-                    return Constraint.Skip
-                else:
-                    return (
-                        blk.heat_transfer_coeff[t, x]
-                        == blk.heat_transfer_coeff_base[t, x]
-                        * blk.area_interfacial[t, x]
-                        * blk.area_column
-                    )
-
-        self.heat_transfer_coeff_eqn = Constraint(
+        @self.Constraint(
             self.flowsheet().time,
             self.vapor_phase.length_domain,
-            rule=rule_heat_transfer_coeff,
-            doc="Vap-Liq heat transfer correction by Ackmann factor",
-        )
+            doc="""Vap-Liq heat transfer correction""",
+        )        
+        def heat_transfer_coeff_eqn(blk, t, x):
+            if x == blk.vapor_phase.length_domain.first():
+                return Constraint.Skip
+            else:
+                return (
+                    blk.heat_transfer_coeff[t, x]
+                    == blk.heat_transfer_coeff_base[t, x]
+                    * blk.area_interfacial[t, x]
+                    * blk.area_column
+                )
 
 
-        self.enhancement_factor_vars, self.enhancement_factor_constraints = make_enhancement_factor_model(
+        self.enhancement_factor_vars, self.enhancement_factor_constraints = self.config.enhancement_factor_model.make_model(
             self,
-            lunits,
-            kinetics="Luo"
+            **enhancement_factor_kwargs
         )
         # Flood point calculations
 
@@ -1909,8 +1831,6 @@ class MEAColumnData(PackedColumnData):
         blk.liquid_phase.mass_transfer_term.fix(0.0)
 
         # Heat transfer rate
-        if blk.config.corrected_hx_coeff_eqn:
-            blk.Ack_intermediate.fix()
         blk.heat_transfer_coeff.fix()
         blk.vapor_phase.heat.fix(0.0)
         blk.liquid_phase.heat.fix(0.0)
@@ -2054,17 +1974,8 @@ class MEAColumnData(PackedColumnData):
         init_log.info_high("Isothermal to Adiabatic ")
 
         # Unfix heat transfer terms
-        if blk.config.corrected_hx_coeff_eqn:
-            blk.Ack_intermediate.unfix()
-            blk.Ack_intermediate_eqn.activate()
         blk.heat_transfer_coeff.unfix()
         blk.heat_transfer_coeff_eqn.activate()
-
-        if blk.config.corrected_hx_coeff_eqn:
-            for k in blk.Ack_intermediate_eqn:
-                calculate_variable_from_constraint(
-                    blk.Ack_intermediate[k], blk.Ack_intermediate_eqn[k]
-                )
 
         for k in blk.heat_transfer_coeff_eqn:
             calculate_variable_from_constraint(
@@ -2278,7 +2189,7 @@ class MEAColumnData(PackedColumnData):
         for var in blk.enhancement_factor_vars:
             var.unfix()
 
-        initialize_enhancement_factor_model(
+        blk.config.enhancement_factor_model.initialize_model(
             blk, 
             outlvl=outlvl,
             optarg=optarg,

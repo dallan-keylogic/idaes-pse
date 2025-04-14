@@ -536,35 +536,3 @@ def initialize_by_time_element(fs, time, **kwargs):
 
     # Logger message that initialization is finished
     init_log.info("Initialization completed. Model has been reactivated")
-
-def _fix_vars(var_list):
-    flags = ComponentMap()
-    for var in var_list:
-        if var.is_indexed():
-            for subvar in var.values():
-                flags[subvar] = subvar.fixed
-                subvar.fix()
-        else:
-            flags[var] = var.fixed
-            var.fix()
-    return flags
-
-
-def _unfix_vars(var_list):
-    flags = ComponentMap()
-    if var.is_indexed():
-        for subvar in var.values():
-            flags[subvar] = subvar.fixed
-            subvar.unfix()
-    else:
-        flags[var] = var.fixed
-        var.unfix()
-    return flags
-
-
-def _restore_fixedness(flags):
-    for var, fix in flags.items():
-        if fix:
-            var.fix()
-        else:
-            var.unfix()

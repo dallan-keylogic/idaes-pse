@@ -88,7 +88,10 @@ def make_enhancement_factor_model(blk, lunits, kinetics="Putta"):
                     to_units=1 / (lunits("time") * lunits("density_mole")**2),
                 )
             else:
-                return AssertionError
+                return ValueError(
+                    "The kinetics option can take on values of 'Luo' and 'Putta', but "
+                    f"an unknown option {kinetics} was passed instead."
+                )
                 
             log_preexponential_factor_MEA = log(value(preexponential_factor_MEA))
 
@@ -129,7 +132,10 @@ def make_enhancement_factor_model(blk, lunits, kinetics="Putta"):
                     to_units=1 / (lunits("time") * lunits("density_mole")**2),
                 )
             else:
-                return AssertionError
+                return ValueError(
+                    "The kinetics option can take on values of 'Luo' and 'Putta', but "
+                    f"an unknown option {kinetics} was passed instead."
+                )
 
             log_preexponential_factor_H2O = log(value(preexponential_factor_H2O))
             return b.log_rate_constant_H2O[t, x] == (

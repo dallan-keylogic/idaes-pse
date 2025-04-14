@@ -439,7 +439,7 @@ and used when constructing these
         @self.Constraint(
             self.flowsheet().time,
             self.liquid_phase.length_domain,
-            doc="Mechanical equilibruim constraint",
+            doc="Mechanical equilibrium constraint",
         )
         def mechanical_equilibrium(blk, t, x):
             if x == self.liquid_phase.length_domain.last():
@@ -467,33 +467,22 @@ and used when constructing these
         )
 
         # Equilibruim partial pressure of components at interface
-        # self.pressure_equil = Var(
-        #     self.flowsheet().time,
-        #     self.vapor_phase.length_domain,
-        #     equilibrium_comp,
-        #     domain=NonNegativeReals,
-        #     initialize=500,
-        #     units=lunits("pressure"),
-        #     doc="Equilibruim pressure of components at interface",
-        # )
-
-        # Mass transfer constraints
-        # "mass_transfer" is a bad name for these variables since they're written with a mole basis. "material" is better
-        self.mass_transfer_driving_force = Var(
+        self.pressure_equil = Var(
             self.flowsheet().time,
             self.vapor_phase.length_domain,
             equilibrium_comp,
-            initialize=0,
-            domain=Reals,
+            bounds=(0, None),
+            initialize=500,
             units=lunits("pressure"),
-            doc="Generalized driving force for mass transfer"
+            doc="Equilibruim pressure of components at interface",
         )
 
+        # Mass transfer constraints
+        # "mass_transfer" is a bad name for these variables, especially because they have a mole basis. "material" is better
         self.interphase_mass_transfer = Var(
             self.flowsheet().time,
             self.liquid_phase.length_domain,
             equilibrium_comp,
-            domain=Reals,
             initialize=0.1,
             units=lunits("amount") / (lunits("time") * lunits("length")),
             doc="Interphase mass transfer rate",
@@ -515,7 +504,14 @@ and used when constructing these
                     blk.mass_transfer_coeff_vap[t, x, j]
                     * blk.area_interfacial[t, x]
                     * blk.area_column
-                    * blk.mass_transfer_driving_force[t, x, j]
+                    * (
+                        blk.vapor_phase.properties[t, x].mole_frac_comp[j]
+                        * pyunits.convert(
+                            blk.vapor_phase.properties[t, x].pressure,
+                            to_units=lunits("pressure"),
+                        )
+                        - blk.pressure_equil[t, x, j]
+                    )
                 )
             else:
                 return blk.interphase_mass_transfer[t, x, j] == 0.0
@@ -662,6 +658,10 @@ and used when constructing these
         liq_comp = self.config.liquid_phase.property_package.component_list
         equilibrium_comp = vap_comp & liq_comp
 
+        lunits = (
+            self.config.liquid_phase.property_package.get_metadata().get_derived_units
+        )
+
         @self.Constraint(
             self.flowsheet().time,
             self.vapor_phase.length_domain,
@@ -697,27 +697,6 @@ and used when constructing these
 
         # ---------------------------------------------------------------------
         # Scale variables
-        # TODO revisit
-        for (t, x, j), v in self.mass_transfer_driving_force.items():
-            if iscale.get_scaling_factor(v) is None:
-                sf_pe = iscale.get_scaling_factor(
-                    self.mass_transfer_driving_force, default=None, warning=True
-                )
-                if sf_pe is None:
-                    sf_pe = iscale.get_scaling_factor(
-                        self.liquid_phase.properties[t, x].fug_phase_comp["Liq", j],
-                        default=None,
-                        warning=True,
-                    )
-                if sf_pe is None:
-                    sf_pe = iscale.get_scaling_factor(
-                        self.liquid_phase.properties[t, x].pressure,
-                        default=1,
-                        warning=True,
-                    )
-
-                iscale.set_scaling_factor(v, sf_pe*20)
-
         for (t, x), v in self.vapor_phase.heat.items():
             if iscale.get_scaling_factor(v) is None:
                 sf = iscale.get_scaling_factor(
@@ -742,13 +721,24 @@ and used when constructing these
                 ),
             )
 
-        for (t, x, j), v in self.pressure_at_interface.items():
-            iscale.constraint_scaling_transform(
-                v,
-                iscale.get_scaling_factor(
-                    self.mass_transfer_driving_force[t, x, j], default=1, warning=False
-                ),
-            )
+        for (t, x, j), v in self.pressure_equil.items():
+            if iscale.get_scaling_factor(v) is None:
+                sf_pe = iscale.get_scaling_factor(
+                    self.liquid_phase.properties[t, x].fug_phase_comp["Liq", j],
+                    default=None,
+                    warning=True,
+                )
+                if sf_pe is None:
+                    sf_pe = iscale.get_scaling_factor(
+                        self.liquid_phase.properties[t, x].pressure,
+                        default=1,
+                        warning=True,
+                    )
+                iscale.set_scaling_factor(v, sf_pe)
+
+        for (t, x, j), c in self.pressure_at_interface.items():
+            sf_pe = iscale.get_scaling_factor(self.pressure_equil[t, x, j])
+            iscale.constraint_scaling_transform(c, sf_pe, overwrite=False)
 
         for (t, x, j), v in self.interphase_mass_transfer_eqn.items():
             iscale.constraint_scaling_transform(
@@ -785,6 +775,8 @@ and used when constructing these
                 sf *= sf_units
             except KeyError:
                 # This implies a non-volatile component
+                # The mass transfer term is set to zero, but
+                # the equation still needs to be scaled
                 sf = iscale.get_scaling_factor(
                     self.vapor_phase.mass_transfer_term[t, x, "Vap", j], default=1, warning=True
                 )

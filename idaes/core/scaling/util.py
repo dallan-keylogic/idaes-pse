@@ -110,7 +110,7 @@ def get_scaling_hint_suffix(blk: BlockData):
         pass
     elif isinstance(blk, Block):
         raise TypeError(
-            "IndexedBlocks cannot have scaling factors attached to them. "
+            "Indexed Blocks cannot have scaling factors attached to them. "
             "Please assign scaling factors to the elements of the IndexedBlock."
         )
     else:

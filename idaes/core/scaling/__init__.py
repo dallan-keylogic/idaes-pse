@@ -19,7 +19,6 @@ from .util import (
     scaling_factors_from_dict,
     scaling_factors_to_dict,
     get_scaling_factor,
-    get_scaling_suffix,
     del_scaling_factor,
     set_scaling_factor,
     report_scaling_factors,

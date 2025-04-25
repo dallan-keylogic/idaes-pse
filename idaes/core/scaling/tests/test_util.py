@@ -19,13 +19,14 @@ from io import StringIO
 import os
 import pytest
 import re
+from copy import deepcopy
 
 from pyomo.environ import Block, Constraint, ConcreteModel, Set, Suffix, Var
 from pyomo.common.fileutils import this_file_dir
 from pyomo.common.tempfiles import TempfileManager
 
 from idaes.core.scaling.util import (
-    get_scaling_suffix,
+    get_scaling_factor_suffix,
     get_scaling_factor,
     set_scaling_factor,
     del_scaling_factor,
@@ -46,14 +47,14 @@ currdir = this_file_dir()
 
 class TestGetScalingSuffix:
     @pytest.mark.unit
-    def test_get_scaling_suffix_block_new(self, caplog):
+    def test_get_scaling_factor_suffix_block_new(self, caplog):
         caplog.set_level(
             idaeslog.DEBUG,
             logger="idaes",
         )
 
         m = ConcreteModel()
-        sfx = get_scaling_suffix(m)
+        sfx = get_scaling_factor_suffix(m)
 
         assert "Created new scaling suffix for unknown" in caplog.text
 
@@ -61,23 +62,18 @@ class TestGetScalingSuffix:
         assert sfx is m.scaling_factor
 
     @pytest.mark.unit
-    def test_get_scaling_suffix_indexed_component_new(self, caplog):
-        caplog.set_level(
-            idaeslog.DEBUG,
-            logger="idaes",
-        )
-
+    def test_get_scaling_factor_suffix_indexed_component_new(self):
         m = ConcreteModel()
         m.v = Var([1, 2, 3, 4])
-        sfx = get_scaling_suffix(m.v[1])
+        with pytest.raises(
+            TypeError,
+        ) as einfo:
+            _ = get_scaling_factor_suffix(m.v[1])
+        assert "Component v[1] was not a BlockData, instead it was a <class 'pyomo.core.base.var.VarData'" in str(einfo)
 
-        assert "Created new scaling suffix for unknown" in caplog.text
-
-        assert isinstance(m.scaling_factor, Suffix)
-        assert sfx is m.scaling_factor
 
     @pytest.mark.unit
-    def test_get_scaling_suffix_indexed_block(self):
+    def test_get_scaling_factor_suffix_indexed_block(self):
         m = ConcreteModel()
         m.b = Block([1, 2, 3, 4])
 
@@ -86,29 +82,21 @@ class TestGetScalingSuffix:
             match="IndexedBlocks cannot have scaling factors attached to them. "
             "Please assign scaling factors to the elements of the IndexedBlock.",
         ):
-            get_scaling_suffix(m.b)
+            get_scaling_factor_suffix(m.b)
 
     @pytest.mark.unit
-    def test_get_scaling_suffix_component_new(self, caplog):
-        caplog.set_level(
-            idaeslog.DEBUG,
-            logger="idaes",
-        )
-
+    def test_get_scaling_factor_suffix_component_new(self):
         m = ConcreteModel()
         m.v = Var()
-        sfx = get_scaling_suffix(m.v)
-
-        assert "Created new scaling suffix for unknown" in caplog.text
-
-        assert isinstance(m.scaling_factor, Suffix)
-        assert sfx is m.scaling_factor
+        with pytest.raises(TypeError) as e_obj:
+            _ = get_scaling_factor_suffix(m.v)
+        assert "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>" in str(e_obj)
 
     @pytest.mark.unit
-    def test_get_scaling_suffix_block_existing(self, caplog):
+    def test_get_scaling_factor_suffix_block_existing(self, caplog):
         m = ConcreteModel()
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
-        sfx = get_scaling_suffix(m)
+        sfx = get_scaling_factor_suffix(m)
 
         assert "Created new scaling suffix for unknown" not in caplog.text
 
@@ -116,21 +104,14 @@ class TestGetScalingSuffix:
         assert sfx is m.scaling_factor
 
     @pytest.mark.unit
-    def test_get_scaling_suffix_component_existing(self, caplog):
-        caplog.set_level(
-            idaeslog.DEBUG,
-            logger="idaes",
-        )
-
+    def test_get_scaling_factor_suffix_component_existing(self):
         m = ConcreteModel()
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
         m.v = Var()
-        sfx = get_scaling_suffix(m.v)
+        with pytest.raises(TypeError) as eobj:
+            _ = get_scaling_factor_suffix(m.v)
 
-        assert "Created new scaling suffix for unknown" not in caplog.text
-
-        assert isinstance(m.scaling_factor, Suffix)
-        assert sfx is m.scaling_factor
+        assert "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>" in str(eobj)
 
 
 class TestSuffixToFromDict:
@@ -216,11 +197,9 @@ class TestSuffixToFromDict:
             "foo": 7,
         }
 
-        with pytest.raises(
-            ValueError,
-            match=re.escape("Could not find component foo on block unknown."),
-        ):
+        with pytest.raises(ValueError) as eobj:
             _suffix_from_dict(model.scaling_factor, sdict, overwrite=True)
+        assert "Could not find component foo on model." in str(eobj)
 
         # If we set verify_name=False, it should proceed
         _suffix_from_dict(
@@ -258,14 +237,17 @@ class TestSuffixToFromDict:
         sdict = _collect_block_suffixes(m)
 
         assert sdict == {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {},
             "subblock_suffixes": {},
         }
 
@@ -274,29 +256,44 @@ class TestSuffixToFromDict:
         sdict = _collect_block_suffixes(model)
 
         assert sdict == {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {},
             "subblock_suffixes": {
                 "b[1]": {
-                    "v2": 10,
+                    "scaling_factor_suffix":{
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[2]": {
-                    "v2": 10,
+                    "scaling_factor_suffix":{
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[3]": {
-                    "v2": 10,
+                    "scaling_factor_suffix":{
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[4]": {
-                    "v2": 10,
+                    "scaling_factor_suffix":{
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
             },
@@ -307,14 +304,17 @@ class TestSuffixToFromDict:
         sdict = _collect_block_suffixes(model, descend_into=False)
 
         assert sdict == {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {}
         }
 
     @pytest.mark.unit
@@ -336,20 +336,30 @@ class TestSuffixToFromDict:
         # Set suffix values to retrieve
         # Only set values for some subblocks to make sure behaviour is correct
         sdict = {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {},
             "subblock_suffixes": {
                 "b[1]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
+
                 },
                 "b[2]": {
-                    "v2": 20,
+                    "scaling_factor_suffix": {
+                        "v2": 20,
+                    },
+                    "scaling_hint_suffix": {},
                 },
             },
         }
@@ -400,23 +410,33 @@ class TestSuffixToFromDict:
         # Set suffix values to retrieve
         # Only set values for some subblocks to make sure behaviour is correct
         sdict = {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {},
             "subblock_suffixes": {
                 "b[1]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                 },
                 "b[2]": {
-                    "v2": 20,
+                    "scaling_factor_suffix": {
+                        "v2": 20,
+                    },
+                    "scaling_hint_suffix": {},
                 },
             },
         }
+        sdict_copy = deepcopy(sdict)
 
         _set_block_suffixes_from_dict(m, sdict, overwrite=False)
 
@@ -437,24 +457,7 @@ class TestSuffixToFromDict:
             assert len(m.b[i].scaling_factor) == 1
 
         # Check that we did not mutate the original dict
-        assert sdict == {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
-            "subblock_suffixes": {
-                "b[1]": {
-                    "v2": 10,
-                },
-                "b[2]": {
-                    "v2": 20,
-                },
-            },
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_set_block_suffixes_from_dict_verify_names(self):
@@ -475,27 +478,36 @@ class TestSuffixToFromDict:
         # Set suffix values to retrieve
         # Only set values for some subblocks to make sure behaviour is correct
         sdict = {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {},
             "subblock_suffixes": {
                 "b[1]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                 },
                 "foo": {
-                    "v2": 20,
+                    "scaling_factor_suffix": {
+                        "v2": 20,
+                    },
+                    "scaling_hint_suffix": {},
                 },
             },
         }
 
         with pytest.raises(
             AttributeError,
-            match="Block unknown does not have a subblock named foo.",
+            match="Model does not have a subblock named foo.",
         ):
             _set_block_suffixes_from_dict(m, sdict, verify_names=True)
 
@@ -504,14 +516,16 @@ class TestSuffixToFromDict:
         sdict = scaling_factors_to_dict(model.scaling_factor)
 
         assert sdict == {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
             "block_name": "unknown",
         }
 
@@ -520,14 +534,17 @@ class TestSuffixToFromDict:
         sdict = scaling_factors_to_dict(model, descend_into=False)
 
         assert sdict == {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {},
             "block_name": "unknown",
         }
 
@@ -536,29 +553,44 @@ class TestSuffixToFromDict:
         sdict = scaling_factors_to_dict(model, descend_into=True)
 
         assert sdict == {
-            "v[1]": 5,
-            "v[2]": 10,
-            "v[3]": 15,
-            "v[4]": 20,
-            "c[1]": 5,
-            "c[2]": 25,
-            "c[3]": 125,
-            "c[4]": 625,
+            "scaling_factor_suffix": {
+                "v[1]": 5,
+                "v[2]": 10,
+                "v[3]": 15,
+                "v[4]": 20,
+                "c[1]": 5,
+                "c[2]": 25,
+                "c[3]": 125,
+                "c[4]": 625,
+            },
+            "scaling_hint_suffix": {},
             "subblock_suffixes": {
                 "b[1]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[2]": {
+                    "scaling_factor_suffix": {
                     "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[3]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[4]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
             },
@@ -570,21 +602,33 @@ class TestSuffixToFromDict:
         sdict = scaling_factors_to_dict(model.b, descend_into=True)
 
         assert sdict == {
-            "block_datas": {
+            "block_data": {
                 "b[1]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[2]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[3]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
                 "b[4]": {
-                    "v2": 10,
+                    "scaling_factor_suffix": {
+                        "v2": 10,
+                    },
+                    "scaling_hint_suffix": {},
                     "subblock_suffixes": {},
                 },
             },
@@ -595,12 +639,15 @@ class TestSuffixToFromDict:
     def test_scaling_factors_from_dict_suffix(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
+            "suffix": {
+                "v[1]": 50,
+                "v[2]": 100,
+                "c[1]": 50,
+                "c[2]": 250,
+            },          
             "block_name": "unknown",
         }
+        sdict_copy = deepcopy(sdict)
 
         scaling_factors_from_dict(
             model.scaling_factor, sdict, overwrite=True, verify_names=True
@@ -621,24 +668,21 @@ class TestSuffixToFromDict:
             assert len(bd.scaling_factor) == 1
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
-            "block_name": "unknown",
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_suffix_overwrite_false(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
+            "suffix": {
+                "v[1]": 50,
+                "v[2]": 100,
+                "c[1]": 50,
+                "c[2]": 250,
+            },           
             "block_name": "unknown",
         }
+        sdict_copy = deepcopy(sdict)
 
         scaling_factors_from_dict(
             model.scaling_factor, sdict, overwrite=False, verify_names=True
@@ -659,13 +703,7 @@ class TestSuffixToFromDict:
             assert len(bd.scaling_factor) == 1
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
-            "block_name": "unknown",
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_suffix_verify_fail(self, model):
@@ -698,7 +736,7 @@ class TestSuffixToFromDict:
         }
 
     @pytest.mark.unit
-    def test_scaling_factors_from_dict_block_data(self, model):
+    def test_missing_scaling_factor_dictionary_model(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
             "v[1]": 50,
@@ -707,6 +745,49 @@ class TestSuffixToFromDict:
             "c[2]": 250,
             "block_name": "unknown",
         }
+        with pytest.raises(
+            KeyError,
+            match=re.escape(
+                "Missing scaling factor dictionary for model."
+            )
+        ):
+            scaling_factors_from_dict(model, sdict, overwrite=True, verify_names=True)
+
+    @pytest.mark.unit
+    def test_missing_scaling_hint_dictionary_model(self, model):
+        # Partial dict of scaling factors to ensure we only touch things in the dict
+        sdict = {
+            "scaling_factor_suffix": {
+                "v[1]": 50,
+                "v[2]": 100,
+                "c[1]": 50,
+                "c[2]": 250,
+            },
+            "block_name": "unknown",
+        }
+        with pytest.raises(
+            KeyError,
+            match=re.escape(
+                "Missing scaling hint dictionary for model."
+            )
+        ):
+            scaling_factors_from_dict(model, sdict, overwrite=True, verify_names=True)
+
+
+    @pytest.mark.unit
+    def test_scaling_factors_from_dict_block_data(self, model):
+        # Partial dict of scaling factors to ensure we only touch things in the dict
+        sdict = {
+            "scaling_factor_suffix": {
+                "v[1]": 50,
+                "v[2]": 100,
+                "c[1]": 50,
+                "c[2]": 250,
+            },
+            "scaling_hint_suffix": {},
+            "block_name": "unknown",
+        }
+        sdict_copy = deepcopy(sdict)
 
         scaling_factors_from_dict(model, sdict, overwrite=True, verify_names=True)
 
@@ -725,24 +806,22 @@ class TestSuffixToFromDict:
             assert len(bd.scaling_factor) == 1
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
-            "block_name": "unknown",
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_block_data_overwrite_false(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
+            "scaling_factor_suffix": {
+                "v[1]": 50,
+                "v[2]": 100,
+                "c[1]": 50,
+                "c[2]": 250,
+            },
+            "scaling_hint_suffix": {},
             "block_name": "unknown",
         }
+        sdict_copy = deepcopy(sdict)
 
         scaling_factors_from_dict(model, sdict, overwrite=False, verify_names=True)
 
@@ -761,24 +840,22 @@ class TestSuffixToFromDict:
             assert len(bd.scaling_factor) == 1
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
-            "block_name": "unknown",
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_block_data_verify_fail(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
+            "scaling_factor_suffix": {
+                "v[1]": 50,
+                "v[2]": 100,
+                "c[1]": 50,
+                "c[2]": 250,
+            },
+            "scaling_hint_suffix": {},
             "block_name": "foo",
         }
+        sdict_copy = deepcopy(sdict)
 
         with pytest.raises(
             ValueError,
@@ -789,19 +866,13 @@ class TestSuffixToFromDict:
             scaling_factors_from_dict(model, sdict, overwrite=True, verify_names=True)
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "v[1]": 50,
-            "v[2]": 100,
-            "c[1]": 50,
-            "c[2]": 250,
-            "block_name": "foo",
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
-    def test_scaling_factors_from_dict_indexed_block(self, model):
+    def test_missing_scaling_factor_dict_block(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "block_datas": {
+            "block_data": {
                 "b[1]": {
                     "v2": 42,
                 },
@@ -811,6 +882,61 @@ class TestSuffixToFromDict:
             },
             "block_name": "b",
         }
+        with pytest.raises(
+            KeyError,
+            match=re.escape(
+                "Missing scaling factor dictionary for block b[1]."
+            )
+        ):
+            scaling_factors_from_dict(model.b, sdict, overwrite=True, verify_names=True)
+
+    @pytest.mark.unit
+    def test_missing_scaling_hint_dict_block(self, model):
+        # Partial dict of scaling factors to ensure we only touch things in the dict
+        sdict = {
+            "block_data": {
+                "b[1]": {
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    }
+                },
+                "b[2]": {
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    }
+                },
+            },
+            "block_name": "b",
+        }
+        with pytest.raises(
+            KeyError,
+            match=re.escape(
+                "Missing scaling hint dictionary for block b[1]."
+            )
+        ):
+            scaling_factors_from_dict(model.b, sdict, overwrite=True, verify_names=True)
+
+    @pytest.mark.unit
+    def test_scaling_factors_from_dict_indexed_block(self, model):
+        # Partial dict of scaling factors to ensure we only touch things in the dict
+        sdict = {
+            "block_data": {
+                "b[1]": {
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
+                },
+                "b[2]": {
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
+                },
+            },
+            "block_name": "b",
+        }
+        sdict_copy = deepcopy(sdict)
 
         scaling_factors_from_dict(model.b, sdict, overwrite=True, verify_names=True)
 
@@ -832,32 +958,29 @@ class TestSuffixToFromDict:
             assert len(model.b[k].scaling_factor) == 1
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "block_datas": {
-                "b[1]": {
-                    "v2": 42,
-                },
-                "b[2]": {
-                    "v2": 42,
-                },
-            },
-            "block_name": "b",
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_indexed_block_overwrite_false(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "block_datas": {
+            "block_data": {
                 "b[1]": {
-                    "v2": 42,
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
                 },
                 "b[2]": {
-                    "v2": 42,
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
                 },
             },
             "block_name": "b",
         }
+        sdict_copy = deepcopy(sdict)
 
         scaling_factors_from_dict(model.b, sdict, overwrite=False, verify_names=True)
 
@@ -876,32 +999,29 @@ class TestSuffixToFromDict:
             assert len(model.b[k].scaling_factor) == 1
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "block_datas": {
-                "b[1]": {
-                    "v2": 42,
-                },
-                "b[2]": {
-                    "v2": 42,
-                },
-            },
-            "block_name": "b",
-        }
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_verify_names_failure(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "block_datas": {
+            "block_data": {
                 "b[1]": {
-                    "v2": 42,
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
                 },
                 "b[2]": {
-                    "v2": 42,
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
                 },
             },
             "block_name": "foo",
         }
+        sdict_copy = deepcopy(sdict)
 
         with pytest.raises(
             ValueError,
@@ -912,28 +1032,24 @@ class TestSuffixToFromDict:
             scaling_factors_from_dict(model.b, sdict, overwrite=True, verify_names=True)
 
         # Ensure we have not mutated original dict
-        assert sdict == {
-            "block_datas": {
-                "b[1]": {
-                    "v2": 42,
-                },
-                "b[2]": {
-                    "v2": 42,
-                },
-            },
-            "block_name": "foo",
-        }
+        assert sdict == sdict_copy 
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_invalid_component(self, model):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
-            "block_datas": {
+            "block_data": {
                 "b[1]": {
-                    "v2": 42,
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
                 },
                 "b[2]": {
-                    "v2": 42,
+                    "scaling_factor_suffix": {
+                        "v2": 42,
+                    },
+                    "scaling_hint_suffix": {},
                 },
             },
             "block_name": "foo",
@@ -957,35 +1073,7 @@ class TestSuffixToFromDict:
 
         print(lines)
 
-        expected = """{
-   "v[1]": 5,
-   "c[1]": 5,
-   "v[2]": 10,
-   "c[2]": 25,
-   "v[3]": 15,
-   "c[3]": 125,
-   "v[4]": 20,
-   "c[4]": 625,
-   "subblock_suffixes": {
-      "b[1]": {
-         "v2": 10,
-         "subblock_suffixes": {}
-      },
-      "b[2]": {
-         "v2": 10,
-         "subblock_suffixes": {}
-      },
-      "b[3]": {
-         "v2": 10,
-         "subblock_suffixes": {}
-      },
-      "b[4]": {
-         "v2": 10,
-         "subblock_suffixes": {}
-      }
-   },
-   "block_name": "unknown"
-}"""
+        expected = """{\n   "scaling_factor_suffix": {\n      "v[1]": 5,\n      "c[1]": 5,\n      "v[2]": 10,\n      "c[2]": 25,\n      "v[3]": 15,\n      "c[3]": 125,\n      "v[4]": 20,\n      "c[4]": 625\n   },\n   "scaling_hint_suffix": {},\n   "subblock_suffixes": {\n      "b[1]": {\n         "scaling_factor_suffix": {\n            "v2": 10\n         },\n         "scaling_hint_suffix": {},\n         "subblock_suffixes": {}\n      },\n      "b[2]": {\n         "scaling_factor_suffix": {\n            "v2": 10\n         },\n         "scaling_hint_suffix": {},\n         "subblock_suffixes": {}\n      },\n      "b[3]": {\n         "scaling_factor_suffix": {\n            "v2": 10\n         },\n         "scaling_hint_suffix": {},\n         "subblock_suffixes": {}\n      },\n      "b[4]": {\n         "scaling_factor_suffix": {\n            "v2": 10\n         },\n         "scaling_hint_suffix": {},\n         "subblock_suffixes": {}\n      }\n   },\n   "block_name": "unknown"\n}"""
 
         assert lines == expected
 

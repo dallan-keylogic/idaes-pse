@@ -94,14 +94,14 @@ def get_scaling_factor_suffix(blk: BlockData):
         sfx = blk.scaling_factor
     except AttributeError:
         # No existing suffix, create one
-        _log.debug(f"Created new scaling suffix for {blk.name}")
+        _log.debug(f"Created new scaling suffix for {_filter_unknown(blk)}")
         sfx = blk.scaling_factor = Suffix(direction=Suffix.EXPORT)
 
     return sfx
 
 def get_scaling_hint_suffix(blk: BlockData):
     """
-    Get scaling suffix from block.
+    Get scaling hint suffix from block.
 
     Creates a new suffix if one is not found.
 
@@ -118,8 +118,8 @@ def get_scaling_hint_suffix(blk: BlockData):
         pass
     elif isinstance(blk, Block):
         raise TypeError(
-            "Indexed Blocks cannot have scaling factors attached to them. "
-            "Please assign scaling factors to the elements of the IndexedBlock."
+            "IndexedBlocks cannot have scaling hints attached to them. "
+            "Please assign scaling hints to the elements of the IndexedBlock."
         )
     else:
         raise TypeError(
@@ -498,7 +498,8 @@ def del_scaling_factor(component, delete_empty_suffix: bool = False):
         )
     # Get suffix
     parent = component.parent_block()
-    sfx = get_scaling_factor_suffix(component)  
+    # TODO what if a scaling factor exists in a non-standard place?
+    sfx = get_scaling_factor_suffix(parent)  
 
     # Delete entry for component if it exists
     # Pyomo handles case where value does not exist in suffix with a no-op

@@ -499,7 +499,7 @@ def del_scaling_factor(component, delete_empty_suffix: bool = False):
     # Get suffix
     parent = component.parent_block()
     # TODO what if a scaling factor exists in a non-standard place?
-    sfx = get_scaling_factor_suffix(parent)  
+    sfx = get_component_scaling_suffix(component)  
 
     # Delete entry for component if it exists
     # Pyomo handles case where value does not exist in suffix with a no-op
@@ -509,7 +509,15 @@ def del_scaling_factor(component, delete_empty_suffix: bool = False):
         # Check if Suffix is empty (i.e. length 0)
         if len(sfx) == 0:
             # If so, delete suffix from parent block of component
-            _log.debug(f"Deleting empty scaling suffix from {parent.name}")
+            if sfx.name == "scaling_factor":
+                _log.debug(f"Deleting empty scaling suffix from {parent.name}")
+            elif sfx.name == "scaling_hint":
+                _log.debug(f"Deleting empty scaling hint suffix from {parent.name}")
+            else:
+                raise BurntToast(
+                    "This branch should be inaccessible, please report this issue "
+                    "to the IDAES developers."
+                )
             parent.del_component(sfx)
 
 

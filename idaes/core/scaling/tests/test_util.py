@@ -1516,12 +1516,18 @@ class TestGetScalingFactor:
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
         m.scaling_factor[m.v] = 10
 
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint[m.v] = 13
+
         assert get_scaling_factor(m.v) == 10
 
     @pytest.mark.unit
     def test_get_scaling_factor_none(self):
         m = ConcreteModel()
         m.v = Var()
+
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint[m.v] = 13
 
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
 
@@ -1532,7 +1538,48 @@ class TestGetScalingFactor:
         m = ConcreteModel()
         m.v = Var()
 
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint[m.v] = 13
+
         assert get_scaling_factor(m.v) is None
+
+    @pytest.mark.unit
+    def test_get_scaling_factor_expression(self):
+        m = ConcreteModel()
+        m.e = Expression(expr=4)
+
+        # We don't want expression scaling hints to be
+        # stored in the scaling factor suffix, but in
+        # the event that one ends up there we want to
+        # guarantee good behavior
+        m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_factor[m.e] = 13
+
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint[m.e] = 10
+
+        assert get_scaling_factor(m.e) == 10
+
+    @pytest.mark.unit
+    def test_get_scaling_factor_none(self):
+        m = ConcreteModel()
+        m.e = Expression(expr=4)
+        m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_factor[m.e] = 13
+
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+
+        assert get_scaling_factor(m.e) is None
+
+    @pytest.mark.unit
+    def test_get_scaling_factor_no_suffix(self):
+        m = ConcreteModel()
+        m.e = Expression(expr=4)
+
+        m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_factor[m.e] = 13
+
+        assert get_scaling_factor(m.e) is None
 
 
 class TestSetScalingFactor:
@@ -1547,6 +1594,8 @@ class TestSetScalingFactor:
 
         assert m.scaling_factor[m.v] == 42
 
+        assert not hasattr(m, "scaling_hint")
+
     @pytest.mark.unit
     def test_set_scaling_factor_new_suffix(self, caplog):
         caplog.set_level(
@@ -1560,6 +1609,7 @@ class TestSetScalingFactor:
         set_scaling_factor(m.v, 42)
 
         assert m.scaling_factor[m.v] == 42.0
+        assert not hasattr(m, "scaling_hint")
 
         assert "Created new scaling suffix for model" in caplog.text
 
@@ -1622,6 +1672,94 @@ class TestSetScalingFactor:
         )
         assert m.scaling_factor[m.v] == 10
 
+    @pytest.fixture
+    def model_expr(self):
+        m = ConcreteModel()
+        m.e = Expression(expr=4)
+        return m
+
+    @pytest.mark.unit
+    def test_set_scaling_factor_expr(self, model_expr):
+        m = model_expr
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+
+        set_scaling_factor(m.e, 42)
+
+        assert m.scaling_hint[m.e] == 42
+
+        assert not hasattr(m, "scaling_factor")
+
+    @pytest.mark.unit
+    def test_set_scaling_factor_new_suffix(self, caplog, model_expr):
+        caplog.set_level(
+            idaeslog.DEBUG,
+            logger="idaes",
+        )
+
+        m = model_expr
+
+        set_scaling_factor(m.e, 42)
+
+        assert m.scaling_hint[m.e] == 42.0
+        assert not hasattr(m, "scaling_factor")
+
+        assert "Created new scaling hint suffix for model" in caplog.text
+
+    @pytest.mark.unit
+    def test_set_scaling_factor_not_float(self, model_expr):
+        m = model_expr
+
+        with pytest.raises(
+            ValueError, match="could not convert string to float: 'foo'"
+        ):
+            set_scaling_factor(m.e, "foo")
+
+    @pytest.mark.unit
+    def test_set_scaling_factor_negative(self, model_expr):
+        m = model_expr
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "scaling factor for e is negative (-42.0). "
+                "Scaling factors must be strictly positive."
+            ),
+        ):
+            set_scaling_factor(m.e, -42)
+
+    @pytest.mark.unit
+    def test_set_scaling_factor_zero(self, model_expr):
+        m = model_expr
+
+        with pytest.raises(
+            ValueError,
+            match=re.escape(
+                "scaling factor for e is zero. "
+                "Scaling factors must be strictly positive."
+            ),
+        ):
+            set_scaling_factor(m.e, 0)
+
+    @pytest.mark.unit
+    def test_set_scaling_factor_overwrite_false(self, caplog, model_expr):
+        caplog.set_level(
+            idaeslog.DEBUG,
+            logger="idaes",
+        )
+
+        m = model_expr
+
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint[m.e] = 10
+
+        set_scaling_factor(m.e, 42, overwrite=False)
+
+        assert (
+            "Existing scaling factor for e found and overwrite=False. "
+            "Scaling factor unchanged." in caplog.text
+        )
+        assert m.scaling_hint[m.e] == 10
+
 
 class TestDelScalingFactor:
     @pytest.mark.unit
@@ -1630,11 +1768,13 @@ class TestDelScalingFactor:
         m.v = Var()
 
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
         m.scaling_factor[m.v] = 10
 
         del_scaling_factor(m.v)
 
         assert len(m.scaling_factor) == 0
+        assert len(m.scaling_hint) == 0
 
     @pytest.mark.unit
     def test_del_scaling_factor_not_present(self, caplog):
@@ -1647,10 +1787,12 @@ class TestDelScalingFactor:
         m.v = Var()
 
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
 
         del_scaling_factor(m.v)
 
         assert len(m.scaling_factor) == 0
+        assert len(m.scaling_hint) == 0
 
     @pytest.mark.unit
     def test_del_scaling_factor_delete_empty(self, caplog):
@@ -1663,6 +1805,7 @@ class TestDelScalingFactor:
         m.v = Var()
 
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
         m.scaling_factor[m.v] = 10
 
         del_scaling_factor(m.v, delete_empty_suffix=True)
@@ -1670,6 +1813,62 @@ class TestDelScalingFactor:
         assert not hasattr(m, "scaling_factor")
 
         assert "Deleting empty scaling suffix from unknown" in caplog.text
+
+        assert len(m.scaling_hint) == 0
+
+    @pytest.mark.unit
+    def test_del_scaling_factor(self):
+        m = ConcreteModel()
+        m.e = Expression(expr=4)
+
+        m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint[m.e] = 10
+
+        del_scaling_factor(m.e)
+
+        assert len(m.scaling_factor) == 0
+        assert len(m.scaling_hint) == 0
+
+    @pytest.mark.unit
+    def test_del_scaling_factor_not_present(self, caplog):
+        caplog.set_level(
+            idaeslog.DEBUG,
+            logger="idaes",
+        )
+
+        m = ConcreteModel()
+        m.e = Expression(expr=4)
+
+        m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+
+        del_scaling_factor(m.e)
+
+        assert len(m.scaling_factor) == 0
+        assert len(m.scaling_hint) == 0
+
+    @pytest.mark.unit
+    def test_del_scaling_factor_delete_empty(self, caplog):
+        caplog.set_level(
+            idaeslog.DEBUG,
+            logger="idaes",
+        )
+
+        m = ConcreteModel()
+        m.e = Expression(expr=4)
+
+        m.scaling_factor = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint = Suffix(direction=Suffix.EXPORT)
+        m.scaling_hint[m.e] = 10
+
+        del_scaling_factor(m.e, delete_empty_suffix=True)
+
+        assert not hasattr(m, "scaling_hint")
+
+        assert "Deleting empty scaling hint suffix from unknown" in caplog.text
+        
+        assert len(m.scaling_factor) == 0
 
 
 class TestReportScalingFactors:

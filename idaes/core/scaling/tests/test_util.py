@@ -70,8 +70,10 @@ class TestGetScalingFactorSuffix:
             TypeError,
         ) as einfo:
             _ = get_scaling_factor_suffix(m.v[1])
-        assert "Component v[1] was not a BlockData, instead it was a <class 'pyomo.core.base.var.VarData'" in str(einfo)
-
+        assert (
+            "Component v[1] was not a BlockData, instead it was a <class 'pyomo.core.base.var.VarData'"
+            in str(einfo)
+        )
 
     @pytest.mark.unit
     def test_get_scaling_factor_suffix_indexed_block(self):
@@ -91,7 +93,10 @@ class TestGetScalingFactorSuffix:
         m.v = Var()
         with pytest.raises(TypeError) as e_obj:
             _ = get_scaling_factor_suffix(m.v)
-        assert "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>" in str(e_obj)
+        assert (
+            "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>"
+            in str(e_obj)
+        )
 
     @pytest.mark.unit
     def test_get_scaling_factor_suffix_block_existing(self, caplog):
@@ -112,7 +117,11 @@ class TestGetScalingFactorSuffix:
         with pytest.raises(TypeError) as eobj:
             _ = get_scaling_factor_suffix(m.v)
 
-        assert "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>" in str(eobj)
+        assert (
+            "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>"
+            in str(eobj)
+        )
+
 
 class TestGetScalingHintSuffix:
     @pytest.mark.unit
@@ -138,8 +147,10 @@ class TestGetScalingHintSuffix:
             TypeError,
         ) as einfo:
             _ = get_scaling_hint_suffix(m.v[1])
-        assert "Component v[1] was not a BlockData, instead it was a <class 'pyomo.core.base.var.VarData'" in str(einfo)
-
+        assert (
+            "Component v[1] was not a BlockData, instead it was a <class 'pyomo.core.base.var.VarData'"
+            in str(einfo)
+        )
 
     @pytest.mark.unit
     def test_get_scaling_hint_suffix_indexed_block(self):
@@ -149,8 +160,8 @@ class TestGetScalingHintSuffix:
         with pytest.raises(
             TypeError,
             match=re.escape(
-            "IndexedBlocks cannot have scaling hints attached to them. "
-            "Please assign scaling hints to the elements of the IndexedBlock."
+                "IndexedBlocks cannot have scaling hints attached to them. "
+                "Please assign scaling hints to the elements of the IndexedBlock."
             ),
         ):
             get_scaling_hint_suffix(m.b)
@@ -161,7 +172,10 @@ class TestGetScalingHintSuffix:
         m.v = Var()
         with pytest.raises(TypeError) as e_obj:
             _ = get_scaling_hint_suffix(m.v)
-        assert "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>" in str(e_obj)
+        assert (
+            "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>"
+            in str(e_obj)
+        )
 
     @pytest.mark.unit
     def test_get_scaling_hint_suffix_block_existing(self, caplog):
@@ -182,7 +196,11 @@ class TestGetScalingHintSuffix:
         with pytest.raises(TypeError) as eobj:
             _ = get_scaling_hint_suffix(m.v)
 
-        assert "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>" in str(eobj)
+        assert (
+            "Component v was not a BlockData, instead it was a <class 'pyomo.core.base.var.ScalarVar'>"
+            in str(eobj)
+        )
+
 
 def _create_model():
     m = ConcreteModel()
@@ -205,12 +223,10 @@ def _create_model():
 
     for bd in m.b.values():
         bd.v2 = Var()
-        bd.e2 = Expression(
-            m.s,
-            rule=e2_rule
-        )
+        bd.e2 = Expression(m.s, rule=e2_rule)
 
     return m
+
 
 class TestSuffixToFromDict:
     @pytest.fixture
@@ -227,8 +243,8 @@ class TestSuffixToFromDict:
 
             bd.scaling_hint = Suffix(direction=Suffix.EXPORT)
             for k in m.s:
-                bd.scaling_hint[bd.e2[k]] = 1/k
- 
+                bd.scaling_hint[bd.e2[k]] = 1 / k
+
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
         for i in m.s:
             m.scaling_factor[m.v[i]] = 5 * i
@@ -254,9 +270,7 @@ class TestSuffixToFromDict:
         }
 
         hdict = _suffix_to_dict(scaled_model.scaling_hint)
-        assert hdict == {
-            "e1": 13
-        }
+        assert hdict == {"e1": 13}
 
     @pytest.mark.unit
     def test_suffix_from_dict(self, scaled_model):
@@ -285,9 +299,7 @@ class TestSuffixToFromDict:
 
         assert len(scaled_model.scaling_factor) == 8
 
-        hdict = {
-            "e1": 130
-        }
+        hdict = {"e1": 130}
 
         _suffix_from_dict(scaled_model.scaling_hint, hdict, overwrite=True)
 
@@ -388,50 +400,50 @@ class TestSuffixToFromDict:
             "scaling_hint_suffix": {"e1": 13},
             "subblock_suffixes": {
                 "b[1]": {
-                    "scaling_factor_suffix":{
+                    "scaling_factor_suffix": {
                         "v2": 10,
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
                 "b[2]": {
-                    "scaling_factor_suffix":{
+                    "scaling_factor_suffix": {
                         "v2": 10,
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
                 "b[3]": {
-                    "scaling_factor_suffix":{
+                    "scaling_factor_suffix": {
                         "v2": 10,
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
                 "b[4]": {
-                    "scaling_factor_suffix":{
+                    "scaling_factor_suffix": {
                         "v2": 10,
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -453,7 +465,7 @@ class TestSuffixToFromDict:
                 "c[3]": 125,
                 "c[4]": 625,
             },
-            "scaling_hint_suffix": {"e1": 13}
+            "scaling_hint_suffix": {"e1": 13},
         }
 
     @pytest.mark.unit
@@ -477,11 +489,10 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
-
                 },
                 "b[2]": {
                     "scaling_factor_suffix": {
@@ -489,16 +500,15 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                 },
             },
         }
 
         _set_block_suffixes_from_dict(m, sdict)
-
 
         assert m.scaling_factor[m.v[3]] == 15
         assert m.scaling_factor[m.v[4]] == 20
@@ -512,18 +522,18 @@ class TestSuffixToFromDict:
         assert len(m.b[1].scaling_factor) == 1
 
         assert m.b[1].scaling_hint[m.b[1].e2[1]] == 1
-        assert m.b[1].scaling_hint[m.b[1].e2[2]] == 1/2
-        assert m.b[1].scaling_hint[m.b[1].e2[3]] == 1/3
-        assert m.b[1].scaling_hint[m.b[1].e2[4]] == 1/4
+        assert m.b[1].scaling_hint[m.b[1].e2[2]] == 1 / 2
+        assert m.b[1].scaling_hint[m.b[1].e2[3]] == 1 / 3
+        assert m.b[1].scaling_hint[m.b[1].e2[4]] == 1 / 4
         assert len(m.b[1].scaling_hint) == 4
 
         assert m.b[2].scaling_factor[m.b[2].v2] == 20
         assert len(m.b[2].scaling_factor) == 1
 
         assert m.b[2].scaling_hint[m.b[2].e2[1]] == 1
-        assert m.b[2].scaling_hint[m.b[2].e2[2]] == 1/2
-        assert m.b[2].scaling_hint[m.b[2].e2[3]] == 1/3
-        assert m.b[2].scaling_hint[m.b[2].e2[4]] == 1/4
+        assert m.b[2].scaling_hint[m.b[2].e2[2]] == 1 / 2
+        assert m.b[2].scaling_hint[m.b[2].e2[3]] == 1 / 3
+        assert m.b[2].scaling_hint[m.b[2].e2[4]] == 1 / 4
         assert len(m.b[2].scaling_hint) == 4
 
         assert not hasattr(m.b[3], "scaling_factor")
@@ -540,7 +550,7 @@ class TestSuffixToFromDict:
         m.scaling_hint = Suffix(direction=Suffix.EXPORT)
         m.scaling_factor[m.v[1]] = 7
         m.scaling_factor[m.v[2]] = 17
-        
+
         m.scaling_factor[m.c[1]] = 23
         m.scaling_factor[m.c[2]] = 29
 
@@ -571,9 +581,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                 },
                 "b[2]": {
@@ -582,9 +592,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                 },
             },
@@ -612,7 +622,7 @@ class TestSuffixToFromDict:
             assert len(m.b[i].scaling_factor) == 1
             assert len(m.b[i].scaling_hint) == 4
             for k in m.s:
-                assert m.b[i].scaling_hint[m.b[i].e2[k]] == 1/k
+                assert m.b[i].scaling_hint[m.b[i].e2[k]] == 1 / k
 
         for i in [3, 4]:
             assert m.b[i].scaling_factor[m.b[i].v2] == 100
@@ -733,21 +743,21 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
                 "b[2]": {
                     "scaling_factor_suffix": {
-                    "v2": 10,
+                        "v2": 10,
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -757,9 +767,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -769,9 +779,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -791,9 +801,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -803,9 +813,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -815,9 +825,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -827,9 +837,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                     "subblock_suffixes": {},
                 },
@@ -846,7 +856,7 @@ class TestSuffixToFromDict:
                 "v[2]": 100,
                 "c[1]": 50,
                 "c[2]": 250,
-            },          
+            },
             "block_name": "unknown",
         }
         sdict_copy = deepcopy(sdict)
@@ -874,7 +884,7 @@ class TestSuffixToFromDict:
             assert bd.scaling_factor[bd.v2] == 10
             assert len(bd.scaling_factor) == 1
             for k in m.s:
-                assert bd.scaling_hint[bd.e2[k]] == 1/k
+                assert bd.scaling_hint[bd.e2[k]] == 1 / k
             assert len(bd.scaling_hint) == 4
 
         # Ensure we have not mutated original dict
@@ -889,7 +899,7 @@ class TestSuffixToFromDict:
                 "v[2]": 100,
                 "c[1]": 50,
                 "c[2]": 250,
-            },           
+            },
             "block_name": "unknown",
         }
         sdict_copy = deepcopy(sdict)
@@ -917,7 +927,7 @@ class TestSuffixToFromDict:
             assert bd.scaling_factor[bd.v2] == 10
             assert len(bd.scaling_factor) == 1
             for k in m.s:
-                assert bd.scaling_hint[bd.e2[k]] == 1/k
+                assert bd.scaling_hint[bd.e2[k]] == 1 / k
             assert len(bd.scaling_hint) == 4
 
         # Ensure we have not mutated original dict
@@ -961,12 +971,11 @@ class TestSuffixToFromDict:
             "block_name": "unknown",
         }
         with pytest.raises(
-            KeyError,
-            match=re.escape(
-                "Missing scaling factor dictionary for model."
-            )
+            KeyError, match=re.escape("Missing scaling factor dictionary for model.")
         ):
-            scaling_factors_from_dict(unscaled_model, sdict, overwrite=True, verify_names=True)
+            scaling_factors_from_dict(
+                unscaled_model, sdict, overwrite=True, verify_names=True
+            )
 
     @pytest.mark.unit
     def test_missing_scaling_hint_dictionary_model(self, unscaled_model):
@@ -981,13 +990,11 @@ class TestSuffixToFromDict:
             "block_name": "unknown",
         }
         with pytest.raises(
-            KeyError,
-            match=re.escape(
-                "Missing scaling hint dictionary for model."
-            )
+            KeyError, match=re.escape("Missing scaling hint dictionary for model.")
         ):
-            scaling_factors_from_dict(unscaled_model, sdict, overwrite=True, verify_names=True)
-
+            scaling_factors_from_dict(
+                unscaled_model, sdict, overwrite=True, verify_names=True
+            )
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_block_data(self, scaled_model):
@@ -1007,11 +1014,10 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/4,
-                        "e2[3]": 1/9,
-                        "e2[4]": 1/16,
+                        "e2[2]": 1 / 4,
+                        "e2[3]": 1 / 9,
+                        "e2[4]": 1 / 16,
                     },
-
                 },
                 "b[2]": {
                     "scaling_factor_suffix": {
@@ -1019,13 +1025,13 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/4,
-                        "e2[3]": 1/9,
-                        "e2[4]": 1/16,
+                        "e2[2]": 1 / 4,
+                        "e2[3]": 1 / 9,
+                        "e2[4]": 1 / 16,
                     },
                 },
             },
-            "block_name": "unknown"
+            "block_name": "unknown",
         }
         sdict_copy = deepcopy(sdict)
 
@@ -1049,14 +1055,14 @@ class TestSuffixToFromDict:
             assert len(bd.scaling_factor) == 1
             assert len(bd.scaling_hint) == 4
             for k in m.s:
-                assert bd.scaling_hint[bd.e2[k]] == 1/k**2
+                assert bd.scaling_hint[bd.e2[k]] == 1 / k**2
         for i in [3, 4]:
             bd = m.b[i]
             assert bd.scaling_factor[bd.v2] == 10
             assert len(bd.scaling_factor) == 1
             assert len(bd.scaling_hint) == 4
             for k in m.s:
-                assert bd.scaling_hint[bd.e2[k]] == 1/k
+                assert bd.scaling_hint[bd.e2[k]] == 1 / k
 
         # Ensure we have not mutated original dict
         assert sdict == sdict_copy
@@ -1070,7 +1076,7 @@ class TestSuffixToFromDict:
         m.scaling_hint = Suffix(direction=Suffix.EXPORT)
         m.scaling_factor[m.v[1]] = 7
         m.scaling_factor[m.v[2]] = 17
-        
+
         m.scaling_factor[m.c[1]] = 23
         m.scaling_factor[m.c[2]] = 29
 
@@ -1082,7 +1088,7 @@ class TestSuffixToFromDict:
             bd.scaling_factor[bd.v2] = 100
             bd.scaling_hint = Suffix(direction=Suffix.EXPORT)
             for k in m.s:
-                bd.scaling_hint[bd.e2[k]] = 1/(k+1)**2
+                bd.scaling_hint[bd.e2[k]] = 1 / (k + 1) ** 2
 
         # Set suffix values to retrieve
         # Only set values for some subblocks to make sure behaviour is correct
@@ -1105,9 +1111,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                 },
                 "b[2]": {
@@ -1116,9 +1122,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                 },
                 "b[3]": {
@@ -1127,9 +1133,9 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                 },
                 "b[4]": {
@@ -1138,13 +1144,13 @@ class TestSuffixToFromDict:
                     },
                     "scaling_hint_suffix": {
                         "e2[1]": 1,
-                        "e2[2]": 1/2,
-                        "e2[3]": 1/3,
-                        "e2[4]": 1/4,
+                        "e2[2]": 1 / 2,
+                        "e2[3]": 1 / 3,
+                        "e2[4]": 1 / 4,
                     },
                 },
             },
-            "block_name": "unknown"
+            "block_name": "unknown",
         }
         sdict_copy = deepcopy(sdict)
 
@@ -1169,14 +1175,14 @@ class TestSuffixToFromDict:
             assert len(m.b[i].scaling_factor) == 1
             assert len(m.b[i].scaling_hint) == 4
             for k in m.s:
-                assert m.b[i].scaling_hint[m.b[i].e2[k]] == 1/(k+1)**2
+                assert m.b[i].scaling_hint[m.b[i].e2[k]] == 1 / (k + 1) ** 2
 
         for i in [3, 4]:
             assert m.b[i].scaling_factor[m.b[i].v2] == 20
             assert len(m.b[i].scaling_factor) == 1
             assert len(m.b[i].scaling_hint) == 4
             for k in m.s:
-                assert m.b[i].scaling_hint[m.b[i].e2[k]] == 1/k
+                assert m.b[i].scaling_hint[m.b[i].e2[k]] == 1 / k
 
         # Check that we did not mutate the original dict
         assert sdict == sdict_copy
@@ -1205,7 +1211,9 @@ class TestSuffixToFromDict:
                 "Block name (unknown) does not match that recorded in json_dict (foo)"
             ),
         ):
-            scaling_factors_from_dict(scaled_model, sdict, overwrite=True, verify_names=True)
+            scaling_factors_from_dict(
+                scaled_model, sdict, overwrite=True, verify_names=True
+            )
 
         # Ensure we have not mutated original dict
         assert sdict == sdict_copy
@@ -1226,11 +1234,11 @@ class TestSuffixToFromDict:
         }
         with pytest.raises(
             KeyError,
-            match=re.escape(
-                "Missing scaling factor dictionary for block b[1]."
-            )
+            match=re.escape("Missing scaling factor dictionary for block b[1]."),
         ):
-            scaling_factors_from_dict(scaled_model.b, sdict, overwrite=True, verify_names=True)
+            scaling_factors_from_dict(
+                scaled_model.b, sdict, overwrite=True, verify_names=True
+            )
 
     @pytest.mark.unit
     def test_missing_scaling_hint_dict_block(self, scaled_model):
@@ -1251,12 +1259,11 @@ class TestSuffixToFromDict:
             "block_name": "b",
         }
         with pytest.raises(
-            KeyError,
-            match=re.escape(
-                "Missing scaling hint dictionary for block b[1]."
-            )
+            KeyError, match=re.escape("Missing scaling hint dictionary for block b[1].")
         ):
-            scaling_factors_from_dict(scaled_model.b, sdict, overwrite=True, verify_names=True)
+            scaling_factors_from_dict(
+                scaled_model.b, sdict, overwrite=True, verify_names=True
+            )
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_indexed_block(self, scaled_model):
@@ -1268,10 +1275,10 @@ class TestSuffixToFromDict:
                         "v2": 42,
                     },
                     "scaling_hint_suffix": {
-                        "e2[1]": 1/4,
-                        "e2[2]": 1/9,
-                        "e2[3]": 1/16,
-                        "e2[4]": 1/25,
+                        "e2[1]": 1 / 4,
+                        "e2[2]": 1 / 9,
+                        "e2[3]": 1 / 16,
+                        "e2[4]": 1 / 25,
                     },
                 },
                 "b[2]": {
@@ -1279,10 +1286,10 @@ class TestSuffixToFromDict:
                         "v2": 42,
                     },
                     "scaling_hint_suffix": {
-                        "e2[1]": 1/4,
-                        "e2[2]": 1/9,
-                        "e2[3]": 1/16,
-                        "e2[4]": 1/25,
+                        "e2[1]": 1 / 4,
+                        "e2[2]": 1 / 9,
+                        "e2[3]": 1 / 16,
+                        "e2[4]": 1 / 25,
                     },
                 },
             },
@@ -1309,20 +1316,22 @@ class TestSuffixToFromDict:
             assert len(m.b[k].scaling_factor) == 1
             assert len(m.b[k].scaling_hint) == 4
             for i in m.s:
-                assert m.b[k].scaling_hint[m.b[k].e2[i]] == 1/(i+1)**2
+                assert m.b[k].scaling_hint[m.b[k].e2[i]] == 1 / (i + 1) ** 2
 
         for k in [3, 4]:
             assert m.b[k].scaling_factor[m.b[k].v2] == 10
             assert len(m.b[k].scaling_factor) == 1
             assert len(m.b[k].scaling_hint) == 4
             for i in m.s:
-                assert m.b[k].scaling_hint[m.b[k].e2[i]] == 1/i
+                assert m.b[k].scaling_hint[m.b[k].e2[i]] == 1 / i
 
         # Ensure we have not mutated original dict
         assert sdict == sdict_copy
 
     @pytest.mark.unit
-    def test_scaling_factors_from_dict_indexed_block_overwrite_false(self, scaled_model):
+    def test_scaling_factors_from_dict_indexed_block_overwrite_false(
+        self, scaled_model
+    ):
         # Partial dict of scaling factors to ensure we only touch things in the dict
         sdict = {
             "block_data": {
@@ -1331,10 +1340,10 @@ class TestSuffixToFromDict:
                         "v2": 42,
                     },
                     "scaling_hint_suffix": {
-                        "e2[1]": 1/4,
-                        "e2[2]": 1/9,
-                        "e2[3]": 1/16,
-                        "e2[4]": 1/25,
+                        "e2[1]": 1 / 4,
+                        "e2[2]": 1 / 9,
+                        "e2[3]": 1 / 16,
+                        "e2[4]": 1 / 25,
                     },
                 },
                 "b[2]": {
@@ -1342,10 +1351,10 @@ class TestSuffixToFromDict:
                         "v2": 42,
                     },
                     "scaling_hint_suffix": {
-                        "e2[1]": 1/4,
-                        "e2[2]": 1/9,
-                        "e2[3]": 1/16,
-                        "e2[4]": 1/25,
+                        "e2[1]": 1 / 4,
+                        "e2[2]": 1 / 9,
+                        "e2[3]": 1 / 16,
+                        "e2[4]": 1 / 25,
                     },
                 },
             },
@@ -1372,7 +1381,7 @@ class TestSuffixToFromDict:
             assert len(m.b[k].scaling_factor) == 1
             assert len(m.b[k].scaling_hint) == 4
             for i in m.s:
-                assert m.b[k].scaling_hint[m.b[k].e2[i]] == 1/i
+                assert m.b[k].scaling_hint[m.b[k].e2[i]] == 1 / i
 
         # Ensure we have not mutated original dict
         assert sdict == sdict_copy
@@ -1405,10 +1414,12 @@ class TestSuffixToFromDict:
                 "Block name (b) does not match that recorded in json_dict (foo)"
             ),
         ):
-            scaling_factors_from_dict(scaled_model.b, sdict, overwrite=True, verify_names=True)
+            scaling_factors_from_dict(
+                scaled_model.b, sdict, overwrite=True, verify_names=True
+            )
 
         # Ensure we have not mutated original dict
-        assert sdict == sdict_copy 
+        assert sdict == sdict_copy
 
     @pytest.mark.unit
     def test_scaling_factors_from_dict_invalid_component(self, scaled_model):
@@ -1434,7 +1445,9 @@ class TestSuffixToFromDict:
         with pytest.raises(
             TypeError, match=re.escape("v is not an instance of a Block of Suffix.")
         ):
-            scaling_factors_from_dict(scaled_model.v, sdict, overwrite=True, verify_names=True)
+            scaling_factors_from_dict(
+                scaled_model.v, sdict, overwrite=True, verify_names=True
+            )
 
     @pytest.mark.unit
     def test_scaling_factors_to_json_file(self, scaled_model):
@@ -1477,18 +1490,18 @@ class TestSuffixToFromDict:
         assert len(m.b[1].scaling_factor) == 1
 
         assert m.b[1].scaling_hint[m.b[1].e2[1]] == 1
-        assert m.b[1].scaling_hint[m.b[1].e2[2]] == 1/2
-        assert m.b[1].scaling_hint[m.b[1].e2[3]] == 1/3
-        assert m.b[1].scaling_hint[m.b[1].e2[4]] == 1/4
+        assert m.b[1].scaling_hint[m.b[1].e2[2]] == 1 / 2
+        assert m.b[1].scaling_hint[m.b[1].e2[3]] == 1 / 3
+        assert m.b[1].scaling_hint[m.b[1].e2[4]] == 1 / 4
         assert len(m.b[1].scaling_hint) == 4
 
         assert m.b[2].scaling_factor[m.b[2].v2] == 20
         assert len(m.b[2].scaling_factor) == 1
 
         assert m.b[2].scaling_hint[m.b[2].e2[1]] == 1
-        assert m.b[2].scaling_hint[m.b[2].e2[2]] == 1/2
-        assert m.b[2].scaling_hint[m.b[2].e2[3]] == 1/3
-        assert m.b[2].scaling_hint[m.b[2].e2[4]] == 1/4
+        assert m.b[2].scaling_hint[m.b[2].e2[2]] == 1 / 2
+        assert m.b[2].scaling_hint[m.b[2].e2[3]] == 1 / 3
+        assert m.b[2].scaling_hint[m.b[2].e2[4]] == 1 / 4
         assert len(m.b[2].scaling_hint) == 4
 
         assert not hasattr(m.b[3], "scaling_factor")
@@ -1504,7 +1517,9 @@ class TestGetScalingFactor:
 
         with pytest.raises(
             TypeError,
-            match=re.escape("Can only get scaling factors for VarData, ConstraintData, and (hints from) ExpressionData. Component unknown is instead <class 'pyomo.core.base.PyomoModel.ConcreteModel'>")
+            match=re.escape(
+                "Can only get scaling factors for VarData, ConstraintData, and (hints from) ExpressionData. Component unknown is instead <class 'pyomo.core.base.PyomoModel.ConcreteModel'>"
+            ),
         ):
             get_scaling_factor(m)
 
@@ -1867,7 +1882,7 @@ class TestDelScalingFactor:
         assert not hasattr(m, "scaling_hint")
 
         assert "Deleting empty scaling hint suffix from unknown" in caplog.text
-        
+
         assert len(m.scaling_factor) == 0
 
 

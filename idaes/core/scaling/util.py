@@ -27,6 +27,7 @@ from pyomo.environ import (
     Block,
     Boolean,
     Constraint,
+    Expression,
     NegativeIntegers,
     NegativeReals,
     NonNegativeIntegers,
@@ -547,9 +548,9 @@ def report_scaling_factors(
     Write the scaling factors for all components in a Block to a stream.
 
     Args:
-        blk: Block to get scaling factors from.
-        ctype: None, Var or Constraint. Type of component to show scaling factors for
-          (if None, shows both Vars and Constraints).
+        blk: Block to get scaling factors and/or scaling hints from.
+        ctype: None, Var, Constraint, or Expression. Type of component to show scaling factors for
+          (if None, shows all elements).
         descend_into: whether to show scaling factors for components in sub-blocks.
         stream: StringIO object to write results to. If not provided, writes to stdout.
 
@@ -560,9 +561,9 @@ def report_scaling_factors(
     if stream is None:
         stream = sys.stdout
 
-    if ctype not in [None, Var, Constraint]:
+    if ctype not in [None, Var, Constraint, Expression]:
         raise ValueError(
-            f"report_scaling_factors only supports None, Var or Constraint for argument ctype: "
+            f"report_scaling_factors only supports None, Var, Constraint, or Expression for argument ctype: "
             f"received {ctype}."
         )
 
@@ -571,10 +572,10 @@ def report_scaling_factors(
             "report_scaling_factors: blk must be an instance of a Pyomo Block."
         )
 
-    stream.write(f"Scaling Factors for {blk.name}\n")
+    stream.write(f"Scaling Factors for {_filter_unknown(blk)}\n")
 
     # We will report Vars and Constraint is separate sections for clarity - iterate separately
-    if ctype != Constraint:
+    if ctype == Var or ctype is None:
         # Collect Vars
         vdict = {}
         for blkdata in blk.values():
@@ -619,10 +620,10 @@ def report_scaling_factors(
                     f"{n + ' '*(maxname-len(n))}{TAB}{i[0]}{' '*5}{TAB}{i[1]}{TAB}{i[2]}\n"
                 )
 
-    if ctype != Var:
+    if ctype == Constraint or ctype is None:
         # Collect Constraints
+        cdict = {}
         for blkdata in blk.values():
-            cdict = {}
             for condata in blkdata.component_data_objects(
                 Constraint, descend_into=descend_into
             ):
@@ -648,6 +649,38 @@ def report_scaling_factors(
             )
 
             for n, i in cdict.items():
+                # Pad name to length
+                stream.write(f"{n + ' ' * (maxname - len(n))}{TAB}{i}\n")
+
+    if ctype == Expression or ctype is None:
+        # Collect Expressions
+        edict = {}
+        for blkdata in blk.values():
+            for exprdata in blkdata.component_data_objects(
+                Expression, descend_into=descend_into
+            ):
+                sf = get_scaling_factor(exprdata)
+
+                if sf is not None:
+                    sfstr = "{:.3E}".format(sf)
+                else:
+                    sfstr = "None"
+
+                edict[exprdata.name] = sfstr
+
+        # Write Expression section - skip if no Expressions
+        if len(edict) > 0:
+            # Get longest con name
+            header = "Expression"
+            maxname = len(max(edict.keys(), key=len))
+            if maxname < len(header):
+                maxname = len(header)
+
+            stream.write(
+                f"\n{header}{' ' * (maxname - len(header))}{TAB}Scaling Hint\n"
+            )
+
+            for n, i in edict.items():
                 # Pad name to length
                 stream.write(f"{n + ' ' * (maxname - len(n))}{TAB}{i}\n")
 

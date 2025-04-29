@@ -1889,25 +1889,14 @@ class TestDelScalingFactor:
 class TestReportScalingFactors:
     @pytest.fixture
     def model(self):
-        m = ConcreteModel()
-        m.s = Set(initialize=[1, 2, 3, 4])
-
-        m.v = Var(m.s)
-
-        @m.Constraint(m.s)
-        def c(b, i):
-            return b.v[i] == i
-
-        m.b = Block(m.s)
-
-        for i, bd in m.b.items():
-            bd.v2 = Var()
+        m = _create_model()
 
         # Need to check all possible behaviours
         # Set values for half the variables (indexes 1 and 3)
         for i in [1, 3]:
             m.v[i].set_value(42)
             m.b[i].v2.set_value(42)
+            m.b[i].c2 = Constraint(expr=m.b[i].v2 == m.b[i].e2[i])
 
         # Set scaling factors for half the components (indexed 1 and 2)
         m.scaling_factor = Suffix(direction=Suffix.EXPORT)
@@ -1917,6 +1906,13 @@ class TestReportScalingFactors:
             m.b[i].scaling_factor = Suffix(direction=Suffix.EXPORT)
             m.b[i].scaling_factor[m.b[i].v2] = 10
 
+        set_scaling_factor(m.b[1].c2, 89)
+
+        for i in [1, 3]:
+            m.b[i].scaling_hint = Suffix(direction=Suffix.EXPORT)
+            for k in [2, 4]:
+                m.b[i].scaling_hint[m.b[i].e2[k]] = 1 / k
+
         return m
 
     @pytest.mark.unit
@@ -1925,7 +1921,7 @@ class TestReportScalingFactors:
 
         report_scaling_factors(model, descend_into=True, stream=stream)
 
-        expected = """Scaling Factors for unknown
+        expected = """Scaling Factors for model
 
 Variable    Scaling Factor    Value        Scaled Value
 v[1]        5.000E+00         4.200E+01    2.100E+02
@@ -1942,6 +1938,27 @@ c[1]          5.000E+00
 c[2]          2.500E+01
 c[3]          None
 c[4]          None
+b[1].c2       8.900E+01
+b[3].c2       None
+
+Expression    Scaling Hint
+e1            None
+b[1].e2[1]    None
+b[1].e2[2]    5.000E-01
+b[1].e2[3]    None
+b[1].e2[4]    2.500E-01
+b[2].e2[1]    None
+b[2].e2[2]    None
+b[2].e2[3]    None
+b[2].e2[4]    None
+b[3].e2[1]    None
+b[3].e2[2]    5.000E-01
+b[3].e2[3]    None
+b[3].e2[4]    2.500E-01
+b[4].e2[1]    None
+b[4].e2[2]    None
+b[4].e2[3]    None
+b[4].e2[4]    None
 """
 
         print(stream.getvalue())
@@ -1953,7 +1970,7 @@ c[4]          None
 
         report_scaling_factors(model, descend_into=False, stream=stream)
 
-        expected = """Scaling Factors for unknown
+        expected = """Scaling Factors for model
 
 Variable    Scaling Factor    Value        Scaled Value
 v[1]        5.000E+00         4.200E+01    2.100E+02
@@ -1966,6 +1983,9 @@ c[1]          5.000E+00
 c[2]          2.500E+01
 c[3]          None
 c[4]          None
+
+Expression    Scaling Hint
+e1            None
 """
 
         assert stream.getvalue() == expected
@@ -1976,7 +1996,7 @@ c[4]          None
 
         report_scaling_factors(model, descend_into=True, ctype=Var, stream=stream)
 
-        expected = """Scaling Factors for unknown
+        expected = """Scaling Factors for model
 
 Variable    Scaling Factor    Value        Scaled Value
 v[1]        5.000E+00         4.200E+01    2.100E+02
@@ -1999,13 +2019,15 @@ b[4].v2     None              None         None
             model, descend_into=True, stream=stream, ctype=Constraint
         )
 
-        expected = """Scaling Factors for unknown
+        expected = """Scaling Factors for model
 
 Constraint    Scaling Factor
 c[1]          5.000E+00
 c[2]          2.500E+01
 c[3]          None
 c[4]          None
+b[1].c2       8.900E+01
+b[3].c2       None
 """
 
         assert stream.getvalue() == expected
@@ -2016,13 +2038,35 @@ c[4]          None
 
         report_scaling_factors(model.b, descend_into=True, stream=stream)
 
-        expected = """Scaling Factors for b
+        expected = """Scaling Factors for block b
 
 Variable    Scaling Factor    Value        Scaled Value
 b[1].v2     1.000E+01         4.200E+01    4.200E+02
 b[2].v2     1.000E+01         None         None
 b[3].v2     None              4.200E+01    4.200E+01
 b[4].v2     None              None         None
+
+Constraint    Scaling Factor
+b[1].c2       8.900E+01
+b[3].c2       None
+
+Expression    Scaling Hint
+b[1].e2[1]    None
+b[1].e2[2]    5.000E-01
+b[1].e2[3]    None
+b[1].e2[4]    2.500E-01
+b[2].e2[1]    None
+b[2].e2[2]    None
+b[2].e2[3]    None
+b[2].e2[4]    None
+b[3].e2[1]    None
+b[3].e2[2]    5.000E-01
+b[3].e2[3]    None
+b[3].e2[4]    2.500E-01
+b[4].e2[1]    None
+b[4].e2[2]    None
+b[4].e2[3]    None
+b[4].e2[4]    None
 """
 
         assert stream.getvalue() == expected
@@ -2045,7 +2089,7 @@ b[4].v2     None              None         None
 
         with pytest.raises(
             ValueError,
-            match="report_scaling_factors only supports None, Var or Constraint for argument ctype: "
+            match="report_scaling_factors only supports None, Var, Constraint, or Expression for argument ctype: "
             "received foo.",
         ):
             report_scaling_factors(model, descend_into=True, stream=stream, ctype="foo")

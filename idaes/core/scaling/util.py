@@ -488,6 +488,9 @@ def set_scaling_factor(component, scaling_factor: float, overwrite: bool = False
         )
 
     if component.is_indexed():
+        # What if a scaling factor already exists for the indexed component?
+        # for idx in component:
+        #     set_scaling_factor(component[idx], scaling_factor=scaling_factor, overwrite=overwrite)
         raise TypeError(
             f"Component {component.name} is indexed. Set scaling factors for individual indices instead."
         )
@@ -689,9 +692,9 @@ def get_nominal_value(component):
     """
     Get the signed nominal value for a VarData or ParamData component.
 
-    For fixed Vars and Params, the current value of the component will be returned.
+    For Params, the current value of the component will be returned.
 
-    For unfixed Vars, the nominal value is determined using the assigned scaling factor
+    For Vars, the nominal value is determined using the assigned scaling factor
     and the sign determined based on the bounds and domain of the variable (defaulting to
     positive). If no scaling factor is set, then the current value will be used if set,
     otherwise the absolute nominal value will be equal to 1.
@@ -707,10 +710,6 @@ def get_nominal_value(component):
     """
     # Determine if Var or Param
     if isinstance(component, VarData):
-        if component.fixed:
-            # Nominal value of a fixed Var is its value
-            return value(component)
-
         # Get scaling factor for Var
         sf = get_scaling_factor(component)
         if sf is None:
@@ -937,11 +936,19 @@ class NominalValueExtractionVisitor(EXPR.StreamBasedExpressionVisitor):
 
     # Probably some errors here---check more closely
     def beforeChild(self, node, child, child_idx):
-        if isinstance(child[child_idx], ExpressionData):
-            # Consider specific _get_scaling_factor_hint method
-            sf = get_scaling_factor(child[child_idx])
+        if isinstance(child, ExpressionData):
+            sf = get_scaling_factor(child)
             if sf is not None:
-                return (False, 1 / sf)
+                # Crude way to determine sign of expression. Maybe fbbt could be used here?
+                try:
+                    val = value(child)
+                except ValueError:
+                    # Some variable isn't defined, etc.
+                    val = 1
+                if val < 0:
+                    return (False, [-1 / sf])
+                else:
+                    return (False, [1 / sf])
         return (True, None)
 
     def exitNode(self, node, data):

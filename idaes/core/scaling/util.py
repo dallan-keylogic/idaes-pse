@@ -429,7 +429,7 @@ def _suffix_from_dict(
             )
 
 
-def get_scaling_factor(component):
+def get_scaling_factor(component, default=None):
     """
     Get scaling factor for component.
 
@@ -451,8 +451,8 @@ def get_scaling_factor(component):
     try:
         return sfx[component]
     except (AttributeError, KeyError):
-        # No scaling factor found, return None
-        return None
+        # No scaling factor found, return the default value
+        return default
 
 
 def set_scaling_factor(component, scaling_factor: float, overwrite: bool = False):

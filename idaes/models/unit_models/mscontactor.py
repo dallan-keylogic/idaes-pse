@@ -54,8 +54,10 @@ from idaes.core.initialization.initializer_base import StoreState
 from idaes.core.util.model_serializer import to_json, from_json
 import idaes.logger as idaeslog
 from idaes.core.util.units_of_measurement import report_quantity
+from idaes.core.util.exceptions import ConfigurationError
+from idaes.core.scaling import CustomScalerBase, get_scaling_factor
 
-__author__ = "Andrew Lee"
+__author__ = "Andrew Lee, Douglas Allan"
 
 # TODO: Could look at using Pyomo DAE for the length domain, but this would make
 # it harder to do side feeds.
@@ -1284,7 +1286,7 @@ def _get_energy_transfer_term(blk, uom):
         # Assume that if energy balances are enabled that energy transfer
         # occurs between all interacting phases.
         # For now, we will not distinguish different types of energy transfer.
-        # Convention is that a positive material flow term indicates flow into
+        # Convention is that a positive energy flow term indicates flow into
         # the first stream from the second stream.
         blk.energy_transfer_term = Var(
             blk.flowsheet().time,
@@ -1465,3 +1467,375 @@ def _add_phase_fractions(b, stream, phase_list):
 
 def _sum_phase_frac_rule(b, t, x, phase_frac, phase_list):
     return 1 == sum(phase_frac[t, x, p] for p in phase_list)
+
+
+class MSContactorScaler(CustomScalerBase):
+    """
+    Scaler for the MSContactor.
+    """
+
+    UNIT_SCALING_FACTORS = {
+        # "QuantityName: (reference units, scaling factor)
+        "Delta Pressure": (units.Pa, 1e-3),
+        "Heat": (units.J / units.s, 1e-6),
+    }
+
+    def variable_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        """
+        Variable scaling routine for Gibbs reactors.
+
+        Due to the nature of Gibbs Reactors, scaling is highly dependent on the outlet
+        concentrations which cannot be predicted a priori, thus we rely on users to
+        provide the best initial guesses they can for the outlet concentrations.
+
+        Args:
+            model: instance of GibbsReactor to be scaled
+            overwrite: whether to overwrite existing scaling factors
+            submodel_scalers: dict of Scalers to use for sub-models, keyed by submodel local name
+
+        Returns:
+            None
+        """
+        if submodel_scalers is None:
+            submodel_scalers = {}
+
+        # Step 1: Property and reaction scaling
+
+        # Step 1a: propagate any existing scaling from inlet to outlet
+        for stream in model.streams:
+            if hasattr(model, stream + "_inlet_state"):
+                feed = getattr(model, stream + "_inlet_state")
+            else:
+                raise NotImplementedError(
+                    "Scaling has not yet been implemented for MSContactor blocks "
+                    "that do not have inlet streams."
+                )
+            if hasattr(stream + "_side_stream_state"):
+                raise NotImplementedError(
+                    "Scaling has not yet been implemented for MSContactor blocks "
+                    "that have side streams"
+                )
+            stream_state = getattr(model, stream)
+            for t in model.flowsheet().time:
+                for e in model.elements:
+                    self.propagate_state_data_scaling(
+                        source_state=feed[t],
+                        target_state=stream_state[t, e],
+                        overwrite=overwrite,
+                    )
+        
+
+        # Step 1b: Call Scalers for state blocks
+        for stream in model.streams:
+            if hasattr(model, stream + "_inlet_state"):
+                self.call_submodel_scaler_method(
+                    submodel=getattr(model, stream + "_inlet_state"),
+                    submodel_scalers=submodel_scalers,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite,
+                )
+            if hasattr(stream + "_side_stream_state"):
+                self.call_submodel_scaler_method(
+                    submodel=getattr(model, stream + "_side_stream_state"),
+                    submodel_scalers=submodel_scalers,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite,
+                )                
+            self.call_submodel_scaler_method(
+                submodel=getattr(model, stream),
+                submodel_scalers=submodel_scalers,
+                method="variable_scaling_routine",
+                overwrite=overwrite,
+            )
+        # Step 1c: Call Scalers for reaction blocks
+        # TODO
+
+        # Step 2: Scaling MSContactor level variables
+        if model.config.has_holdup:
+            # Right now we're assuming that volume is fixed
+            # The volume fractions and phase fractions should be order 1
+            for stream in model.streams:
+                material_holdup = getattr(model, stream + "_material_holdup")
+                phase_frac = getattr(model, stream + "_phase_fraction")
+                for idx in material_holdup:
+                    t, e, p, j = idx
+                    stage_state = getattr(model, stream)[t, e]
+                    # Expression for holdup
+                    nom = self.get_expression_nominal_values(
+                        model.volume[e]
+                        * model.volume_frac_stream[t, e, stream]
+                        * phase_frac[t, e, p]
+                        * stage_state.get_material_density_terms(p, j)
+                    )
+                    self.set_variable_scaling_factor(
+                        model.holdup[idx],
+                        1/nom,
+                        overwrite=overwrite
+                    )
+
+
+        
+        for idx in model.stream_component_interactions:
+            stream1 = idx[0]
+            stream2 = idx[1]
+            comp = idx[2]
+            stream_state1 = getattr(model, stream1)
+            stream_state2 = getattr(model, stream2)
+            for t in model.flowsheet().time:
+                for e in model.elements:
+                    nom1 = self.get_expression_nominal_values(
+                        sum(
+                            stream_state1[t, e].get_material_flow_terms(p, comp)
+                            for p in stream_state1[t, e].phase_list
+                            if (p, comp) in stream_state1[t, e].pc_set
+                        )
+                    )
+                    nom2 = self.get_expression_nominal_values(
+                        sum(
+                            stream_state2[t, e].get_material_flow_terms(p, comp)
+                            for p in stream_state2[t, e].phase_list
+                            if (p, comp) in stream_state2[t, e].pc_set
+                        )
+                    )
+                    # Guess that the material transfer between stream1 and stream2
+                    # will be about 1/10th as large as the material flow terms
+                    sf = 10 / min(nom1, nom2)
+                    self.set_variable_scaling_factor(
+                        model.material_transfer_term[t, e, idx],
+                        sf,
+                        overwrite=overwrite
+                    )
+        if hasattr(model, "heterogeneous_reactions"):
+            for stream, sconfig in model.config.streams.items():
+                # Extent of reaction scaling needs to be delegated to the
+                # reaction package somehow
+                # Or we could use an expedient
+                state_block = getattr(self, stream)
+                pc_set = state_block.phase_component_set
+
+
+                het_rxn_gen = getattr(stream + "_heterogeneous_reactions_generation")
+                for t in model.flowsheet().time:
+                    for e in model.elements:
+                        for (p, j) in pc_set:
+                            # Add zero to make sure scaling hint is got correctly.
+                            # TODO make this redundant
+                            nom = self.get_expression_nominal_values(
+                                0 + stream_state[t, e].get_material_flow_terms(p, comp)
+                            )
+                            self.set_variable_scaling_factor(
+                                het_rxn_gen[t, e, p, j],
+                                10/nom,
+                                overwrite=overwrite
+                            )
+            t0 = model.flowsheet().time.first()
+            e0 = model.elements.first()
+            stoich = model.heterogeneous_reactions[t0, e0].params.reaction_stoichiometry
+            for t in model.flowsheet().time():
+                for e in model.elements:
+                    rxn_dict = {rxn: 0 for rxn in model.config.heterogeneous_reactions.reaction_idx}
+                    for idx, coeff in stoich:
+                        rxn, p, j = idx
+                        for stream, sconfig in model.config.streams.items():
+                            stream_state = getattr(model, stream)[t, e]
+                            het_rxn_gen = getattr(stream + "_heterogeneous_reactions_generation")
+                            if (p, j) in stream_state.phase_component_set:
+                                sf = get_scaling_factor(het_rxn_gen[t, e, p, j])
+                                rxn_dict[rxn] = min(abs(coeff) / sf, rxn_dict[rxn])
+                    for rxn in model.config.heterogeneous_reactions.reaction_idx:
+                        self.set_variable_scaling_factor(
+                            model.heterogeneous_reaction_extent[t, e, rxn],
+                            1 / rxn_dict[rxn]
+                        )
+    
+        for stream, sconfig in model.config.streams.items():
+            stream_state = getattr(model, stream)
+            if sconfig.has_rate_reactions:
+                raise NotImplementedError(
+                    "Scaling for homogeneous rate reactions have not yet been implemented."
+                )
+            if sconfig.has_equilibrium_reactions:
+                raise NotImplementedError(
+                    "Scaling for homogeneous equilibrium reactions have not yet been implemented."
+                )
+            if stream_state.include_inherent_reactions:
+                # Variables to scale: 
+                # {stream}_inherent_reaction_extent
+                # {stream}_inherent_reaction_generation
+                stream_state = getattr(model, stream)
+                params = stream_state.params
+                inherent_reaction_extent = getattr(model, stream + "_inherent_reaction_extent")
+                inherent_reaction_generation = getattr(model, stream + "_inherent_reaction_generation")
+                for t in model.flowsheet().time:
+                    for e in model.elements:
+                        rxn_dict = {rxn: 0 for rxn in model.config.heterogeneous_reactions.reaction_idx}
+                        for (p, j) in stream_state.phase_component_set:
+                            nom = self.get_expression_nominal_values(
+                                0 + stream_state[t, e].get_material_flow_terms(p, comp)
+                            )
+                            self.set_variable_scaling_factor(
+                                inherent_reaction_generation[t, e, p, j],
+                                10/nom,
+                                overwrite=overwrite
+                            )
+
+
+
+        for stream, pconfig in model.config.streams.items():
+            if pconfig.has_energy_balance:
+                state_block = getattr(model, stream)
+                phase_list = state_block.phase_list
+                if model.config.has_holdup:
+                    phase_frac = getattr(model, stream + "_phase_fraction")
+                    energy_holdup = getattr(model, stream + "_energy_holdup")
+                    for t in model.flowsheet().time:
+                        for e in model.elements:
+                            stage_state = state_block[t, e]
+                            for p in phase_list:
+                                nom = self.get_expression_nominal_values(
+                                    model.volume[e]
+                                    * model.volume_frac_stream[t, e, stream]
+                                    * phase_frac[t, e, p]
+                                    * stage_state.get_energy_density_terms(p)
+                                )
+                                self.set_variable_scaling_factor(
+                                    energy_holdup[t, e, p],
+                                    1/nom
+                                )
+                if model.config.dynamic:
+                    # TODO scale energy accumulation
+                    raise NotImplementedError(
+                        "Scaling is not implemented for dynamic models yet."
+                    )
+                if pconfig.has_heat_transfer:
+                     for t in model.flowsheet().time:
+                        for e in model.elements:
+                            stage_state = state_block[t, e]
+                            nom = self.get_expression_nominal_values(
+                                sum(
+                                    stage_state[t, e].get_enthalpy_flow_terms(p)
+                                    for p in stage_state[t, e].phase_list
+                                )
+                            )
+                            # Guess that the energy transfer from the outside
+                            # will be about 1/10th as large as the material flow terms
+                            self.set_variable_scaling_factor(
+                                model.energy_transfer_term[t, e],
+                                10 / nom,
+                                overwrite=overwrite
+                            ) 
+
+                for idx in model.stream_interactions:
+                    stream1 = idx[0]
+                    stream2 = idx[1]
+                    stream_state1 = getattr(model, stream1)
+                    stream_state2 = getattr(model, stream2)
+                    for t in model.flowsheet().time:
+                        for e in model.elements:
+                            nom1 = self.get_expression_nominal_values(
+                                sum(
+                                    stream_state1[t, e].get_enthalpy_flow_terms(p)
+                                    for p in stream_state1[t, e].phase_list
+                                )
+                            )
+                            nom2 = self.get_expression_nominal_values(
+                                sum(
+                                    stream_state2[t, e].get_enthalpy_flow_terms(p)
+                                    for p in stream_state2[t, e].phase_list
+                                )
+                            )
+                            # Guess that the energy transfer between stream1 and stream2
+                            # will be about 1/10th as large as the energy flow terms
+                            sf = 10 / min(nom1, nom2)
+                            self.set_variable_scaling_factor(
+                                model.energy_transfer_term[t, e, idx],
+                                sf,
+                                overwrite=overwrite
+                            )                  
+
+        for stream, pconfig in self.config.streams.items():
+            if pconfig.has_pressure_balance:
+                raise NotImplementedError(
+                    "Scaling for pressure balances has not been implemented yet."
+                )
+                    
+
+
+        # # Lagrangian multipliers
+        # # Best guess scaling for these is R*T, need to convert units
+        # p_units = (
+        #     model.control_volume.config.property_package.get_metadata().get_derived_units
+        # )
+        # for (t, _), v in model.lagrange_mult.items():
+        #     tsf = self.get_scaling_factor(
+        #         model.control_volume.properties_out[t].temperature
+        #     )
+        #     if tsf is not None:
+        #         nominal_t = 1 / tsf
+        #     else:
+        #         nominal_t = 500
+        #     lsf = value(
+        #         1
+        #         / units.convert(
+        #             Constants.gas_constant * nominal_t * p_units("temperature"),
+        #             to_units=p_units("energy_mole"),
+        #         )
+        #     )
+        #     self.set_variable_scaling_factor(v, lsf, overwrite=overwrite)
+
+    def constraint_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        """
+        Routine to apply scaling factors to constraints in model.
+
+        Constraints will be scaled based on nominal Jacobian norms, and thus will
+        be heavily dependent on variable scaling.
+
+        Args:
+            model: model to be scaled
+            overwrite: whether to overwrite existing scaling factors
+            submodel_scalers: dict of Scalers to use for sub-models, keyed by submodel local name
+
+        Returns:
+            None
+        """
+        # Step 1: Call Scalers for state blocks
+        # Inlet properties
+        self.call_submodel_scaler_method(
+            submodel=model.control_volume.properties_in,
+            submodel_scalers=submodel_scalers,
+            method="constraint_scaling_routine",
+            overwrite=overwrite,
+        )
+        # Outlet properties
+        self.call_submodel_scaler_method(
+            submodel=model.control_volume.properties_out,
+            submodel_scalers=submodel_scalers,
+            method="constraint_scaling_routine",
+            overwrite=overwrite,
+        )
+
+        # Step 2: Scale all the control volume constraints
+        for cd in model.control_volume.component_data_objects(
+            ctype=Constraint, descend_into=False
+        ):
+            self.scale_constraint_by_nominal_value(
+                cd, scheme="inverse_sum", overwrite=overwrite
+            )
+
+        # Step 3: Scale local constraints
+        # Scale Gibbs minimization constraints
+        for cd in model.gibbs_minimization.values():
+            self.scale_constraint_by_nominal_value(
+                cd, scheme="inverse_sum", overwrite=overwrite
+            )
+
+        # Scale inert species balance if they are present
+        if hasattr(model, "inert_species_balance"):
+            for cd in model.inert_species_balance.values():
+                self.scale_constraint_by_nominal_value(
+                    cd, scheme="inverse_sum", overwrite=overwrite
+                )

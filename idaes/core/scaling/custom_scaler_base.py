@@ -19,6 +19,7 @@ from copy import copy
 
 from pyomo.environ import ComponentMap, units, value
 from pyomo.core.base.units_container import UnitsError
+from pyomo.core.base.indexed_component_slice import IndexedComponent_slice
 from pyomo.core.expr import identify_variables
 from pyomo.core.expr.calculus.derivatives import Modes, differentiate
 
@@ -541,16 +542,36 @@ class CustomScalerBase(ScalerBase):
             None
         """
         for bidx, target_data in target_state.items():
-            target_vars = target_data.define_state_vars()
-            source_vars = source_state[bidx].define_state_vars()
+            self.propagate_state_data_scaling(
+                target_state_data=target_data,
+                source_state_data=source_state[bidx],
+                overwrite=overwrite
+            )
+    def propagate_state_data_scaling(
+        self, target_state_data, source_state_data, overwrite: bool = False
+    ):
+        """
+        Propagate scaling of state variables from one StateBlockData to another.
 
-            for state, var in target_vars.items():
-                for vidx, vardata in var.items():
-                    self.scale_variable_by_component(
-                        target_variable=vardata,
-                        scaling_component=source_vars[state][vidx],
-                        overwrite=overwrite,
-                    )
+        Args:
+            target_state_data: StateBlockData to set scaling factors on
+            source_state_data: StateBlockData to use as source for scaling factors
+            overwrite: whether to overwrite existing scaling factors
+
+        Returns:
+            None
+        """
+        target_vars = target_state_data.define_state_vars()
+        source_vars = source_state_data.define_state_vars()
+
+        for state, var in target_vars.items():
+            for vidx, vardata in var.items():
+                self.scale_variable_by_component(
+                    target_variable=vardata,
+                    scaling_component=source_vars[state][vidx],
+                    overwrite=overwrite,
+                )
+        
 
     def call_submodel_scaler_method(
         self,

@@ -486,6 +486,16 @@ def set_scaling_factor(component, scaling_factor: float, overwrite: bool = False
             f"scaling factor for {component.name} is zero. "
             "Scaling factors must be strictly positive."
         )
+    elif scaling_factor == float("inf"):
+        raise ValueError(
+            f"scaling factor for {component.name} is infinity. "
+            "Scaling factors must be finite."
+        )
+    elif math.isnan(scaling_factor):
+        raise ValueError(
+            f"scaling factor for {component.name} is NaN."
+        )
+
 
     if component.is_indexed():
         # What if a scaling factor already exists for the indexed component?

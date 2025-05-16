@@ -450,6 +450,28 @@ class CustomScalerBase(ScalerBase):
             constraint=constraint, scaling_factor=sf, overwrite=overwrite
         )
 
+    def scale_constraint_by_variable(
+        self,
+        constraint,
+        variable,
+        overwrite: bool = False,
+    ):
+        """
+        Set scaling factor for constraint based on scaling factor for variable
+
+        Args:
+            constraint: constraint to set scaling factor for
+            variable: variable from which the scaling factor is taken
+            overwrite: whether to overwrite existing scaling factors
+
+        Returns:
+            None
+        """
+        sf = get_scaling_factor(variable)
+        self.set_constraint_scaling_factor(
+            constraint=constraint, scaling_factor=sf, overwrite=overwrite
+        )
+
     def scale_constraint_by_nominal_derivative_norm(
         self, constraint, norm: int = 2, overwrite: bool = False
     ):

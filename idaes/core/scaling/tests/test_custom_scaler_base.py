@@ -66,7 +66,7 @@ class DummyScaler(CustomScalerBase):
     def fill_in_2(self, model):
         model._verification.append("fill_in_2")
 
-    def dummy_method(self, model, overwrite):
+    def dummy_method(self, model, overwrite, submodel_scalers):
         model._dummy_scaler_test = overwrite
 
 
@@ -350,6 +350,24 @@ class TestCustomScalerBase:
         model.scaling_factor[model.temperature] = 1e-2
         model.scaling_factor[model.volume_mol] = 1e-1
 
+        nominal_value = sb.get_expression_nominal_value(model.ideal_gas.body)
+
+        # Nominal value will be P*V - R*T
+        assert nominal_value == pytest.approx(831.446 - 1e6, rel=1e-5)
+
+        # Check redirection for ConstraintData objects
+        nominal_value = sb.get_expression_nominal_value(model.ideal_gas)
+        assert nominal_value == pytest.approx(831.446 - 1e6, rel=1e-5)
+
+    @pytest.mark.unit
+    def test_get_sum_terms_nominal_value(self, model):
+        sb = CustomScalerBase()
+
+        # Set variable scaling factors for testing
+        model.scaling_factor[model.pressure] = 1e-5
+        model.scaling_factor[model.temperature] = 1e-2
+        model.scaling_factor[model.volume_mol] = 1e-1
+
         nominal_values = sb.get_expression_nominal_values(model.ideal_gas.expr)
 
         # Nominal values will be (R*T, P*V)
@@ -359,7 +377,31 @@ class TestCustomScalerBase:
         ]
 
         # Check redirection for ConstraintData objects
-        nominal_values = sb.get_expression_nominal_values(model.ideal_gas)
+        nominal_values = sb.get_sum_terms_nominal_values(model.ideal_gas)
+        assert nominal_values == [
+            pytest.approx(831.446, rel=1e-5),
+            pytest.approx(1e6, rel=1e-5),
+        ]
+
+    @pytest.mark.unit
+    def test_get_sum_terms_nominal_values(self, model):
+        sb = CustomScalerBase()
+
+        # Set variable scaling factors for testing
+        model.scaling_factor[model.pressure] = 1e-5
+        model.scaling_factor[model.temperature] = 1e-2
+        model.scaling_factor[model.volume_mol] = 1e-1
+
+        nominal_values = sb.get_sum_terms_nominal_values(model.ideal_gas.expr)
+
+        # Nominal values will be (R*T, P*V)
+        assert nominal_values == [
+            pytest.approx(831.446, rel=1e-5),
+            pytest.approx(1e6, rel=1e-5),
+        ]
+
+        # Check redirection for ConstraintData objects
+        nominal_values = sb.get_sum_terms_nominal_values(model.ideal_gas)
         assert nominal_values == [
             pytest.approx(831.446, rel=1e-5),
             pytest.approx(1e6, rel=1e-5),
@@ -680,3 +722,5 @@ class TestCustomScalerBase:
             assert not bd._dummy_scaler_test
 
         assert "Using user-defined Scaler for b." in caplog.text
+
+# TODO additional tests for nested submodel scalers.

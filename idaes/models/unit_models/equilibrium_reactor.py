@@ -118,14 +118,10 @@ class EquilibriumReactorScaler(CustomScalerBase):
             for t in model.flowsheet().time:
                 h_in = 0
                 for p in model.control_volume.properties_in.phase_list:
-                    # The expression for enthalpy flow might include multiple terms,
-                    # so we will sum over all the terms provided
-                    h_in += sum(
-                        self.get_expression_nominal_values(
-                            model.control_volume.properties_in[
-                                t
-                            ].get_enthalpy_flow_terms(p)
-                        )
+                    h_in += self.get_expression_nominal_value(
+                        model.control_volume.properties_in[
+                            t
+                        ].get_enthalpy_flow_terms(p)
                     )
                 # Scale for heat is general one order of magnitude less than enthalpy flow
                 self.set_variable_scaling_factor(

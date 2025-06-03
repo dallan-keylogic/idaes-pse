@@ -13,7 +13,7 @@
 """
 Base class for custom scaling routines.
 
-Author: Andrew Lee
+Authors: Andrew Lee, Douglas Allan
 """
 from copy import copy
 
@@ -22,6 +22,7 @@ from pyomo.core.base.units_container import UnitsError
 from pyomo.core.base.indexed_component_slice import IndexedComponent_slice
 from pyomo.core.expr import identify_variables
 from pyomo.core.expr.calculus.derivatives import Modes, differentiate
+from pyomo.common.deprecation import deprecation_warning
 
 from idaes.core.scaling.scaling_base import CONFIG, ScalerBase
 from idaes.core.scaling.util import get_scaling_factor, NominalValueExtractionVisitor
@@ -382,7 +383,49 @@ class CustomScalerBase(ScalerBase):
                 f"no default scaling factor set."
             )
 
+    def get_expression_nominal_value(self, expression):
+        """
+        Calculate nominal value for a Pyomo expression.
+
+        The nominal value of any Var is defined as the inverse of its scaling factor
+        (if assigned, else 1).
+
+        Args:
+            expression: Pyomo expression to obtain nominal value for
+
+        Returns:
+            float of nominal value
+        """
+        # Handles the case where we have equality constraints
+        # TODO is this the best way to handle things?
+        if hasattr(expression, "body"):
+            expression = expression.body
+        return sum(self.get_sum_terms_nominal_values(expression))
+
     def get_expression_nominal_values(self, expression):
+        """
+        Calculate nominal values for each additive term in a Pyomo expression.
+
+        The nominal value of any Var is defined as the inverse of its scaling factor
+        (if assigned, else 1).
+
+        Args:
+            expression: Pyomo expression to collect nominal values for
+
+        Returns:
+            list of nominal values for each additive term
+        """
+        deprecation_warning(
+            msg=(
+                "This method has been renamed 'get_sum_terms_nominal_values'."
+            ),
+            version="2.9",
+            remove_in="2.10",
+        )
+
+        return self.get_sum_terms_nominal_values(expression)
+
+    def get_sum_terms_nominal_values(self, expression):
         """
         Calculate nominal values for each additive term in a Pyomo expression.
 
@@ -422,7 +465,7 @@ class CustomScalerBase(ScalerBase):
         Returns:
             None
         """
-        nominal = self.get_expression_nominal_values(constraint.expr)
+        nominal = self.get_sum_terms_nominal_values(constraint.expr)
 
         # Remove any 0 terms
         nominal = [j for j in nominal if j != 0]
@@ -628,7 +671,7 @@ class CustomScalerBase(ScalerBase):
                 if callable(scaler):
                     # Check to see if Scaler is callable - this implies it is a class and not an instance
                     # Call the class to create an instance
-                    scaler = scaler()
+                    scaler = scaler(**scaler.CONFIG)
                 _log.debug(f"Using user-defined Scaler for {submodel}.")
             else:
                 try:
@@ -638,10 +681,13 @@ class CustomScalerBase(ScalerBase):
                     _log.debug(
                         f"No default Scaler set for {submodel}. Cannot call {method}."
                     )
+                    # TODO Is it possible for one index to have a scaler and another
+                    # not without user insanity?
                     return
                 if scaler is not None:
-                    scaler = scaler()
+                    scaler = scaler(**scaler.CONFIG)
                 else:
+                    # TODO Why not return here but return above?
                     _log.debug(f"No Scaler found for {submodel}. Cannot call {method}.")
 
             # If a Scaler is found, call desired method
@@ -652,4 +698,5 @@ class CustomScalerBase(ScalerBase):
                     raise AttributeError(
                         f"Scaler for {submodel} does not have a method named {method}."
                     )
-                smeth(smdata, overwrite=overwrite)
+                smeth(smdata, submodel_scalers=submodel_scalers, overwrite=overwrite)
+

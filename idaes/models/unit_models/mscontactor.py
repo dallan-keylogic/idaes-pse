@@ -114,6 +114,7 @@ class MSContactorScaler(CustomScalerBase):
         # Step 1b: Call Scalers for state blocks
         for stream in model.streams:
             if hasattr(model, stream + "_inlet_state"):
+                # import pdb; pdb.set_trace()
                 self.call_submodel_scaler_method(
                     submodel=getattr(model, stream + "_inlet_state"),
                     submodel_scalers=submodel_scalers,
@@ -155,21 +156,18 @@ class MSContactorScaler(CustomScalerBase):
                     t, e, p, j = idx
                     stage_state = getattr(model, stream)[t, e]
                     # Expression for holdup
-                    nom = self.get_expression_nominal_values(
+                    nom = self.get_expression_nominal_value(
                         model.volume[e]
                         * model.volume_frac_stream[t, e, stream]
                         * phase_frac[t, e, p]
                         * stage_state.get_material_density_terms(p, j)
                     )
-                    assert len(nom) == 1
                     self.set_variable_scaling_factor(
                         material_holdup[idx],
-                        1/nom[0],
+                        1/nom,
                         overwrite=overwrite
                     )
 
-
-        
         for idx in model.stream_component_interactions:
             stream1 = idx[0]
             stream2 = idx[1]
@@ -178,30 +176,29 @@ class MSContactorScaler(CustomScalerBase):
             stream_state2 = getattr(model, stream2)
             for t in model.flowsheet().time:
                 for e in model.elements:
-                    nom1 = self.get_expression_nominal_values(
-                        1*sum(
+                    nom1 = self.get_expression_nominal_value(
+                        sum(
                             stream_state1[t, e].get_material_flow_terms(p, comp)
                             for p in stream_state1[t, e].phase_list
                             if (p, comp) in stream_state1[t, e].pc_set
                         )
                     )
-                    assert len(nom1) == 1
-                    nom2 = self.get_expression_nominal_values(
-                        1*sum(
+                    nom2 = self.get_expression_nominal_value(
+                        sum(
                             stream_state2[t, e].get_material_flow_terms(p, comp)
                             for p in stream_state2[t, e].phase_list
                             if (p, comp) in stream_state2[t, e].pc_set
                         )
                     )
-                    assert len(nom2) == 1
                     # Guess that the material transfer between stream1 and stream2
                     # will be about 1/10th as large as the material flow terms
-                    sf = 10 / min(nom1[0], nom2[0])
+                    sf = 10 / min(nom1, nom2)
                     self.set_variable_scaling_factor(
                         model.material_transfer_term[t, e, idx],
                         sf,
                         overwrite=overwrite
                     )
+        
         if hasattr(model, "heterogeneous_reactions"):
             for stream, sconfig in model.config.streams.items():
                 # Extent of reaction scaling needs to be delegated to the
@@ -217,13 +214,12 @@ class MSContactorScaler(CustomScalerBase):
                         for (p, j) in pc_set:
                             # Multiply by 1 to make sure scaling hint is got correctly.
                             # TODO make this redundant
-                            nom = self.get_expression_nominal_values(
-                                1*stream_state[t, e].get_material_flow_terms(p, j)
+                            nom = self.get_expression_nominal_value(
+                                stream_state[t, e].get_material_flow_terms(p, j)
                             )
-                            assert len(nom) == 1
                             self.set_variable_scaling_factor(
                                 het_rxn_gen[t, e, p, j],
-                                10/nom[0],
+                                10/nom,
                                 overwrite=overwrite
                             )
             t0 = model.flowsheet().time.first()
@@ -269,21 +265,20 @@ class MSContactorScaler(CustomScalerBase):
                     for e in model.elements:
                         rxn_dict = {rxn: float("inf") for rxn in params.inherent_reaction_idx}
                         for (p, j) in stream_state.phase_component_set:
-                            nom = self.get_expression_nominal_values(
-                                1*stream_state[t, e].get_material_flow_terms(p, j)
+                            nom = self.get_expression_nominal_value(
+                                stream_state[t, e].get_material_flow_terms(p, j)
                             )
-                            assert len(nom) == 1
 
                             self.set_variable_scaling_factor(
                                 inherent_reaction_generation[t, e, p, j],
-                                10/nom[0],
+                                10/nom,
                                 overwrite=overwrite
                             )
                             for rxn in params.inherent_reaction_idx:
                                 if stoich[rxn, p, j] != 0:
                                     rxn_dict[rxn] = min(
                                         rxn_dict[rxn] ,
-                                        nom[0] / abs(stoich[rxn, p, j])
+                                        nom / abs(stoich[rxn, p, j])
                                     )
                         for rxn in params.inherent_reaction_idx:
                             # TODO should we check if this is zero
@@ -306,16 +301,15 @@ class MSContactorScaler(CustomScalerBase):
                         for e in model.elements:
                             stage_state = stream_state[t, e]
                             for p in phase_list:
-                                nom = self.get_expression_nominal_values(
+                                nom = self.get_expression_nominal_value(
                                     model.volume[e]
                                     * model.volume_frac_stream[t, e, stream]
                                     * phase_frac[t, e, p]
                                     * stage_state.get_energy_density_terms(p)
                                 )
-                                assert len(nom) == 1
                                 self.set_variable_scaling_factor(
                                     energy_holdup[t, e, p],
-                                    1/nom[0]
+                                    1/nom
                                 )
                 if model.config.dynamic:
                     # TODO scale energy accumulation
@@ -326,18 +320,17 @@ class MSContactorScaler(CustomScalerBase):
                      for t in model.flowsheet().time:
                         for e in model.elements:
                             stage_state = stream_state[t, e]
-                            nom = self.get_expression_nominal_values(
-                                1*sum(
+                            nom = self.get_expression_nominal_value(
+                                sum(
                                     stage_state[t, e].get_enthalpy_flow_terms(p)
                                     for p in stage_state[t, e].phase_list
                                 )
                             )
-                            assert len(nom) == 1
                             # Guess that the energy transfer from the outside
                             # will be about 1/10th as large as the material flow terms
                             self.set_variable_scaling_factor(
                                 model.energy_transfer_term[t, e],
-                                10 / nom[0],
+                                10 / nom,
                                 overwrite=overwrite
                             ) 
 
@@ -348,23 +341,21 @@ class MSContactorScaler(CustomScalerBase):
                     stream_state2 = getattr(model, stream2)
                     for t in model.flowsheet().time:
                         for e in model.elements:
-                            nom1 = self.get_expression_nominal_values(
-                                1*sum(
+                            nom1 = self.get_expression_nominal_value(
+                                sum(
                                     stream_state1[t, e].get_enthalpy_flow_terms(p)
                                     for p in stream_state1[t, e].phase_list
                                 )
                             )
-                            assert len(nom1) == 1
-                            nom2 = self.get_expression_nominal_values(
-                                1*sum(
+                            nom2 = self.get_expression_nominal_value(
+                                sum(
                                     stream_state2[t, e].get_enthalpy_flow_terms(p)
                                     for p in stream_state2[t, e].phase_list
                                 )
                             )
-                            assert len(nom2) == 1
                             # Guess that the energy transfer between stream1 and stream2
                             # will be about 1/10th as large as the energy flow terms
-                            sf = 10 / min(nom1[0], nom2[0])
+                            sf = 10 / min(nom1, nom2)
                             self.set_variable_scaling_factor(
                                 model.energy_transfer_term[t, e, idx],
                                 sf,

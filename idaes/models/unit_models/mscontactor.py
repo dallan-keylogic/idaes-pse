@@ -137,7 +137,6 @@ class MSContactorScaler(CustomScalerBase):
         # Step 1c: Call Scalers for reaction blocks
         # TODO add rate rxns, equilibrium rxns
         if hasattr(model, "heterogeneous_reactions"):
-            # import pdb; pdb.set_trace()
             self.call_submodel_scaler_method(
                 submodel=model.heterogeneous_reactions,
                 method="variable_scaling_routine",

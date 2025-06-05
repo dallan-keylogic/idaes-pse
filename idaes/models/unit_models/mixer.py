@@ -79,6 +79,209 @@ class MomentumMixingType(Enum):
     equality = 2
     minimize_and_equality = 3
 
+class MixerScaler(CustomScalerBase):
+    """
+    Scaler for Mixer
+    """
+    def old(self):
+        super().calculate_scaling_factors()
+        mb_type = self.config.material_balance_type
+        if mb_type == MaterialBalanceType.useDefault:
+            t_ref = self.flowsheet().time.first()
+            mb_type = self.mixed_state[t_ref].default_material_balance_type()
+
+        if hasattr(self, "pressure_equality_constraints"):
+            for (t, i), c in self.pressure_equality_constraints.items():
+                s = iscale.get_scaling_factor(
+                    self.mixed_state[t].pressure, default=1, warning=True
+                )
+                iscale.constraint_scaling_transform(c, s)
+
+        if hasattr(self, "minimum_pressure"):
+            for (t, i), v in self.minimum_pressure.items():
+                s = iscale.get_scaling_factor(
+                    self.mixed_state[t].pressure, default=1, warning=True
+                )
+                iscale.set_scaling_factor(v, s)
+
+        if hasattr(self, "minimum_pressure_constraint"):
+            for (t, i), c in self.minimum_pressure_constraint.items():
+                s = iscale.get_scaling_factor(
+                    self.mixed_state[t].pressure, default=1, warning=True
+                )
+                iscale.constraint_scaling_transform(c, s)
+
+        if hasattr(self, "mixture_pressure"):
+            for t, c in self.mixture_pressure.items():
+                s = iscale.get_scaling_factor(
+                    self.mixed_state[t].pressure, default=1, warning=True
+                )
+                iscale.constraint_scaling_transform(c, s)
+
+        if hasattr(self, "material_mixing_equations"):
+            if mb_type == MaterialBalanceType.componentPhase:
+                for (t, p, j), c in self.material_mixing_equations.items():
+                    flow_term = self.mixed_state[t].get_material_flow_terms(p, j)
+                    s = iscale.get_scaling_factor(flow_term, default=1)
+                    iscale.constraint_scaling_transform(c, s, overwrite=False)
+            elif mb_type == MaterialBalanceType.componentTotal:
+                for (t, j), c in self.material_mixing_equations.items():
+                    for i, p in enumerate(self.mixed_state.phase_list):
+                        try:
+                            ft = self.mixed_state[t].get_material_flow_terms(p, j)
+                        except (KeyError, AttributeError):
+                            continue  # component not in phase
+                        if i == 0:
+                            s = iscale.get_scaling_factor(ft, default=1)
+                        else:
+                            _s = iscale.get_scaling_factor(ft, default=1)
+                            s = _s if _s < s else s
+                    iscale.constraint_scaling_transform(c, s, overwrite=False)
+            elif mb_type == MaterialBalanceType.total:
+                pc_set = self.mixed_state.phase_component_set
+                for t, c in self.material_mixing_equations.items():
+                    for i, (p, j) in enumerate(pc_set):
+                        ft = self.mixed_state[t].get_material_flow_terms(p, j)
+                        if i == 0:
+                            s = iscale.get_scaling_factor(ft, default=1)
+                        else:
+                            _s = iscale.get_scaling_factor(ft, default=1)
+                            s = _s if _s < s else s
+                    iscale.constraint_scaling_transform(c, s, overwrite=False)
+
+        if hasattr(self, "enthalpy_mixing_equations"):
+
+            def scale_gen(t):
+                for p in self.mixed_state[t].phase_list:
+                    yield self.mixed_state[t].get_enthalpy_flow_terms(p)
+
+            for t, c in self.enthalpy_mixing_equations.items():
+                s = iscale.min_scaling_factor(scale_gen(t), default=1)
+                iscale.constraint_scaling_transform(c, s, overwrite=False)
+
+    def variable_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        # If the mixed state block is passed as part of the config,
+        # should it be scaled here?
+        mixed_state = model.get_mixed_state_block()
+        if self.config.mixed_state_block is None:
+            self.call_submodel_scaler_method(
+                submodel=mixed_state,
+                submodel_scalers=submodel_scalers,
+                method="variable_scaling_routine",
+                overwrite=overwrite
+            )
+
+        inlet_list = model.create_inlet_list()
+
+        for inlet in inlet_list:
+            # Get corresponding outlet StateBlock
+            self.call_submodel_scaler_method(
+                submodel=getattr(model, inlet + "_state"),
+                submodel_scalers=submodel_scalers,
+                method="variable_scaling_routine",
+                overwrite=overwrite
+            )
+
+        if mixed_state.include_inherent_reactions:
+            params = mixed_state_state.params
+            stoich = params.inherent_reaction_stoichiometry
+            for t in model.flowsheet().time:
+                for e in model.elements:
+                    rxn_dict = {rxn: float("inf") for rxn in params.inherent_reaction_idx}
+                    for (p, j) in mixed_state.phase_component_set:
+                        nom = self.get_expression_nominal_value(
+                            mixed_state[t, e].get_material_flow_terms(p, j)
+                        )
+
+                        self.set_variable_scaling_factor(
+                            self.inherent_reaction_generation[t, e, p, j],
+                            10/nom,
+                            overwrite=overwrite
+                        )
+                        for rxn in params.inherent_reaction_idx:
+                            if stoich[rxn, p, j] != 0:
+                                rxn_dict[rxn] = min(
+                                    rxn_dict[rxn] ,
+                                    nom / abs(stoich[rxn, p, j])
+                                )
+                    for rxn in params.inherent_reaction_idx:
+                        # TODO should we check if this is zero
+                        # Note this scaling works only if we don't
+                        # have multiple reactions cancelling each other out
+                        self.set_variable_scaling_factor(
+                            self.inherent_reaction_extent[t, e, rxn],
+                            10/rxn_dict[rxn],
+                            overwrite=overwrite
+                        )
+    def constraint_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        mb_type = model.config.material_balance_type
+        mixed_state = model.get_mixed_state_block()
+        if mb_type == MaterialBalanceType.useDefault:
+            t_ref = model.flowsheet().time.first()
+            mb_type = mixed_state[t_ref].default_material_balance_type()
+
+        # Step 1: Scale state blocks
+
+        # If the mixed state block is passed as part of the config,
+        # should it be scaled here?
+        if self.config.mixed_state_block is None:
+            self.call_submodel_scaler_method(
+                submodel=mixed_state,
+                submodel_scalers=submodel_scalers,
+                method="constraint_scaling_routine",
+                overwrite=overwrite
+            )
+
+        outlet_list = model.create_outlet_list()
+
+        for o in outlet_list:
+            # Get corresponding outlet StateBlock
+            self.call_submodel_scaler_method(
+                submodel=getattr(model, o + "_state"),
+                submodel_scalers=submodel_scalers,
+                method="constraint_scaling_routine",
+                overwrite=overwrite
+            )
+
+        # Step 2: Scale splitting equations
+
+        if hasattr(model, "temperature_equality_eqn"):
+            for (t, i), c in model.temperature_equality_eqn.items():
+                self.scale_constraint_by_variable(c, mixed_state[t].temperature, overwrite=overwrite)
+
+        if hasattr(model, "pressure_equality_eqn"):
+            for (t, i), c in model.pressure_equality_eqn.items():
+                self.scale_constraint_by_variable(c, mixed_state[t].pressure, overwrite=overwrite)
+
+        if hasattr(model, "material_splitting_eqn"):
+            if mb_type == MaterialBalanceType.componentPhase:
+                for (t, _, p, j), c in model.material_splitting_eqn.items():
+                    nom = self.get_expression_nominal_value(mixed_state[t].get_material_flow_terms(p, j))
+                    self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)
+
+            elif mb_type == MaterialBalanceType.componentTotal:
+                for (t, _, j), c in model.material_splitting_eqn.items():
+                    nom = 0
+                    for p in mixed_state.phase_list:
+                        try:
+                            ft = mixed_state[t].get_material_flow_terms(p, j)
+                        except KeyError:
+                            # This component does not exist in this phase
+                            continue
+                        nom = max(nom, self.get_expression_nominal_value(ft))
+                    self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)
+            elif mb_type == MaterialBalanceType.total:
+                pc_set = mixed_state.phase_component_set
+                for (t, _), c in model.material_splitting_eqn.items():
+                    nom = 0
+                    for i, (p, j) in enumerate(pc_set):
+                        ft = mixed_state[t].get_material_flow_terms(p, j)
+                        nom = max(nom, self.get_expression_nominal_value(ft))
+                    self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)
 
 class MixerInitializer(ModularInitializerBase):
     """
@@ -711,6 +914,15 @@ objects linked to all inlet states and the mixed state,
                 ) - mixed_block[t].get_material_flow_terms(p, j)
 
                 if self.config.has_phase_equilibrium:
+                    # For those who come after:
+                    # phase_equilibrium_idx is a list of unique identifiers for each
+                    # component-phase equilibrium pair. phase_equilibrium_list is not a
+                    # list, but a dictionary mapping this identifier to the list
+                    # [j, (pp[0], pp[1])], in which j is the component, pp[0] is the first
+                    # phase in equilibrium, and pp[1] is the second phase in equilibrium.
+                    # This setup is probably so complex in order to ensure that we don't
+                    # generate phase equilibrium generation terms for components that do
+                    # not participate a given phase equilibrium.
                     rhs += sum(
                         b.phase_equilibrium_generation[t, r]
                         for r in pp.phase_equilibrium_idx

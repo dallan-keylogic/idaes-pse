@@ -511,9 +511,11 @@ class CustomScalerBase(ScalerBase):
             None
         """
         sf = get_scaling_factor(variable)
-        self.set_constraint_scaling_factor(
-            constraint=constraint, scaling_factor=sf, overwrite=overwrite
-        )
+        if sf is not None:
+            self.set_constraint_scaling_factor(
+                constraint=constraint, scaling_factor=sf, overwrite=overwrite
+            )
+        # TODO Should we emit a warning if this scaling factor is not found?
 
     def scale_constraint_by_nominal_derivative_norm(
         self, constraint, norm: int = 2, overwrite: bool = False

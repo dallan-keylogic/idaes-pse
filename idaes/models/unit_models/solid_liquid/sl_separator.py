@@ -84,6 +84,7 @@ class SLSeparatorData(UnitModelBlockData):
     """
     Standard Solid-Liquid Separator Unit Model Class
     """
+    default_initializer = BlockTriangularizationInitializer
     default_scaler = SLSeparatorScaler
 
     CONFIG = ConfigBlock()
@@ -211,8 +212,6 @@ see property package for documentation.}""",
     see property package for documentation.}""",
         ),
     )
-
-    default_initializer = BlockTriangularizationInitializer
 
     def build(self):
         """

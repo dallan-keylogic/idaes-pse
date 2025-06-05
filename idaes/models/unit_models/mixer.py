@@ -49,10 +49,11 @@ from idaes.core.util.tables import create_stream_table_dataframe
 import idaes.core.util.scaling as iscale
 from idaes.core.solvers import get_solver
 from idaes.core.initialization import ModularInitializerBase
+from idaes.core.scaling import CustomScalerBase, get_scaling_factor, ConstraintScalingScheme
 
 import idaes.logger as idaeslog
 
-__author__ = "Andrew Lee"
+__author__ = "Andrew Lee, Douglas Allan"
 
 
 # Set up logger
@@ -83,89 +84,16 @@ class MixerScaler(CustomScalerBase):
     """
     Scaler for Mixer
     """
-    def old(self):
-        super().calculate_scaling_factors()
-        mb_type = self.config.material_balance_type
-        if mb_type == MaterialBalanceType.useDefault:
-            t_ref = self.flowsheet().time.first()
-            mb_type = self.mixed_state[t_ref].default_material_balance_type()
-
-        if hasattr(self, "pressure_equality_constraints"):
-            for (t, i), c in self.pressure_equality_constraints.items():
-                s = iscale.get_scaling_factor(
-                    self.mixed_state[t].pressure, default=1, warning=True
-                )
-                iscale.constraint_scaling_transform(c, s)
-
-        if hasattr(self, "minimum_pressure"):
-            for (t, i), v in self.minimum_pressure.items():
-                s = iscale.get_scaling_factor(
-                    self.mixed_state[t].pressure, default=1, warning=True
-                )
-                iscale.set_scaling_factor(v, s)
-
-        if hasattr(self, "minimum_pressure_constraint"):
-            for (t, i), c in self.minimum_pressure_constraint.items():
-                s = iscale.get_scaling_factor(
-                    self.mixed_state[t].pressure, default=1, warning=True
-                )
-                iscale.constraint_scaling_transform(c, s)
-
-        if hasattr(self, "mixture_pressure"):
-            for t, c in self.mixture_pressure.items():
-                s = iscale.get_scaling_factor(
-                    self.mixed_state[t].pressure, default=1, warning=True
-                )
-                iscale.constraint_scaling_transform(c, s)
-
-        if hasattr(self, "material_mixing_equations"):
-            if mb_type == MaterialBalanceType.componentPhase:
-                for (t, p, j), c in self.material_mixing_equations.items():
-                    flow_term = self.mixed_state[t].get_material_flow_terms(p, j)
-                    s = iscale.get_scaling_factor(flow_term, default=1)
-                    iscale.constraint_scaling_transform(c, s, overwrite=False)
-            elif mb_type == MaterialBalanceType.componentTotal:
-                for (t, j), c in self.material_mixing_equations.items():
-                    for i, p in enumerate(self.mixed_state.phase_list):
-                        try:
-                            ft = self.mixed_state[t].get_material_flow_terms(p, j)
-                        except (KeyError, AttributeError):
-                            continue  # component not in phase
-                        if i == 0:
-                            s = iscale.get_scaling_factor(ft, default=1)
-                        else:
-                            _s = iscale.get_scaling_factor(ft, default=1)
-                            s = _s if _s < s else s
-                    iscale.constraint_scaling_transform(c, s, overwrite=False)
-            elif mb_type == MaterialBalanceType.total:
-                pc_set = self.mixed_state.phase_component_set
-                for t, c in self.material_mixing_equations.items():
-                    for i, (p, j) in enumerate(pc_set):
-                        ft = self.mixed_state[t].get_material_flow_terms(p, j)
-                        if i == 0:
-                            s = iscale.get_scaling_factor(ft, default=1)
-                        else:
-                            _s = iscale.get_scaling_factor(ft, default=1)
-                            s = _s if _s < s else s
-                    iscale.constraint_scaling_transform(c, s, overwrite=False)
-
-        if hasattr(self, "enthalpy_mixing_equations"):
-
-            def scale_gen(t):
-                for p in self.mixed_state[t].phase_list:
-                    yield self.mixed_state[t].get_enthalpy_flow_terms(p)
-
-            for t, c in self.enthalpy_mixing_equations.items():
-                s = iscale.min_scaling_factor(scale_gen(t), default=1)
-                iscale.constraint_scaling_transform(c, s, overwrite=False)
-
     def variable_scaling_routine(
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
         # If the mixed state block is passed as part of the config,
         # should it be scaled here?
-        mixed_state = model.get_mixed_state_block()
-        if self.config.mixed_state_block is None:
+        if model.config.mixed_state_block is None:
+            mixed_state = model.mixed_state
+        else:
+            mixed_state = model.config.mixed_state_block
+        if model.config.mixed_state_block is None:
             self.call_submodel_scaler_method(
                 submodel=mixed_state,
                 submodel_scalers=submodel_scalers,
@@ -184,42 +112,86 @@ class MixerScaler(CustomScalerBase):
                 overwrite=overwrite
             )
 
-        if mixed_state.include_inherent_reactions:
-            params = mixed_state_state.params
-            stoich = params.inherent_reaction_stoichiometry
+        if hasattr(model, "minimum_pressure"):
             for t in model.flowsheet().time:
-                for e in model.elements:
-                    rxn_dict = {rxn: float("inf") for rxn in params.inherent_reaction_idx}
-                    for (p, j) in mixed_state.phase_component_set:
-                        nom = self.get_expression_nominal_value(
-                            mixed_state[t, e].get_material_flow_terms(p, j)
+                # TODO warning?
+                sf = get_scaling_factor(model.mixed_state[t].pressure)
+                if sf is not None:
+                    self.set_variable_scaling_factor(
+                        model.minimum_pressure[t],
+                        scaling_factor=sf,
+                        overwrite=overwrite
+                    )
+
+        if hasattr(model, "mixture_pressure"):
+            for t in model.flowsheet().time:
+                # TODO warning?
+                sf = get_scaling_factor(model.mixed_state[t].pressure)
+                if sf is not None:
+                    self.set_variable_scaling_factor(
+                        model.mixture_pressure[t],
+                        scaling_factor=sf,
+                        overwrite=overwrite
+                    )
+
+        if hasattr(model, "phase_equilibrium_generation"):
+            for t in model.flowsheet().time:
+                for o in model.outlet_idx:
+                    for pe in params.phase_equilibrium_idx:
+                        j, p1, p2 = params.phase_equilibrium_list[pe]
+                        nom1 = self.get_expression_nominal_value(
+                            mixed_state[t].get_material_flow_terms(p1, j)
+                        )
+                        nom2 = self.get_expression_nominal_value(
+                            mixed_state[t].get_material_flow_terms(p2, j)
+                        )
+                        # Scale pe generation to the phase with the smallest
+                        # nominal flow.
+                        sf = 10 / min(nom1, nom2)
+                        self.set_variable_scaling_factor(
+                            self.phase_equilibrium_generation[t, o, pe],
+                            sf,
+                            overwrite=overwrite
                         )
 
-                        self.set_variable_scaling_factor(
-                            self.inherent_reaction_generation[t, e, p, j],
-                            10/nom,
-                            overwrite=overwrite
-                        )
-                        for rxn in params.inherent_reaction_idx:
-                            if stoich[rxn, p, j] != 0:
-                                rxn_dict[rxn] = min(
-                                    rxn_dict[rxn] ,
-                                    nom / abs(stoich[rxn, p, j])
-                                )
+        if mixed_state.include_inherent_reactions:
+            params = mixed_state.params
+            stoich = params.inherent_reaction_stoichiometry
+            for t in model.flowsheet().time:
+                rxn_dict = {rxn: float("inf") for rxn in params.inherent_reaction_idx}
+                for (p, j) in mixed_state.phase_component_set:
+                    nom = self.get_expression_nominal_value(
+                        mixed_state[t].get_material_flow_terms(p, j)
+                    )
+
+                    self.set_variable_scaling_factor(
+                        model.inherent_reaction_generation[t, p, j],
+                        10/nom,
+                        overwrite=overwrite
+                    )
                     for rxn in params.inherent_reaction_idx:
-                        # TODO should we check if this is zero
-                        # Note this scaling works only if we don't
-                        # have multiple reactions cancelling each other out
-                        self.set_variable_scaling_factor(
-                            self.inherent_reaction_extent[t, e, rxn],
-                            10/rxn_dict[rxn],
-                            overwrite=overwrite
-                        )
+                        if stoich[rxn, p, j] != 0:
+                            rxn_dict[rxn] = min(
+                                rxn_dict[rxn] ,
+                                nom / abs(stoich[rxn, p, j])
+                            )
+                for rxn in params.inherent_reaction_idx:
+                    # TODO should we check if this is zero
+                    # Note this scaling works only if we don't
+                    # have multiple reactions cancelling each other out
+                    self.set_variable_scaling_factor(
+                        model.inherent_reaction_extent[t, rxn],
+                        10/rxn_dict[rxn],
+                        overwrite=overwrite
+                    )
     def constraint_scaling_routine(
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
         mb_type = model.config.material_balance_type
-        mixed_state = model.get_mixed_state_block()
+        if model.config.mixed_state_block is None:
+            mixed_state = model.mixed_state
+        else:
+            mixed_state = model.config.mixed_state_block
         if mb_type == MaterialBalanceType.useDefault:
             t_ref = model.flowsheet().time.first()
             mb_type = mixed_state[t_ref].default_material_balance_type()
@@ -228,7 +200,7 @@ class MixerScaler(CustomScalerBase):
 
         # If the mixed state block is passed as part of the config,
         # should it be scaled here?
-        if self.config.mixed_state_block is None:
+        if model.config.mixed_state_block is None:
             self.call_submodel_scaler_method(
                 submodel=mixed_state,
                 submodel_scalers=submodel_scalers,
@@ -236,35 +208,36 @@ class MixerScaler(CustomScalerBase):
                 overwrite=overwrite
             )
 
-        outlet_list = model.create_outlet_list()
+        inlet_list = model.create_inlet_list()
 
-        for o in outlet_list:
+        for inlet in inlet_list:
             # Get corresponding outlet StateBlock
             self.call_submodel_scaler_method(
-                submodel=getattr(model, o + "_state"),
+                submodel=getattr(model, inlet + "_state"),
                 submodel_scalers=submodel_scalers,
                 method="constraint_scaling_routine",
                 overwrite=overwrite
             )
 
         # Step 2: Scale splitting equations
+        if hasattr(model, "minimum_pressure_constraint"):
+            for (t, _), c in model.minimum_pressure_constraint.items():
+                self.scale_constraint_by_variable(c, model.minimum_pressure, overwrite=overwrite)
 
-        if hasattr(model, "temperature_equality_eqn"):
-            for (t, i), c in model.temperature_equality_eqn.items():
-                self.scale_constraint_by_variable(c, mixed_state[t].temperature, overwrite=overwrite)
 
-        if hasattr(model, "pressure_equality_eqn"):
-            for (t, i), c in model.pressure_equality_eqn.items():
+        if hasattr(model, "pressure_equality_constraints"):
+            for (t, _), c in model.pressure_equality_constraints.items():
                 self.scale_constraint_by_variable(c, mixed_state[t].pressure, overwrite=overwrite)
 
-        if hasattr(model, "material_splitting_eqn"):
+        if hasattr(model, "material_mixing_equations"):
             if mb_type == MaterialBalanceType.componentPhase:
-                for (t, _, p, j), c in model.material_splitting_eqn.items():
+                for (t, p, j), c in model.material_mixing_equations.items():
                     nom = self.get_expression_nominal_value(mixed_state[t].get_material_flow_terms(p, j))
                     self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)
 
+
             elif mb_type == MaterialBalanceType.componentTotal:
-                for (t, _, j), c in model.material_splitting_eqn.items():
+                for (t, j), c in model.material_mixing_equations.items():
                     nom = 0
                     for p in mixed_state.phase_list:
                         try:
@@ -276,12 +249,20 @@ class MixerScaler(CustomScalerBase):
                     self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)
             elif mb_type == MaterialBalanceType.total:
                 pc_set = mixed_state.phase_component_set
-                for (t, _), c in model.material_splitting_eqn.items():
+                for t, c in model.material_mixing_equations.items():
                     nom = 0
-                    for i, (p, j) in enumerate(pc_set):
+                    for p, j in pc_set:
                         ft = mixed_state[t].get_material_flow_terms(p, j)
                         nom = max(nom, self.get_expression_nominal_value(ft))
                     self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)
+
+        if hasattr(model, "enthalpy_mixing_equations"):
+            for c in model.enthalpy_mixing_equations.values():
+                self.scale_constraint_by_nominal_value(
+                    c,
+                    scheme=ConstraintScalingScheme.inverseMaximum,
+                    overwrite=overwrite
+                )
 
 class MixerInitializer(ModularInitializerBase):
     """
@@ -428,6 +409,7 @@ class MixerData(UnitModelBlockData):
     """
 
     default_initializer = MixerInitializer
+    default_scaler = MixerScaler
 
     CONFIG = ConfigBlock()
     CONFIG.declare(
@@ -792,6 +774,9 @@ objects linked to all inlet states and the mixed state,
         Returns:
             The user-provided StateBlock or an Exception
         """
+        # TODO this method should be an actual getter method for the mixed state block,
+        # not a method for validation of a config argument. As is, it shouldn't even
+        # be public
         # Sanity check to make sure method is not called when arg missing
         if self.config.mixed_state_block is None:
             raise BurntToast(

@@ -99,7 +99,8 @@ class SeparatorScaler(CustomScalerBase):
         # If the mixed state block is passed as part of the config,
         # should it be scaled here?
         mixed_state = model.get_mixed_state_block()
-        if self.config.mixed_state_block is None:
+        params = mixed_state.params
+        if model.config.mixed_state_block is None:
             self.call_submodel_scaler_method(
                 submodel=mixed_state,
                 submodel_scalers=submodel_scalers,
@@ -124,23 +125,37 @@ class SeparatorScaler(CustomScalerBase):
         if hasattr(model, "phase_equilibrium_generation"):
             for t in model.flowsheet().time:
                 for o in model.outlet_idx:
-                    for pe in mixed_state.params.phase_equilibrium_idx:
-                        pass
+                    for pe in params.phase_equilibrium_idx:
+                        j, p1, p2 = params.phase_equilibrium_list[pe]
+                        nom1 = self.get_expression_nominal_value(
+                            mixed_state[t].get_material_flow_terms(p1, j)
+                        )
+                        nom2 = self.get_expression_nominal_value(
+                            mixed_state[t].get_material_flow_terms(p2, j)
+                        )
+                        # Scale pe generation to the phase with the smallest
+                        # nominal flow.
+                        sf = 10 / min(nom1, nom2)
+                        self.set_variable_scaling_factor(
+                            self.phase_equilibrium_generation[t, o, pe],
+                            sf,
+                            overwrite=overwrite
+                        )
+
 
 
         if mixed_state.include_inherent_reactions:
-            params = mixed_state_state.params
             stoich = params.inherent_reaction_stoichiometry
             for t in model.flowsheet().time:
-                for e in model.elements:
+                for o in model.outlet_idx:
                     rxn_dict = {rxn: float("inf") for rxn in params.inherent_reaction_idx}
                     for (p, j) in mixed_state.phase_component_set:
                         nom = self.get_expression_nominal_value(
-                            mixed_state[t, e].get_material_flow_terms(p, j)
+                            mixed_state[t].get_material_flow_terms(p, j)
                         )
 
                         self.set_variable_scaling_factor(
-                            self.inherent_reaction_generation[t, e, p, j],
+                            model.inherent_reaction_generation[t, o, p, j],
                             10/nom,
                             overwrite=overwrite
                         )
@@ -155,7 +170,7 @@ class SeparatorScaler(CustomScalerBase):
                         # Note this scaling works only if we don't
                         # have multiple reactions cancelling each other out
                         self.set_variable_scaling_factor(
-                            self.inherent_reaction_extent[t, e, rxn],
+                            model.inherent_reaction_extent[t, o, rxn],
                             10/rxn_dict[rxn],
                             overwrite=overwrite
                         )
@@ -176,7 +191,7 @@ class SeparatorScaler(CustomScalerBase):
 
         # If the mixed state block is passed as part of the config,
         # should it be scaled here?
-        if self.config.mixed_state_block is None:
+        if model.config.mixed_state_block is None:
             self.call_submodel_scaler_method(
                 submodel=mixed_state,
                 submodel_scalers=submodel_scalers,
@@ -226,7 +241,7 @@ class SeparatorScaler(CustomScalerBase):
                 pc_set = mixed_state.phase_component_set
                 for (t, _), c in model.material_splitting_eqn.items():
                     nom = 0
-                    for i, (p, j) in enumerate(pc_set):
+                    for p, j in pc_set:
                         ft = mixed_state[t].get_material_flow_terms(p, j)
                         nom = max(nom, self.get_expression_nominal_value(ft))
                     self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)

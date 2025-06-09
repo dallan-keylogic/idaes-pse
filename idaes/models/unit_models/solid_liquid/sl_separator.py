@@ -64,6 +64,20 @@ class SLSeparatorScaler(CustomScalerBase):
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
         self.call_submodel_scaler_method(
+            submodel=model.solid_state,
+            submodel_scalers=submodel_scalers,
+            method="variable_scaling_routine",
+            overwrite=overwrite
+        )
+
+        self.call_submodel_scaler_method(
+            submodel=model.liquid_inlet_state,
+            submodel_scalers=submodel_scalers,
+            method="variable_scaling_routine",
+            overwrite=overwrite
+        )
+
+        self.call_submodel_scaler_method(
             submodel=model.split,
             submodel_scalers=submodel_scalers,
             method="variable_scaling_routine",
@@ -72,6 +86,20 @@ class SLSeparatorScaler(CustomScalerBase):
     def constraint_scaling_routine(
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
+        self.call_submodel_scaler_method(
+            submodel=model.solid_state,
+            submodel_scalers=submodel_scalers,
+            method="constraint_scaling_routine",
+            overwrite=overwrite
+        )
+
+        self.call_submodel_scaler_method(
+            submodel=model.liquid_inlet_state,
+            submodel_scalers=submodel_scalers,
+            method="constraint_scaling_routine",
+            overwrite=overwrite
+        )
+
         self.call_submodel_scaler_method(
             submodel=model.split,
             submodel_scalers=submodel_scalers,

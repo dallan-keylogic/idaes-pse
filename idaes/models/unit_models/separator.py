@@ -246,6 +246,14 @@ class SeparatorScaler(CustomScalerBase):
                         nom = max(nom, self.get_expression_nominal_value(ft))
                     self.set_constraint_scaling_factor(c, 1 / nom, overwrite=overwrite)
 
+        if hasattr(model, "inherent_reaction_constraint"):
+            for idx, con in model.inherent_reaction_constraint.items():
+                self.scale_constraint_by_variable(
+                    con,
+                    model.inherent_reaction_generation[idx],
+                    overwrite=overwrite
+                )
+
 
 
 class SeparatorInitializer(ModularInitializerBase):

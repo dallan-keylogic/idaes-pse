@@ -264,6 +264,14 @@ class MixerScaler(CustomScalerBase):
                     overwrite=overwrite
                 )
 
+        if hasattr(model, "inherent_reaction_constraint"):
+            for idx, con in model.inherent_reaction_constraint.items():
+                self.scale_constraint_by_variable(
+                    con,
+                    model.inherent_reaction_generation[idx],
+                    overwrite=overwrite
+                )
+
 class MixerInitializer(ModularInitializerBase):
     """
     Hierarchical Initializer for Mixer blocks.

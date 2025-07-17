@@ -91,6 +91,7 @@ from idaes.models.properties.modular_properties.phase_equil.bubble_dew import (
     LogBubbleDew,
 )
 from idaes.models.properties.modular_properties.phase_equil.henry import HenryType
+from idaes.core.scaling import CustomScalerBase, get_scaling_factor
 
 # Set up logger
 _log = idaeslog.getLogger(__name__)
@@ -113,6 +114,556 @@ def set_param_value(b, param, units):
             "units".format(b.name, param)
         )
         param_obj.value = config
+
+class GenericPropertiesScaler(CustomScalerBase):
+    """
+    Scaler for modular property framework.
+    """
+    DEFAULT_SCALING_FACTORS = {
+        # It's much better for the user to provide scaling factors for flow rate
+        # by phase. We have a value here as a fallback option
+        "flow_mol_phase": 1,
+        # It's much better for the user to provide scaling factors for mole fraction
+        # by phase and component. We have a value here as a fallback option
+        "mole_frac_phase_comp": 10,
+        "temperature": 1,
+        "pressure": 1e-3,
+        # It is *vital* to be able to scale molar enthalpy if energy balances
+        # are present. We can guess at the scaling factor if the user provides 
+        # molecular weights, but it's better for the user to scale these directly
+        "enth_mol_phase": None
+    }
+    def variable_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        units = model.get_metadata().derived_units
+
+        mw_comp_dict = {}
+        mw_missing = False
+        for j in model.component_list:
+            comp_obj = model.params.get_component(j)
+            try:
+                mw = comp_obj.mw
+            except AttributeError:
+                mw_missing = True
+                continue
+            mw_comp_dict[j] = value(
+                pyunits.convert(
+                    mw,
+                    to_units=units["MOLECULAR_WEIGHT"]
+                )
+            )
+
+        sf_T = self.get_scaling_factor(self.temperature)
+        sf_P = self.get_scaling_factor(self.pressure)
+        sf_mf = {}
+        for i, v in self.mole_frac_phase_comp.items():
+            sf_mf[i] = get_scaling_factor(v)
+
+        if not mw_missing:
+            # We want to collect molecular weight scaling factors
+            # in a separate dictionary because model.mw_phase
+            # may not have been constructed
+            sf_mw_phase = {}
+            for p in self.phase_list:
+                mw_phase = sum(mw[j]/sf_mf[j,p]) / sum(1 / sf_mf[j, p])
+                if model.is_property_constructed(model.mw_phase[p]):
+                    self.set_component_scaling_factor(
+                        model.mw_phase[p],
+                        1/mw_phase,
+                        overwrite=overwrite
+                    )
+                    sf_mw_phase[p] = self.get_scaling_factor(model.mw_phase[p])
+                else:
+                    sf_mw_phase[p] = 1/mw_phase
+        
+
+
+        if model.is_property_constructed(model.enth_mol_phase):
+            for p in self.phase_list:
+                sf_enth_phase = self.get_scaling_factor(model.enth_mol_phase[p])
+                if sf_enth_phase is None:
+                    if not mw_missing:
+                        # Most materials have a heat capacity around 2 J/(g*K).
+                        # For liquids, water is 4.18, ethanol is 2.44, decane is 2.21
+                        # For solids, dry collagen is 1.29, parrafin wax is 2.5, 
+                        # lithium is 3.58, steel is 0.466, gold is 0.129, and ice is 2.05
+                        # For gases, steam is 2.05, air is 1.01, CO2 is 0.839, and hydrogen
+                        # is 14.3 (due to its extremely low molecular weight)
+
+                        # We change units from mass to moles by multiplying through by
+                        # the implied molecular weight, then obtain a scaling factor
+                        # for the enthalpy from the scaling factor for temperature
+                        sf_enth_phase=sf_T * sf_mw_phase[p] / pyunits.convert_value(
+                            2,
+                            from_units=pyunits.J / pyunits.g / pyunits.K,
+                            to_units=units["HEAT_CAPACITY_MASS"]
+                        )
+                        self.set_component_scaling_factor(
+                            model.enth_mol_phase,
+                            sf_enth_phase,
+                            overwrite=overwrite
+                        )
+                    else:
+                        _log.warning(
+                            "Default scaling factor for molar enthalpy not set. Because "
+                            "molecular weight isn't provided for each component, the heat "
+                            "capacity cannot be approximated. Please provide default scaling factors "
+                            "capacity for enth_mol_phase so that energy balances can be scaled."
+                        )
+
+        if model.is_property_constructed("_teq"):
+            for v in model._teq.values():
+                self.set_component_scaling_factor(
+                    v,
+                    sf_T,
+                    overwrite=overwrite
+                )
+
+        # Other EoS variables and constraints
+        for p in self.phase_list:
+            pobj = self.params.get_phase(p)
+            self.call_phase_module_scaler(
+                model,
+                pobj,
+                pobj.config.equation_of_state,
+                method="variable_scaling_routine",
+                overwrite=overwrite
+            )
+
+        
+        
+
+        
+    
+    def constraint_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        pass
+
+    
+
+    def call_phase_comp_module_scaler(
+        self, model, module, overwrite: bool = False,
+    ):
+        """
+        Call scaler for module in modular property framework
+        """
+        # Right now just look for default scaler on object
+        # We can figure out how to let the user substitute their
+        # own scaling later
+        pass
+
+    def call_phase_module_scaler(
+        self, model, pobj, module, method: str, overwrite: bool = False
+    ):
+        """
+        Call scaler for phase-dependent property in modular property framework
+        """
+        # Right now just look for default scaler on object
+        # We can figure out how to let the user substitute their
+        # own scaling later
+        try:
+            scaler_class = module.default_scaler
+        except AttributeError:
+            _log.debug(
+                f"No default Scaler set for {module}. Cannot call {method}."
+            )
+            return
+        scaler_obj = scaler_class(**self.CONFIG)
+        try:
+            method_func = getattr(scaler_obj, method)
+        except AttributeError as err:
+            raise AttributeError(
+                f"Could not find {method} method on scaler for module {module}."
+            ) from err
+        method_func(model, pobj, overwrite=overwrite)
+
+    def old(self):
+        
+        # Scale state variables and associated constraints
+        self.params.config.state_definition.calculate_scaling_factors(self)
+
+        sf_T = iscale.get_scaling_factor(self.temperature, default=1, warning=True)
+        sf_P = iscale.get_scaling_factor(self.pressure, default=1, warning=True)
+        sf_mf = {}
+        for i, v in self.mole_frac_phase_comp.items():
+            sf_mf[i] = iscale.get_scaling_factor(v, default=1e3, warning=True)
+
+        # Other EoS variables and constraints
+        for p in self.phase_list:
+            pobj = self.params.get_phase(p)
+            pobj.config.equation_of_state.calculate_scaling_factors(self, pobj)
+
+        # Flow and density terms
+        if self.is_property_constructed("_enthalpy_flow_term"):
+            for k, v in self._enthalpy_flow_term.items():
+                if iscale.get_scaling_factor(v) is None:
+                    sf_flow_phase = iscale.get_scaling_factor(
+                        self.flow_mol_phase[k],
+                        default=1,
+                        warning=True,
+                        hint="for _enthalpy_flow_term",
+                    )
+                    sf_h = iscale.get_scaling_factor(
+                        self.enth_mol_phase[k],
+                        default=1,
+                        warning=True,
+                        hint="for _enthalpy_flow_term",
+                    )
+                    iscale.set_scaling_factor(v, sf_flow_phase * sf_h)
+
+        if self.is_property_constructed("_material_density_term"):
+            for (p, j), v in self._material_density_term.items():
+                if iscale.get_scaling_factor(v) is None:
+                    sf_rho = iscale.get_scaling_factor(
+                        self.dens_mol_phase[p], default=1, warning=True
+                    )
+                    sf_x = iscale.get_scaling_factor(
+                        self.mole_frac_phase_comp[p, j], default=1, warning=True
+                    )
+                    iscale.set_scaling_factor(v, sf_rho * sf_x)
+
+        if self.is_property_constructed("_energy_density_term"):
+            for k, v in self._enthalpy_flow_term.items():
+                if iscale.get_scaling_factor(v) is None:
+                    sf_rho = iscale.get_scaling_factor(
+                        self.dens_mol_phase[k], default=1, warning=True
+                    )
+                    sf_u = iscale.get_scaling_factor(
+                        self.energy_internal_mol_phase[k], default=1, warning=True
+                    )
+                    iscale.set_scaling_factor(v, sf_rho * sf_u)
+
+        if self.is_property_constructed("cp_mol_phase"):
+            for p in self.phase_list:
+                # Cp of air is 30 J/mol K, Cp of liquid water is 75 J/mol K, 1/50 is a good default value
+                # for small molecules. For large molecules, this value will be inappropriate
+                iscale.set_scaling_factor(self.cp_mol_phase[p], 1 / 50, overwrite=False)
+
+        # Phase equilibrium constraint
+        if hasattr(self, "equilibrium_constraint"):
+            pe_form_config = self.params.config.phase_equilibrium_state
+            for pp in self.params._pe_pairs:
+                pe_form_config[pp].calculate_scaling_factors(self, pp)
+
+            for k in self.equilibrium_constraint:
+                try:
+                    sf_fug = (
+                        self.params.get_component(k[2])
+                        .config.phase_equilibrium_form[(k[0], k[1])]
+                        .calculate_scaling_factors(self, k[0], k[1], k[2])
+                    )
+
+                    iscale.constraint_scaling_transform(
+                        self.equilibrium_constraint[k], sf_fug, overwrite=False
+                    )
+                except KeyError:  # component not in phase
+                    pass
+
+        # Inherent reactions
+        if hasattr(self, "k_eq"):
+            for r in self.params.inherent_reaction_idx:
+                rblock = getattr(self.params, "reaction_" + r)
+                carg = self.params.config.inherent_reactions[r]
+
+                sf_keq = iscale.get_scaling_factor(self.k_eq[r])
+                if sf_keq is None:
+                    sf_keq = carg["equilibrium_constant"].calculate_scaling_factors(
+                        self, rblock
+                    )
+                    iscale.set_scaling_factor(self.k_eq[r], sf_keq)
+
+                sf_const = carg["equilibrium_form"].calculate_scaling_factors(
+                    self, sf_keq
+                )
+
+                iscale.constraint_scaling_transform(
+                    self.inherent_equilibrium_constraint[r], sf_const, overwrite=False
+                )
+
+        # Add scaling for additional Vars and Constraints
+        # Bubble and dew points
+        def bubble_dew_scaling(b, pt_var):
+            # Ditch the m.fs.unit.control_volume...
+            short_name = pt_var.name.split(".")[-1]
+
+            if short_name.startswith("temperature"):
+                abbrv = "t"
+                sf_pt = sf_T
+            elif short_name.startswith("pressure"):
+                abbrv = "p"
+                sf_pt = sf_P
+            else:
+                _raise_dev_burnt_toast()
+
+            if short_name.endswith("bubble"):
+                phase = VaporPhase
+                abbrv += "bub"
+            elif short_name.endswith("dew"):
+                phase = LiquidPhase
+                abbrv += "dew"
+
+            x_var = getattr(b, "_mole_frac_" + abbrv)
+
+            if b.is_property_constructed("log_mole_frac_" + abbrv):
+                log_eq = getattr(b, "log_mole_frac_" + abbrv + "_eqn")
+            else:
+                log_eq = None
+
+            # Directly scale the bubble/dew temperature/pressure variable
+            for v in pt_var.values():
+                if iscale.get_scaling_factor(v) is None:
+                    iscale.set_scaling_factor(v, sf_pt)
+
+            # Scale mole fractions for bubble/dew calcs
+            for i, v in x_var.items():
+                if iscale.get_scaling_factor(v) is None:
+                    if b.params.config.phases[i[0]]["type"] is phase:
+                        p = i[0]
+                    elif b.params.config.phases[i[1]]["type"] is phase:
+                        p = i[1]
+                    else:
+                        # We create bubble/dew variables for all phase
+                        # equilibrium pairs, regardless of whether it makes
+                        # sense. If the pair doesn't make sense, the constraint
+                        # is not created and the scaling factor is arbitrary
+                        p = i[0]
+                    try:
+                        iscale.set_scaling_factor(v, sf_mf[p, i[2]])
+                        if log_eq is not None and (
+                            iscale.get_scaling_factor(log_eq[i]) is None
+                        ):
+                            iscale.constraint_scaling_transform(
+                                log_eq[i], sf_mf[p, i[2]], overwrite=False
+                            )
+                    except KeyError:
+                        # component i[2] is not in the new phase, so this
+                        # variable is likely unused and scale doesn't matter
+                        iscale.set_scaling_factor(v, 1)
+
+            scaling_method = getattr(
+                b.params.config.bubble_dew_method, "scale_" + short_name
+            )
+            scaling_method(b, overwrite=False)
+
+            return
+
+        if self.is_property_constructed("temperature_bubble"):
+            bubble_dew_scaling(self, self.temperature_bubble)
+
+        if self.is_property_constructed("temperature_dew"):
+            bubble_dew_scaling(self, self.temperature_dew)
+
+        if self.is_property_constructed("pressure_bubble"):
+            bubble_dew_scaling(self, self.pressure_bubble)
+
+        if self.is_property_constructed("pressure_dew"):
+            bubble_dew_scaling(self, self.pressure_dew)
+
+        # Scale log form constraints
+        if self.is_property_constructed("log_mole_frac_comp"):
+            for j, v in self.log_mole_frac_comp_eqn.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_comp[j],
+                    default=1e3,
+                    warning=True,
+                    hint="for log_mole_frac_comp",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        # Activity is generally of similar order to mole fractions
+        if self.is_property_constructed("log_act_phase_comp"):
+            for (p, j), v in self.log_act_phase_comp_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mole_frac_phase_comp",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_act_phase_comp_apparent"):
+            for (p, j), v in self.log_act_phase_comp_apparent_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp_apparent[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mole_frac_phase_comp_apparent",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_act_phase_comp_true"):
+            for (p, j), v in self.log_act_phase_comp_true_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp_true[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mole_frac_phase_comp_true",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if (
+            self.is_property_constructed("log_act_phase_solvents")
+            and len(self.params.solvent_set) > 1
+        ):
+            for p, v in self.log_act_phase_solvents_eq.items():
+                iscale.constraint_scaling_transform(v, 1e-3, overwrite=False)
+
+        if self.is_property_constructed("log_conc_mol_phase_comp"):
+            for (p, j), v in self.log_conc_mol_phase_comp_eq.items():
+                sf_dens_mol = iscale.get_scaling_factor(
+                    self.dens_mol_phase[p],
+                    default=55e3,
+                    warning=True,
+                    hint="for log_conc_mol_phase_comp",
+                )
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp[p, j],
+                    default=1,
+                    warning=True,
+                    hint="for log_conc_mol_phase_comp",
+                )
+                iscale.constraint_scaling_transform(
+                    v, sf_dens_mol * sf_x, overwrite=False
+                )
+
+        if self.is_property_constructed("log_conc_mol_phase_comp_true"):
+            for (p, j), v in self.log_conc_mol_phase_comp_true_eq.items():
+                sf_dens_mol = iscale.get_scaling_factor(
+                    self.dens_mol_phase[p],
+                    default=55e3,
+                    warning=True,
+                    hint="for log_conc_mol_phase_comp_true",
+                )
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp_true[p, j],
+                    default=1,
+                    warning=True,
+                    hint="for log_conc_mol_phase_comp_true",
+                )
+                iscale.constraint_scaling_transform(
+                    v, sf_dens_mol * sf_x, overwrite=False
+                )
+
+        if self.is_property_constructed("log_mass_frac_phase_comp"):
+            for (p, j), v in self.log_mass_frac_phase_comp_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mass_frac_phase_comp[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mass_frac_phase_comp",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_mass_frac_phase_comp_apparent"):
+            for (p, j), v in self.log_mass_frac_phase_comp_apparent_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mass_frac_phase_comp_apparent[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mass_frac_phase_comp_apparent",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_mass_frac_phase_comp_true"):
+            for (p, j), v in self.log_mass_frac_phase_comp_true_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mass_frac_phase_comp_true[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mass_frac_phase_comp_true",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_molality_phase_comp"):
+            for (p, j), v in self.log_molality_phase_comp_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.molality_phase_comp[p, j],
+                    default=1,
+                    warning=True,
+                    hint="for log_molality_phase_comp",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_molality_phase_comp_apparent"):
+            for (p, j), v in self.log_molality_phase_comp_apparent_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.molality_phase_comp_apparent[p, j],
+                    default=1,
+                    warning=True,
+                    hint="for log_molality_phase_comp_apparent",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_molality_phase_comp_true"):
+            for (p, j), v in self.log_molality_phase_comp_true_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.molality_phase_comp_true[p, j],
+                    default=1,
+                    warning=True,
+                    hint="for log_molality_phase_comp_true",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_mole_frac_phase_comp"):
+            for (p, j), v in self.log_mole_frac_phase_comp_eqn.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp[p, j],
+                    default=1e3,
+                    warning=True,
+                    hint="for log_mole_frac_phase_comp",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_mole_frac_phase_comp_apparent"):
+            for (p, j), v in self.log_mole_frac_phase_comp_apparent_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp_apparent[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mole_frac_phase_comp_apparent",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("log_mole_frac_phase_comp_true"):
+            for (p, j), v in self.log_mole_frac_phase_comp_true_eq.items():
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp_true[p, j],
+                    default=1e-3,
+                    warning=True,
+                    hint="for log_mole_frac_phase_comp_true",
+                )
+                iscale.constraint_scaling_transform(v, sf_x, overwrite=False)
+
+        if self.is_property_constructed("therm_cond_phase"):
+            for p in self.phase_list:
+                pobj = self.params.get_phase(p)
+                if pobj.is_vapor_phase():
+                    sf_default = 100
+                elif pobj.is_liquid_phase():
+                    sf_default = 10
+                elif pobj.is_solid_phase():
+                    sf_default = 1 / 10
+                else:
+                    sf_default = 1
+                iscale.set_scaling_factor(
+                    self.therm_cond_phase[p], sf_default, overwrite=False
+                )
+
+        if self.is_property_constructed("visc_d_phase"):
+            for p in self.phase_list:
+                pobj = self.params.get_phase(p)
+                if pobj.is_vapor_phase():
+                    sf_default = 1e5
+                elif pobj.is_liquid_phase():
+                    # Works well for water and small organic molecules, not for honey or syrup
+                    sf_default = 1e3
+                else:
+                    sf_default = 1
+                iscale.set_scaling_factor(
+                    self.visc_d_phase[p], sf_default, overwrite=False
+                )
 
 
 # TODO: Set a default state definition
@@ -4796,7 +5347,7 @@ def _log_mole_frac_bubble_dew(b, name):
                 b.params._pe_pairs,
                 b.component_list,
                 initialize=log(1 / len(b.component_list)),
-                bounds=(None, 0),
+                bounds=(None, 0.001),
                 doc=docstring_var,
                 units=None,
             ),

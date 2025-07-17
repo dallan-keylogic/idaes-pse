@@ -46,6 +46,7 @@ from idaes.models.properties.modular_properties.phase_equil.henry import (
 from idaes.core.util.exceptions import ConfigurationError, InitializationError
 import idaes.logger as idaeslog
 import idaes.core.util.scaling as iscale
+from idaes.core.scaling import CustomScalerBase, get_scaling_factor, ConstraintScalingScheme
 from .electrolyte_states import define_electrolyte_state, calculate_electrolyte_scaling
 
 
@@ -711,6 +712,69 @@ def calculate_scaling_factors(b):
     if b.params._electrolyte:
         calculate_electrolyte_scaling(b)
 
+class FTPXScaler(CustomScalerBase):
+    """
+    Scaler for constraints associated with FTPx state variables
+    """
+    def variable_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        pass
+    
+    def constraint_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        if model.config.defined_state is False:
+            self.scale_constraint_by_nominal_value(
+                model.sum_mole_frac_out,
+                scheme=ConstraintScalingScheme.inverseMaximum,
+                overwrite=overwrite
+            )
+        if len(model.phase_list) == 1:
+            self.scale_constraint_by_variable(
+                model.total_flow_balance,
+                model.flow_mol,
+                overwrite=overwrite
+            )
+            for j, con in model.component_flow_balances.items():
+                self.scale_constraint_by_variable(
+                    con, 
+                    # Molar flow doesn't appear in this constraint for a single phase
+                    model.mole_frac_comp[j],
+                    overwrite=False
+                )
+            # model.phase_fraction_constraint is well-scaled
+        
+        else:
+            self.scale_constraint_by_nominal_value(
+                model.total_flow_balance,
+                scheme=ConstraintScalingScheme.inverseMaximum,
+                overwrite=overwrite
+            )
+            for con in model.component_flow_balances.values():
+                self.scale_constraint_by_nominal_value(
+                    con,
+                    scheme=ConstraintScalingScheme.inverseMaximum,
+                    overwrite=overwrite
+                )
+            self.scale_constraint_by_nominal_value(
+                model.sum_mole_frac,
+                scheme=ConstraintScalingScheme.inverseMaximum,
+                overwrite=overwrite
+            )
+            for con in model.phase_fraction_constraint.values():
+                self.scale_constraint_by_nominal_value(
+                    con,
+                    scheme=ConstraintScalingScheme.inverseMaximum,
+                    overwrite=overwrite
+                )
+
+        if model.params._electrolyte:
+            raise NotImplementedError(
+                "Scaling has not yet been implemented for electrolyte systems."
+            )
+
+        
 
 do_not_initialize = ["sum_mole_frac_out"]
 

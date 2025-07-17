@@ -34,6 +34,22 @@ from idaes.models.properties.modular_properties.phase_equil.henry import (
     log_henry_pressure,
 )
 from .eos_base import EoSBase
+from idaes.core.scaling import CustomScalerBase, get_scaling_factor
+
+class IdealScaler(CustomScalerBase):
+    """
+    Scaling method for the Ideal equation of state.
+    It creates no new variables or constraints, so only scaling hints are necessary.
+    The scaling hint for enth_mol_phase is already set in the parent properties.
+    """
+    def variable_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        pass
+    def constraint_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        pass
 
 
 # TODO: Add support for ideal solids

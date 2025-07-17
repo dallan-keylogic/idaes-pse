@@ -243,6 +243,53 @@ class ScalerBase:
             overwrite=overwrite,
         )
 
+    def set_component_scaling_factor(
+        self, component, scaling_factor: float, overwrite: bool = None, **kwargs
+    ):
+        """
+        Set scaling factor (or hint) for Pyomo variable, constraint, or expression.
+        This method determines the component type and appropriatenly limits the 
+        scaling factor (or hint) by the corresponding config options
+
+        Args:
+            component: Component to set scaling factor for.
+            scaling_factor: nominal scaling factor to apply. May be limited by max and min values.
+            overwrite: whether to overwrite existing scaling factor (if present).
+              Defaults to Scaler config setting.
+            kwargs: Hook to allow additional arguments in subclasses
+
+        Returns:
+            None
+
+        Raises:
+            TypeError if component is not an instance of VarData, ConstraintData, or ExpressionData
+        """
+        if component.is_indexed():
+            raise TypeError(
+                "Provided with indexed component. Call this method with its "
+                "ComponentData children instead."
+            )
+        
+        if isinstance(component, VarData):
+            component_type = "variable"
+        elif isinstance(component, ConstraintData):
+            component_type = "constraint"
+        elif isinstance(component, ExpressionData):
+            component_type = "expression"
+        else:
+            raise TypeError(
+                f"Provided with component of type {type(component)}, which is not "
+                "able to be scaled."
+            )
+        self._set_scaling_factor(
+            component=component,
+            component_type=component_type,
+            scaling_factor=scaling_factor,
+            overwrite=overwrite,
+            **kwargs
+        )
+        
+
     def _set_scaling_factor(
         self, component, component_type, scaling_factor, overwrite=None
     ):

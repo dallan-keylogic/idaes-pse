@@ -29,8 +29,7 @@ from itertools import combinations, chain
 import numpy as np
 from scipy.linalg import svd
 from scipy.sparse.linalg import svds, norm
-from scipy.sparse import issparse, find
-
+from scipy.sparse import issparse, block_array, eye as speye, find, diags
 from pyomo.environ import (
     Binary,
     Integers,
@@ -124,7 +123,7 @@ from idaes.core.util.parameter_sweep import (
     ParameterSweepBase,
     is_psweepspec,
 )
-from idaes.core.util.linalg import svd_rayleigh_ritz
+from idaes.core.util.linalg import svd_rayleigh_ritz, _symmetric_rayleigh_ritz_iteration
 
 import idaes.logger as idaeslog
 
@@ -2070,6 +2069,106 @@ class SVDToolbox:
             raise ValueError(
                 "Model needs at least 2 equality constraints to perform svd_analysis."
             )
+
+    def ipopt_SOSC_analysis(self):
+        m = self._model
+        bound_push = 1e-8
+        try:
+            zL_suffix = m.ipopt_zL_out
+            zU_suffix = m.ipopt_zU_out
+            dual_suffix = m.dual
+        except AttributeError as err:
+            raise AttributeError(
+                "SOSC analysis requires dual variable information from an IPOPT solve. "
+                "Please create ipopt_zL_out, ipopt_zU_out, and dual import suffixes "
+                "on your model and run IPOPT again."
+            ) from err
+        full_con_list = self.nlp.get_pyomo_constraints()
+        self.nlp.set_duals([dual_suffix[con] for con in full_con_list])
+
+        ineq_con_list = self.nlp.get_pyomo_inequality_constraints()
+        # In addition to the contribution of the duals of the inequality constraints
+        # to the Hessian of the Lagrangian, we also end up with slack variables in
+        # the barrier term
+        n_var = len(self._var_list)
+        n_con = len(full_con_list)
+        n_ineq = len(ineq_con_list)
+
+        # Create augmented Jacobian with entries for slack variables for the inequality constraints
+        jac_eq = self.jacobian
+        jac_ineq = self.nlp.evaluate_jacobian_ineq()
+        I = speye(n_ineq)
+        jac_aug = block_array([[jac_eq, None],[jac_ineq, I]])
+
+        Sigma_L_primal = []
+        Sigma_U_primal = []
+        for var in self._var_list:
+            if var in  zL_suffix:
+                if var.lb is None:
+                    raise ValueError(
+                        f"Variable {var.name} appears in lower bound dual variable suffix "
+                        "but has no lower bound set. The model has been changed since the "
+                        "last time IPOPT has been called. Please run IPOPT again and "
+                        "create a new instance of SVDToolbox to update cached values."
+                    )
+                dist_bound = max(var.value-var.lb, bound_push)
+                Sigma_L_primal.append(zL_suffix[var]/dist_bound)
+            else:
+                Sigma_L_primal.append(0)
+
+            if var in zU_suffix:
+                if var.ub is None:
+                    raise ValueError(
+                        f"Variable {var.name} appears in upper bound dual variable suffix "
+                        "but has no upper bound set. The model has been changed since the "
+                        "last time IPOPT has been called. Please run IPOPT again and "
+                        "create a new instance of SVDToolbox to update cached values."
+                    )
+                dist_bound = max(var.ub-var.value, bound_push)
+                Sigma_U_primal.append(-zU_suffix[var]/dist_bound)
+            else:
+                Sigma_U_primal.append(0)
+
+        # Next handle inequality constraint slacks.
+        Sigma_slack = []
+        for con in ineq_con_list:
+            if con.lb is not None and con.ub is None:
+                dist_bound = max(value(con) - con.lb, bound_push)
+                assert dual_suffix[con] > 0
+                Sigma_slack.append(dual_suffix[con] / dist_bound)
+            elif con.lb is None and con.ub is not None:
+                dist_bound = max(con.ub - value(con), bound_push)
+                assert dual_suffix[con] > 0
+                Sigma_slack.append(dual_suffix[con] / dist_bound)
+            elif con.lb is not None and con.ub is not None:
+                # We could handle this case but I don't think the user should
+                # encounter this during normal Pyomo operations
+                raise RuntimeError()
+            else:
+                raise RuntimeError()
+        H = self.nlp.evaluate_hessian_lag()
+        H_aug = block_array([[H + diags(Sigma_L_primal) + diags(Sigma_U_primal), None],[None, diags(Sigma_slack)]])
+        B = block_array([[H_aug, jac_aug.T],[jac_aug, None]])
+
+        n_sv = self.config.number_of_smallest_singular_values
+        if n_sv is None:
+            # Determine the number of singular values to compute
+            # The "-1" is needed to avoid an error with svds
+            n_sv = min(10, n_var + n_ineq)
+
+        evals, evecs, converged = _symmetric_rayleigh_ritz_iteration(H, n_sv, 1e-14, 300, seed=None)
+
+        if not converged:
+            raise RuntimeError()
+        
+        var_vecs = evecs[:n_var,:]
+        slack_vecs = evecs[n_var:n_var+n_ineq,:]
+        con_vecs = evecs[n_var+n_ineq:,:]
+
+        # Numpy broadcasting rules mean that 
+        var_vecs / norm(var_vecs, axis=0)
+
+
 
     def run_svd_analysis(self):
         """
@@ -5007,3 +5106,53 @@ class ConstraintTermAnalysisVisitor(EXPR.StreamBasedExpressionVisitor):
             const,
             self._cancellation_tripped,
         )
+
+def get_reduced_hessian(model, parameters):
+    # Assumes a least-squares model has been solved to optimality
+    # assert degrees_of_freedom(model) == len(parameters)
+    # for val in model.ipopt_zL_out.values(): 
+    #     assert val<1
+    # for val in model.ipopt_zU_out.values(): 
+    #     assert val<1
+    jac, nlp = get_jacobian(model, scaled=False)
+    n_vars = jac.shape[1]
+    param_indices = nlp.get_primal_indices(parameters)
+    
+    A2 = jac[:, param_indices]
+
+    rest_indices = [i for i in range(n_vars)]
+
+    sorted_indices = param_indices.copy()
+    sorted_indices.sort()
+    # Go through indices backwards to avoid
+    # shifting the list indices when deleting
+    # parameter indices
+    for idx in sorted_indices[::-1]:
+        del rest_indices[idx]
+    
+    assert len(rest_indices) == n_vars - len(param_indices)
+    for idx in param_indices:
+        assert idx not in rest_indices
+
+    A1 = jac[:, rest_indices]
+    projection_matrix = spsolve(
+        A1.tocsc(),
+        A2.tocsc()
+    )
+    if len(param_indices) > 1:
+        # Typically there's extreme fill-in
+        # If len(param_indices) == 1, then a (dense) ndarray is returned
+        projection_matrix = projection_matrix.todense() 
+    # import pdb; pdb.set_trace()
+    assert nlp.get_obj_factor() == 1
+    
+    H = nlp.evaluate_hessian_lag()
+    H = H.tocsr()
+    H11 = H[np.ix_(rest_indices, rest_indices)]
+    H21 = H[np.ix_(param_indices, rest_indices)]
+    H12 = H[np.ix_(rest_indices, param_indices)]
+    H22 = H[np.ix_(param_indices, param_indices)]
+
+    PT = projection_matrix.transpose()
+    H_red = PT @ H11 @ projection_matrix - PT @ H12 - H21 @ projection_matrix + H22
+    return H_red

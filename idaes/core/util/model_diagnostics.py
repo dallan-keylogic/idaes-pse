@@ -2165,9 +2165,10 @@ class SVDToolbox:
         slack_vecs = evecs[n_var:n_var+n_ineq,:]
         con_vecs = evecs[n_var+n_ineq:,:]
 
-        # Numpy broadcasting rules mean that 
+        # Use Numpy broadcasting to normalize each column by its norm.
         var_vecs / norm(var_vecs, axis=0)
 
+        
 
 
     def run_svd_analysis(self):

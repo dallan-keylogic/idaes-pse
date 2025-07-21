@@ -39,6 +39,7 @@ from pyomo.environ import (
     PositiveIntegers,
     Set,
     SolverFactory,
+    Suffix,
     units,
     value,
     Var,
@@ -116,6 +117,13 @@ from idaes.models.properties import iapws95
 
 
 __author__ = "Alex Dowling, Douglas Allan, Andrew Lee"
+
+def _parse_string_for_numbers(s : str):
+    # Courtesy of Stack Overflow: https://stackoverflow.com/a/29581287
+    # This regex matches all numbers in the string
+    numeric_regex = "[-+]?[.]?[\d]+(?:,\d\d\d)*[\.]?\d*(?:[eE][-+]?\d+)?"
+
+    return re.findall(numeric_regex, s)
 
 
 # TODO: Add pyomo.dae test cases
@@ -2504,6 +2512,73 @@ The following variables are involved in c1:
         ):
             svd.display_variables_in_constraint(constraint=c6)
 
+    @pytest.mark.unit
+    def test_ipopt_barrier_hessian_analysis(self):
+        m = ConcreteModel()
+        m.x = Var([1, 2], initialize=1)
+
+        m.ineq = Constraint(expr=m.x[2]>=0)
+        m.obj = Objective(expr=m.x[1] ** 2)
+
+        m.ipopt_zL_out = Suffix(direction=Suffix.IMPORT)
+        m.ipopt_zU_out = Suffix(direction=Suffix.IMPORT)
+        m.dual = Suffix(direction=Suffix.IMPORT)
+        
+        solver_obj = get_solver("ipopt")
+
+        solver_obj.solve(m)
+
+        svd_tbx = SVDToolbox(m)
+        
+
+        stream = StringIO()
+        svd_tbx.ipopt_barrier_hessian_analysis(stream=stream)
+
+        expected = """====================================================================================
+Variables associated with smallest eigenvalues of the barrier Hessian
+
+    Smallest Eigenvalue 1: -4.047206302059843e-31
+
+        Variables:
+
+            x[2]
+
+    Smallest Eigenvalue 2: 1.414213562373096
+
+        Variables:
+
+            x[2]
+
+    Smallest Eigenvalue 3: -1.4142135623730963
+
+        Variables:
+
+            x[2]
+
+    Smallest Eigenvalue 4: 2.0000000000000013
+
+        Variables:
+
+            x[1]
+
+====================================================================================
+"""
+
+        num_out = _parse_string_for_numbers(stream.getvalue())
+        num_out_expected = _parse_string_for_numbers(expected)
+        float_idx = [1, 10]
+        abs_float_idx = [4, 7]
+        for i, num in enumerate(num_out):
+            if i in float_idx:
+                assert float(num) == pytest.approx(float(num_out_expected[i]), rel=1e-14, abs=1e-14)
+            elif i in abs_float_idx:
+                # We cannot guarantee the order in which the eigenvalues +/- sqrt(2) will appear
+                # so just test equality of absolute values instead
+                assert abs(float(num)) == pytest.approx(abs(float(num_out_expected[i])), rel=1e-14, abs=1e-14)
+            else:
+                assert num == num_out_expected[i]
+        # String equality up to the point where the first float is printed
+        assert stream.getvalue()[:183] == expected[:183]
 
 @pytest.mark.skipif(
     not AmplInterface.available(), reason="pynumero_ASL is not available"

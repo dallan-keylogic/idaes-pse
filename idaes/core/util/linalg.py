@@ -20,7 +20,7 @@ import numpy as np
 from numpy.linalg import norm
 from numpy.random import default_rng
 from scipy.linalg import svd, eigh, qr
-from scipy.sparse.linalg import splu
+from scipy.sparse.linalg import splu, norm as spnorm
 from scipy.sparse import issparse, block_array, eye as speye
 
 import idaes.logger as idaeslog
@@ -107,6 +107,10 @@ def _symmetric_rayleigh_ritz_iteration(H, n_vec, tol, max_iter, seed=None):
     assert len(H.shape) == 2
     m, n = H.shape
     assert m == n
+    assert n_vec <= n
+
+    B_norm = spnorm(B, ord="inf")
+
     rng_obj = default_rng(seed)
     mu = rng_obj.uniform(low=-1e-15, high=1e-15, size=(n_vec,))
     B = rng_obj.standard_normal(size=(m, n_vec))
@@ -123,7 +127,7 @@ def _symmetric_rayleigh_ritz_iteration(H, n_vec, tol, max_iter, seed=None):
         # TODO should this tolerance be scaled by matrix size?
         if max(err) < tol:
             converged = True
-            print(f"Converged in {i} iterations")
+            print(f"Rayleigh-Ritz converged in {i} iterations")
             break
 
         # Find the index which is furthest from being an eigenvector in

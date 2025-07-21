@@ -27,8 +27,8 @@ import logging
 from itertools import combinations, chain
 
 import numpy as np
-from scipy.linalg import svd
-from scipy.sparse.linalg import svds, norm
+from scipy.linalg import norm, svd
+from scipy.sparse.linalg import svds, norm as spnorm
 from scipy.sparse import issparse, block_array, eye as speye, find, diags
 from pyomo.environ import (
     Binary,
@@ -2065,12 +2065,15 @@ class SVDToolbox:
         self._eq_con_list = self.nlp.get_pyomo_equality_constraints()
         self._var_list = self.nlp.get_pyomo_variables()
 
-        if self.jacobian.shape[0] < 2:
-            raise ValueError(
-                "Model needs at least 2 equality constraints to perform svd_analysis."
-            )
+        # if self.jacobian.shape[0] < 2:
+        #     raise ValueError(
+        #         "Model needs at least 2 equality constraints to perform svd_analysis."
+        #     )
 
-    def ipopt_SOSC_analysis(self):
+    def ipopt_barrier_hessian_analysis(self, stream=None):
+        if stream is None:
+            stream = sys.stdout
+
         m = self._model
         bound_push = 1e-8
         try:
@@ -2132,13 +2135,16 @@ class SVDToolbox:
         # Next handle inequality constraint slacks.
         Sigma_slack = []
         for con in ineq_con_list:
+            # TODO I've seen inequality constraints have values for dual variables
+            # inconsistent with their signs when IPOPT terminated before converging
+            # How should we handle that case?
             if con.lb is not None and con.ub is None:
                 dist_bound = max(value(con) - con.lb, bound_push)
-                assert dual_suffix[con] > 0
+                assert dual_suffix[con] >= 0
                 Sigma_slack.append(dual_suffix[con] / dist_bound)
             elif con.lb is None and con.ub is not None:
                 dist_bound = max(con.ub - value(con), bound_push)
-                assert dual_suffix[con] > 0
+                assert dual_suffix[con] <= 0
                 Sigma_slack.append(dual_suffix[con] / dist_bound)
             elif con.lb is not None and con.ub is not None:
                 # We could handle this case but I don't think the user should
@@ -2150,17 +2156,23 @@ class SVDToolbox:
         H_aug = block_array([[H + diags(Sigma_L_primal) + diags(Sigma_U_primal), None],[None, diags(Sigma_slack)]])
         B = block_array([[H_aug, jac_aug.T],[jac_aug, None]])
 
-        n_sv = self.config.number_of_smallest_singular_values
-        if n_sv is None:
-            # Determine the number of singular values to compute
-            # The "-1" is needed to avoid an error with svds
-            n_sv = min(10, n_var + n_ineq)
-
-        evals, evecs, converged = _symmetric_rayleigh_ritz_iteration(H, n_sv, 1e-14, 300, seed=None)
+        n_ev = self.config.number_of_smallest_singular_values
+        if n_ev is None:
+            # Determine the number of eigenvalues
+            # Inequality constraints get counted twice, because we implicitly
+            # convert them to an equality constraint and a slack
+            n_ev = min(10, n_var + n_ineq + n_con)
+        import pdb; pdb.set_trace()
+        evals, evecs, converged = _symmetric_rayleigh_ritz_iteration(B.tocsc(), n_ev, 1e-14, 300, seed=None)
 
         if not converged:
             raise RuntimeError()
         
+        # Sort eigenvalues in order of ascending magnitude
+        sort_indices = np.argsort(np.abs(evals))
+        evals = evals[sort_indices]
+        evecs = evecs[:, sort_indices]
+
         var_vecs = evecs[:n_var,:]
         slack_vecs = evecs[n_var:n_var+n_ineq,:]
         con_vecs = evecs[n_var+n_ineq:,:]
@@ -2168,7 +2180,21 @@ class SVDToolbox:
         # Use Numpy broadcasting to normalize each column by its norm.
         var_vecs / norm(var_vecs, axis=0)
 
-        
+        tol = self.config.size_cutoff_in_singular_vector
+
+        stream.write("=" * MAX_STR_LENGTH + "\n")
+        stream.write(
+            "Variables associated with smallest eigenvalues of the barrier Hessian\n\n"
+        )
+
+        for e in range(1, n_ev+1):
+            stream.write(f"{TAB}Smallest Eigenvalue {e}: {evals[e-1]}\n\n")
+            stream.write(f"{2 * TAB}Variables:\n\n")
+            for v in np.where(abs(var_vecs[:, e - 1]) > tol)[0]:
+                stream.write(f"{3 * TAB}{self._var_list[v].name}\n")
+            stream.write("\n")
+
+        stream.write("=" * MAX_STR_LENGTH + "\n")
 
 
     def run_svd_analysis(self):
@@ -2187,6 +2213,11 @@ class SVDToolbox:
             Stores SVD results in object
 
         """
+        if self.jacobian.shape[0] < 2:
+            raise ValueError(
+                "Model needs at least 2 equality constraints to perform svd_analysis."
+            )
+
         n_eq = self.jacobian.shape[0]
         n_var = self.jacobian.shape[1]
 
@@ -3163,7 +3194,7 @@ class DegeneracyHunter:
                 if self.s[i] < tol:
                     counter += 1
         else:
-            print(f"Only singular value: {norm(self.jac_eq,'fro')}")
+            print(f"Only singular value: {spnorm(self.jac_eq,'fro')}")
 
         return counter
 
@@ -4312,9 +4343,9 @@ def check_parallel_jacobian(
         for idx, (u, uidx) in enumerate(vecs):
             # idx is the "local index", uidx is the "global index"
             # Frobenius norm of the matrix is 2-norm of this column vector
-            unorm = norm(u, ord="fro")
+            unorm = spnorm(u, ord="fro")
             for v, vidx in vecs[idx + 1 :]:
-                vnorm = norm(v, ord="fro")
+                vnorm = spnorm(v, ord="fro")
 
                 # Explicitly multiply a row vector * column vector
                 prod = u.transpose().dot(v)

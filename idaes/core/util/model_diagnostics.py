@@ -1809,7 +1809,10 @@ class DiagnosticsToolbox:
             ignore_unit_consistency=ignore_unit_consistency,
         )
         if len(warnings) > 0:
-            raise AssertionError(f"Structural issues found ({len(warnings)}).")
+            raise AssertionError(
+                f"Structural issues found ({len(warnings)}). Run report_structural_issues() to "
+                "determine what structural issues exist in this model."
+            )
 
     def assert_no_numerical_warnings(self, ignore_parallel_components=False):
         """
@@ -1827,7 +1830,10 @@ class DiagnosticsToolbox:
             ignore_parallel_components=ignore_parallel_components
         )
         if len(warnings) > 0:
-            raise AssertionError(f"Numerical issues found ({len(warnings)}).")
+            raise AssertionError(
+                f"Numerical issues found ({len(warnings)}). Run report_numerical_issues() to "
+                "determine what numerical issues exist in this model."
+            )
 
     def report_structural_issues(self, stream=None):
         """

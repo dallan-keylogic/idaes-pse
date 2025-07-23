@@ -421,6 +421,16 @@ SVDCONFIG.declare(
         "the singular vector",
     ),
 )
+SVDCONFIG.declare(
+    "barrier_strongly_active_constraint_cutoff",
+    ConfigValue(
+        default=100,
+        domain=NonNegativeFloat,
+        description="Size of the barrier term (dual variable divided by distance to bound) "
+        "above which a constraint is considered 'strongly active' and fixed in "
+        "barrier Hessian analysis.",
+    ),
+)
 
 
 DHCONFIG = ConfigDict()
@@ -2111,6 +2121,7 @@ class SVDToolbox:
 
         Sigma_L_primal = []
         Sigma_U_primal = []
+        strongly_active_vars = []
         for var in self._var_list:
             if var in  zL_suffix:
                 if var.lb is None:
@@ -2121,7 +2132,12 @@ class SVDToolbox:
                         "create a new instance of SVDToolbox to update cached values."
                     )
                 dist_bound = max(var.value-var.lb, bound_push)
-                Sigma_L_primal.append(zL_suffix[var]/dist_bound)
+                sigma = zL_suffix[var]/dist_bound
+                if sigma > self.config.barrier_strongly_active_constraint_cutoff:
+                    Sigma_L_primal.append(0)
+                    strongly_active_vars.append(var)
+                else:
+                    Sigma_L_primal.append(zL_suffix[var]/dist_bound)
             else:
                 Sigma_L_primal.append(0)
 
@@ -2134,12 +2150,25 @@ class SVDToolbox:
                         "create a new instance of SVDToolbox to update cached values."
                     )
                 dist_bound = max(var.ub-var.value, bound_push)
-                Sigma_U_primal.append(-zU_suffix[var]/dist_bound)
+                sigma = -zU_suffix[var]/dist_bound
+                if sigma > self.config.barrier_strongly_active_constraint_cutoff:
+                    if var in strongly_active_vars:
+                        raise RuntimeError(
+                            f"Variable {var.name} has strongly active upper and lower bounds."
+                            "Consider either fixing it or scaling it so it is further from its bounds."
+                        )
+                    else:
+                        Sigma_U_primal.append(0)
+                        strongly_active_vars.append(var)
+                else:
+                    Sigma_U_primal.append(zL_suffix[var]/dist_bound)
             else:
                 Sigma_U_primal.append(0)
 
+
         # Next handle inequality constraint slacks.
         Sigma_slack = []
+        strongly_active_ineqs = []
         for con in ineq_con_list:
             # TODO I've seen inequality constraints have values for dual variables
             # inconsistent with their signs when IPOPT terminated before converging
@@ -2147,29 +2176,46 @@ class SVDToolbox:
             if con.lb is not None and con.ub is None:
                 dist_bound = max(value(con) - con.lb, bound_push)
                 assert dual_suffix[con] >= 0
-                Sigma_slack.append(dual_suffix[con] / dist_bound)
+                sigma = dual_suffix[con] / dist_bound
             elif con.lb is None and con.ub is not None:
                 dist_bound = max(con.ub - value(con), bound_push)
                 assert dual_suffix[con] <= 0
-                Sigma_slack.append(dual_suffix[con] / dist_bound)
+                sigma = dual_suffix[con] / dist_bound
             elif con.lb is not None and con.ub is not None:
                 # We could handle this case but I don't think the user should
                 # encounter this during normal Pyomo operations
                 raise RuntimeError()
             else:
                 raise RuntimeError()
+            if sigma > self.config.barrier_strongly_active_constraint_cutoff:
+                strongly_active_ineqs.append(con)
+                Sigma_slack.append(0)
+            else:
+                Sigma_slack.append(dual_suffix[con] / dist_bound)
         H = self.nlp.evaluate_hessian_lag()
         H_aug = block_array([[H + diags(Sigma_L_primal) + diags(Sigma_U_primal), None],[None, diags(Sigma_slack)]])
         B = block_array([[H_aug, jac_aug.T],[jac_aug, None]])
+
+        active_indices = self.nlp.get_primal_indices(strongly_active_vars)
+        active_slack_indices = self.nlp.get_inequality_constraint_indices(strongly_active_ineqs)
+        for idx in active_slack_indices:
+            active_indices.append(idx + n_var)
+
+        # Remove rows/columns corresponding to strongly active variables/slacks. This process is
+        # equivalent to treating the strongly active variables as fixed and the inequality
+        # constraints corresponding to the slacks as equality constraints.
+        remaining_indices = [i for i in range(n_var + n_ineq + n_con) if i not in active_indices]
+        B = B.tocsr()
+        B_remaining = B[np.ix_(remaining_indices, remaining_indices)]
 
         n_ev = self.config.number_of_smallest_singular_values
         if n_ev is None:
             # Determine the number of eigenvalues
             # Inequality constraints get counted twice, because we implicitly
             # convert them to an equality constraint and a slack
-            n_ev = min(10, n_var + n_ineq + n_con)
-        import pdb; pdb.set_trace()
-        evals, evecs, converged = _symmetric_rayleigh_ritz_iteration(B.tocsc(), n_ev, 1e-14, 300, seed=None)
+            n_ev = min(10, B_remaining.shape[0])
+        # import pdb; pdb.set_trace()
+        evals, evecs, converged = _symmetric_rayleigh_ritz_iteration(B_remaining, n_ev, 1e-14, 300, seed=None)
 
         if not converged:
             raise RuntimeError()
@@ -2179,9 +2225,11 @@ class SVDToolbox:
         evals = evals[sort_indices]
         evecs = evecs[:, sort_indices]
 
-        var_vecs = evecs[:n_var,:]
-        slack_vecs = evecs[n_var:n_var+n_ineq,:]
-        con_vecs = evecs[n_var+n_ineq:,:]
+        n_var_remaining = n_var - len(strongly_active_vars)
+        n_slack_remaining = n_ineq - len(strongly_active_ineqs)
+        var_vecs = evecs[:n_var_remaining,:]
+        slack_vecs = evecs[n_var_remaining:n_var_remaining + n_slack_remaining,:]
+        con_vecs = evecs[n_var_remaining + n_slack_remaining:,:]
 
         # Use Numpy broadcasting to normalize each column by its norm.
         var_vecs / norm(var_vecs, axis=0)
@@ -2197,7 +2245,7 @@ class SVDToolbox:
             stream.write(f"{TAB}Smallest Eigenvalue {e}: {evals[e-1]}\n\n")
             stream.write(f"{2 * TAB}Variables:\n\n")
             for v in np.where(abs(var_vecs[:, e - 1]) > tol)[0]:
-                stream.write(f"{3 * TAB}{self._var_list[v].name}\n")
+                stream.write(f"{3 * TAB}{self._var_list[remaining_indices[v]].name}\n")
             stream.write("\n")
 
         stream.write("=" * MAX_STR_LENGTH + "\n")

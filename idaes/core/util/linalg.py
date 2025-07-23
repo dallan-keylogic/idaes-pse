@@ -109,7 +109,7 @@ def _symmetric_rayleigh_ritz_iteration(H, n_vec, tol, max_iter, seed=None):
     assert m == n
     assert n_vec <= n
 
-    B_norm = spnorm(B, ord="inf")
+    H_norm = spnorm(H, ord="fro")
 
     rng_obj = default_rng(seed)
     mu = rng_obj.uniform(low=-1e-15, high=1e-15, size=(n_vec,))

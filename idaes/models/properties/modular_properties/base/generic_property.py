@@ -153,7 +153,6 @@ class GenericPropertiesScaler(CustomScalerBase):
                     to_units=units["MOLECULAR_WEIGHT"]
                 )
             )
-
         sf_T = self.get_scaling_factor(self.temperature)
         sf_P = self.get_scaling_factor(self.pressure)
         sf_mf = {}
@@ -182,7 +181,7 @@ class GenericPropertiesScaler(CustomScalerBase):
         if model.is_property_constructed(model.enth_mol_phase):
             for p in self.phase_list:
                 sf_enth_phase = self.get_scaling_factor(model.enth_mol_phase[p])
-                if sf_enth_phase is None:
+                if sf_enth_phase is None or overwrite:
                     if not mw_missing:
                         # Most materials have a heat capacity around 2 J/(g*K).
                         # For liquids, water is 4.18, ethanol is 2.44, decane is 2.21
@@ -209,7 +208,7 @@ class GenericPropertiesScaler(CustomScalerBase):
                             "Default scaling factor for molar enthalpy not set. Because "
                             "molecular weight isn't provided for each component, the heat "
                             "capacity cannot be approximated. Please provide default scaling factors "
-                            "capacity for enth_mol_phase so that energy balances can be scaled."
+                            "for enth_mol_phase so that energy balances can be scaled."
                         )
 
         if model.is_property_constructed("_teq"):
@@ -220,54 +219,93 @@ class GenericPropertiesScaler(CustomScalerBase):
                     overwrite=overwrite
                 )
 
-        # Other EoS variables and constraints
+        # Other EoS variables
         for p in self.phase_list:
-            pobj = self.params.get_phase(p)
-            self.call_phase_module_scaler(
+            pobj = model.params.get_phase(p)
+            self.call_module_scaler(
                 model,
-                pobj,
                 pobj.config.equation_of_state,
+                index=p,
                 method="variable_scaling_routine",
                 overwrite=overwrite
             )
-
-        
-        
-
+        # Phase equilibrium
+        # Right now (7/24/25) phase equilibrium methods don't create
+        # additional variables, so this method does nothing.
+        # It exists in case some future method does
+        if model.is_property_constructed("equilibrium_constraint"):
+            for pp in model.params._pe_pairs:
+                pe_method = model.params.config.phase_equilibrium_form[pp]
+                self.call_module_scaler(
+                    model,
+                    pe_method,
+                    index=pp,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite
+                )
+        # Inherent reactions
+        if model.is_property_constructed("inherent_equilibrium_constraint"):
+            for r in self.params.inherent_reaction_idx:
+                carg = self.params.config.inherent_reactions[r]
+                self.call_inherent_reaction_module_scaler(
+                    model,
+                    carg["equilibrium_form"],
+                    index=r,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite
+                )
         
     
     def constraint_scaling_routine(
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
-        pass
+        param_config = model.params.config
 
+        # Equation of State
+        for p in self.phase_list:
+            pobj = model.params.get_phase(p)
+            self.call_module_scaler(
+                model,
+                pobj.config.equation_of_state,
+                index=p,
+                method="constraint_scaling_routine",
+                overwrite=overwrite
+            )
+
+        # Phase equilibrium
+        if model.is_property_constructed("equilibrium_constraint"):
+            for pp in model.params._pe_pairs:
+                pe_method = param_config.phase_equilibrium_form[pp[1], pp[0]]
+                self.call_module_scaler(
+                    model,
+                    pe_method,
+                    index=pp,
+                    method="constraint_scaling_routine",
+                    overwrite=overwrite
+                )
+        
+        # Inherent reactions
+        if model.is_property_constructed("inherent_equilibrium_constraint"):
+            for r in self.params.inherent_reaction_idx:
+                carg = self.params.config.inherent_reactions[r]
+                self.call_inherent_reaction_module_scaler(
+                    model,
+                    carg["equilibrium_form"],
+                    index=r,
+                    method="constraint_scaling_routine",
+                    overwrite=overwrite
+                )
     
 
-    def call_phase_comp_module_scaler(
-        self, model, module, overwrite: bool = False,
-    ):
-        """
-        Call scaler for module in modular property framework
-        """
-        # Right now just look for default scaler on object
-        # We can figure out how to let the user substitute their
-        # own scaling later
-        pass
 
-    def call_phase_module_scaler(
-        self, model, pobj, module, method: str, overwrite: bool = False
+    def call_module_scaler(
+        self, model, module, index, method, overwrite: bool = False
     ):
-        """
-        Call scaler for phase-dependent property in modular property framework
-        """
-        # Right now just look for default scaler on object
-        # We can figure out how to let the user substitute their
-        # own scaling later
         try:
             scaler_class = module.default_scaler
         except AttributeError:
             _log.debug(
-                f"No default Scaler set for {module}. Cannot call {method}."
+                f"No default Scaler set for module {module}. Cannot call {method}."
             )
             return
         scaler_obj = scaler_class(**self.CONFIG)
@@ -277,111 +315,9 @@ class GenericPropertiesScaler(CustomScalerBase):
             raise AttributeError(
                 f"Could not find {method} method on scaler for module {module}."
             ) from err
-        method_func(model, pobj, overwrite=overwrite)
+        method_func(model, index, overwrite=overwrite)
 
     def old(self):
-        
-        # Scale state variables and associated constraints
-        self.params.config.state_definition.calculate_scaling_factors(self)
-
-        sf_T = iscale.get_scaling_factor(self.temperature, default=1, warning=True)
-        sf_P = iscale.get_scaling_factor(self.pressure, default=1, warning=True)
-        sf_mf = {}
-        for i, v in self.mole_frac_phase_comp.items():
-            sf_mf[i] = iscale.get_scaling_factor(v, default=1e3, warning=True)
-
-        # Other EoS variables and constraints
-        for p in self.phase_list:
-            pobj = self.params.get_phase(p)
-            pobj.config.equation_of_state.calculate_scaling_factors(self, pobj)
-
-        # Flow and density terms
-        if self.is_property_constructed("_enthalpy_flow_term"):
-            for k, v in self._enthalpy_flow_term.items():
-                if iscale.get_scaling_factor(v) is None:
-                    sf_flow_phase = iscale.get_scaling_factor(
-                        self.flow_mol_phase[k],
-                        default=1,
-                        warning=True,
-                        hint="for _enthalpy_flow_term",
-                    )
-                    sf_h = iscale.get_scaling_factor(
-                        self.enth_mol_phase[k],
-                        default=1,
-                        warning=True,
-                        hint="for _enthalpy_flow_term",
-                    )
-                    iscale.set_scaling_factor(v, sf_flow_phase * sf_h)
-
-        if self.is_property_constructed("_material_density_term"):
-            for (p, j), v in self._material_density_term.items():
-                if iscale.get_scaling_factor(v) is None:
-                    sf_rho = iscale.get_scaling_factor(
-                        self.dens_mol_phase[p], default=1, warning=True
-                    )
-                    sf_x = iscale.get_scaling_factor(
-                        self.mole_frac_phase_comp[p, j], default=1, warning=True
-                    )
-                    iscale.set_scaling_factor(v, sf_rho * sf_x)
-
-        if self.is_property_constructed("_energy_density_term"):
-            for k, v in self._enthalpy_flow_term.items():
-                if iscale.get_scaling_factor(v) is None:
-                    sf_rho = iscale.get_scaling_factor(
-                        self.dens_mol_phase[k], default=1, warning=True
-                    )
-                    sf_u = iscale.get_scaling_factor(
-                        self.energy_internal_mol_phase[k], default=1, warning=True
-                    )
-                    iscale.set_scaling_factor(v, sf_rho * sf_u)
-
-        if self.is_property_constructed("cp_mol_phase"):
-            for p in self.phase_list:
-                # Cp of air is 30 J/mol K, Cp of liquid water is 75 J/mol K, 1/50 is a good default value
-                # for small molecules. For large molecules, this value will be inappropriate
-                iscale.set_scaling_factor(self.cp_mol_phase[p], 1 / 50, overwrite=False)
-
-        # Phase equilibrium constraint
-        if hasattr(self, "equilibrium_constraint"):
-            pe_form_config = self.params.config.phase_equilibrium_state
-            for pp in self.params._pe_pairs:
-                pe_form_config[pp].calculate_scaling_factors(self, pp)
-
-            for k in self.equilibrium_constraint:
-                try:
-                    sf_fug = (
-                        self.params.get_component(k[2])
-                        .config.phase_equilibrium_form[(k[0], k[1])]
-                        .calculate_scaling_factors(self, k[0], k[1], k[2])
-                    )
-
-                    iscale.constraint_scaling_transform(
-                        self.equilibrium_constraint[k], sf_fug, overwrite=False
-                    )
-                except KeyError:  # component not in phase
-                    pass
-
-        # Inherent reactions
-        if hasattr(self, "k_eq"):
-            for r in self.params.inherent_reaction_idx:
-                rblock = getattr(self.params, "reaction_" + r)
-                carg = self.params.config.inherent_reactions[r]
-
-                sf_keq = iscale.get_scaling_factor(self.k_eq[r])
-                if sf_keq is None:
-                    sf_keq = carg["equilibrium_constant"].calculate_scaling_factors(
-                        self, rblock
-                    )
-                    iscale.set_scaling_factor(self.k_eq[r], sf_keq)
-
-                sf_const = carg["equilibrium_form"].calculate_scaling_factors(
-                    self, sf_keq
-                )
-
-                iscale.constraint_scaling_transform(
-                    self.inherent_equilibrium_constraint[r], sf_const, overwrite=False
-                )
-
         # Add scaling for additional Vars and Constraints
         # Bubble and dew points
         def bubble_dew_scaling(b, pt_var):

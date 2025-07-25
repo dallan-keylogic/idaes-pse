@@ -96,6 +96,27 @@ from idaes.core.scaling import CustomScalerBase, get_scaling_factor
 # Set up logger
 _log = idaeslog.getLogger(__name__)
 
+_log_form_vars = [
+    "act_phase_comp",
+    "act_phase_comp_apparent",
+    "act_phase_comp_true",
+    "conc_mol_phase_comp",
+    "conc_mol_phase_comp_apparent",
+    "conc_mol_phase_comp_true",
+    "mass_frac_phase_comp",
+    "mass_frac_phase_comp_apparent",
+    "mass_frac_phase_comp_true",
+    "molality_phase_comp",
+    "molality_phase_comp_apparent",
+    "molality_phase_comp_true",
+    "mole_frac_comp",
+    "mole_frac_phase_comp",
+    "mole_frac_phase_comp_apparent",
+    "mole_frac_phase_comp_true",
+    "pressure_phase_comp",
+    "pressure_phase_comp_apparent",
+    "pressure_phase_comp_true",
+]
 
 def set_param_value(b, param, units):
     """Set parameter values from user provided dict"""
@@ -137,6 +158,12 @@ class GenericPropertiesScaler(CustomScalerBase):
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
         units = model.get_metadata().derived_units
+        sf_T = get_scaling_factor(model.temperature)
+        sf_P = get_scaling_factor(model.pressure)
+
+        sf_mf = {}
+        for i, v in model.mole_frac_phase_comp.items():
+            sf_mf[i] = get_scaling_factor(v)
 
         mw_comp_dict = {}
         mw_missing = False
@@ -153,11 +180,6 @@ class GenericPropertiesScaler(CustomScalerBase):
                     to_units=units["MOLECULAR_WEIGHT"]
                 )
             )
-        sf_T = self.get_scaling_factor(self.temperature)
-        sf_P = self.get_scaling_factor(self.pressure)
-        sf_mf = {}
-        for i, v in self.mole_frac_phase_comp.items():
-            sf_mf[i] = get_scaling_factor(v)
 
         if not mw_missing:
             # We want to collect molecular weight scaling factors
@@ -254,6 +276,19 @@ class GenericPropertiesScaler(CustomScalerBase):
                     method="variable_scaling_routine",
                     overwrite=overwrite
                 )
+        # Bubble and dew points
+        if self.is_property_constructed("temperature_bubble"):
+            self._bubble_dew_scaling(model, model.temperature_bubble, scale_variables=True, overwrite=overwrite)
+
+        if self.is_property_constructed("temperature_dew"):
+            self._bubble_dew_scaling(model, model.temperature_dew, scale_variables=True, overwrite=overwrite)
+
+        if self.is_property_constructed("pressure_bubble"):
+            self._bubble_dew_scaling(model, model.pressure_bubble, scale_variables=True, overwrite=overwrite)
+
+        if self.is_property_constructed("pressure_dew"):
+            self._bubble_dew_scaling(model, model.pressure_dew, scale_variables=True, overwrite=overwrite)
+
         
     
     def constraint_scaling_routine(
@@ -296,6 +331,18 @@ class GenericPropertiesScaler(CustomScalerBase):
                     overwrite=overwrite
                 )
     
+        # Bubble and dew points
+        if self.is_property_constructed("temperature_bubble"):
+            self._bubble_dew_scaling(model, model.temperature_bubble, scale_variables=False, overwrite=overwrite)
+
+        if self.is_property_constructed("temperature_dew"):
+            self._bubble_dew_scaling(model, model.temperature_dew, scale_variables=False, overwrite=overwrite)
+
+        if self.is_property_constructed("pressure_bubble"):
+            self._bubble_dew_scaling(model, model.pressure_bubble, scale_variables=False, overwrite=overwrite)
+
+        if self.is_property_constructed("pressure_dew"):
+            self._bubble_dew_scaling(model, model.pressure_dew, scale_variables=False, overwrite=overwrite)
 
 
     def call_module_scaler(
@@ -317,85 +364,87 @@ class GenericPropertiesScaler(CustomScalerBase):
             ) from err
         method_func(model, index, overwrite=overwrite)
 
+    def _bubble_dew_scaling(self, model, pt_var, scale_variables, overwrite: bool=False):
+        """
+        scale_variables=True scales variables, scales_variables=False scales constraints
+        """
+        sf_T = get_scaling_factor(model.temperature)
+        sf_P = get_scaling_factor(model.pressure)
+        sf_mf = {}
+        for i, v in model.mole_frac_phase_comp.items():
+            sf_mf[i] = get_scaling_factor(v)
+
+        # Ditch the m.fs.unit.control_volume...
+        short_name = pt_var.name.split(".")[-1]
+
+        if short_name.startswith("temperature"):
+            abbrv = "t"
+            sf_pt = sf_T
+        elif short_name.startswith("pressure"):
+            abbrv = "p"
+            sf_pt = sf_P
+        else:
+            _raise_dev_burnt_toast()
+
+        if short_name.endswith("bubble"):
+            phase = VaporPhase
+            abbrv += "bub"
+        elif short_name.endswith("dew"):
+            phase = LiquidPhase
+            abbrv += "dew"
+
+        x_var = getattr(model, "_mole_frac_" + abbrv)
+
+        if model.is_property_constructed("log_mole_frac_" + abbrv):
+            log_eq = getattr(model, "log_mole_frac_" + abbrv + "_eqn")
+        else:
+            log_eq = None
+
+        # Directly scale the bubble/dew temperature/pressure variable
+        if scale_variables:
+            for v in pt_var.values():
+                self.set_component_scaling_factor(v, sf_pt, overwrite=overwrite)
+
+        # Scale mole fractions for bubble/dew calcs
+        for i, v in x_var.items():
+            if model.params.config.phases[i[0]]["type"] is phase:
+                p = i[0]
+            elif model.params.config.phases[i[1]]["type"] is phase:
+                p = i[1]
+            else:
+                # We create bubble/dew variables for all phase
+                # equilibrium pairs, regardless of whether it makes
+                # sense. If the pair doesn't make sense, the constraint
+                # is not created and the scaling factor is arbitrary
+                p = i[0]
+            if scale_variables:
+                if (p, i[2]) in sf_mf:
+                    self.set_component_scaling_factor(v, sf_mf[p, i[2]], overwrite=overwrite)
+                else:
+                    # component i[2] is not in the new phase, so this
+                    # variable is likely unused and scale doesn't matter
+                    self.set_component_scaling_factor(v, 1, overwrite=overwrite)
+            else:
+                if (p, i[2]) in sf_mf:
+                    self.set_component_scaling_factor(
+                        log_eq[i], sf_mf[p, i[2]], overwrite=False
+                    )
+                else:
+                    pass
+        if scale_variables:
+            method = "variable_scaling_routine"
+        else:
+            method = "constraint_scaling_routine"
+        self.call_module_scaler(
+            model.params.config.bubble_dew_method,
+            index=None,
+            method=method,
+            overwrite=overwrite
+        )
+
     def old(self):
         # Add scaling for additional Vars and Constraints
-        # Bubble and dew points
-        def bubble_dew_scaling(b, pt_var):
-            # Ditch the m.fs.unit.control_volume...
-            short_name = pt_var.name.split(".")[-1]
 
-            if short_name.startswith("temperature"):
-                abbrv = "t"
-                sf_pt = sf_T
-            elif short_name.startswith("pressure"):
-                abbrv = "p"
-                sf_pt = sf_P
-            else:
-                _raise_dev_burnt_toast()
-
-            if short_name.endswith("bubble"):
-                phase = VaporPhase
-                abbrv += "bub"
-            elif short_name.endswith("dew"):
-                phase = LiquidPhase
-                abbrv += "dew"
-
-            x_var = getattr(b, "_mole_frac_" + abbrv)
-
-            if b.is_property_constructed("log_mole_frac_" + abbrv):
-                log_eq = getattr(b, "log_mole_frac_" + abbrv + "_eqn")
-            else:
-                log_eq = None
-
-            # Directly scale the bubble/dew temperature/pressure variable
-            for v in pt_var.values():
-                if iscale.get_scaling_factor(v) is None:
-                    iscale.set_scaling_factor(v, sf_pt)
-
-            # Scale mole fractions for bubble/dew calcs
-            for i, v in x_var.items():
-                if iscale.get_scaling_factor(v) is None:
-                    if b.params.config.phases[i[0]]["type"] is phase:
-                        p = i[0]
-                    elif b.params.config.phases[i[1]]["type"] is phase:
-                        p = i[1]
-                    else:
-                        # We create bubble/dew variables for all phase
-                        # equilibrium pairs, regardless of whether it makes
-                        # sense. If the pair doesn't make sense, the constraint
-                        # is not created and the scaling factor is arbitrary
-                        p = i[0]
-                    try:
-                        iscale.set_scaling_factor(v, sf_mf[p, i[2]])
-                        if log_eq is not None and (
-                            iscale.get_scaling_factor(log_eq[i]) is None
-                        ):
-                            iscale.constraint_scaling_transform(
-                                log_eq[i], sf_mf[p, i[2]], overwrite=False
-                            )
-                    except KeyError:
-                        # component i[2] is not in the new phase, so this
-                        # variable is likely unused and scale doesn't matter
-                        iscale.set_scaling_factor(v, 1)
-
-            scaling_method = getattr(
-                b.params.config.bubble_dew_method, "scale_" + short_name
-            )
-            scaling_method(b, overwrite=False)
-
-            return
-
-        if self.is_property_constructed("temperature_bubble"):
-            bubble_dew_scaling(self, self.temperature_bubble)
-
-        if self.is_property_constructed("temperature_dew"):
-            bubble_dew_scaling(self, self.temperature_dew)
-
-        if self.is_property_constructed("pressure_bubble"):
-            bubble_dew_scaling(self, self.pressure_bubble)
-
-        if self.is_property_constructed("pressure_dew"):
-            bubble_dew_scaling(self, self.pressure_dew)
 
         # Scale log form constraints
         if self.is_property_constructed("log_mole_frac_comp"):
@@ -2472,29 +2521,10 @@ class _GenericStateBlock(StateBlock):
                 b.temperature.unfix()
 
             # Initialize log-form variables
-            log_form_vars = [
-                "act_phase_comp",
-                "act_phase_comp_apparent",
-                "act_phase_comp_true",
-                "conc_mol_phase_comp",
-                "conc_mol_phase_comp_apparent",
-                "conc_mol_phase_comp_true",
-                "mass_frac_phase_comp",
-                "mass_frac_phase_comp_apparent",
-                "mass_frac_phase_comp_true",
-                "molality_phase_comp",
-                "molality_phase_comp_apparent",
-                "molality_phase_comp_true",
-                "mole_frac_comp",  # Might have already been initialized
-                "mole_frac_phase_comp",  # Might have already been initialized
-                "mole_frac_phase_comp_apparent",
-                "mole_frac_phase_comp_true",
-                "pressure_phase_comp",
-                "pressure_phase_comp_apparent",
-                "pressure_phase_comp_true",
-            ]
+            # log_mole_frac_comp and log_mole_frac_phase_comp
+            # might already have been initialized
 
-            for prop in log_form_vars:
+            for prop in _log_form_vars:
                 if b.is_property_constructed("log_" + prop):
                     comp = getattr(b, prop)
                     lcomp = getattr(b, "log_" + prop)

@@ -150,9 +150,9 @@ class CustomScalerBase(ScalerBase):
             super()._set_scaling_factor(component, component_type, scaling_factor, overwrite=overwrite)
         # If something's been provided by a user in the DEFAULT_SCALING_FACTORS
         # dictionary, then we want that to supersede 
-        if component.local_name in self.DEFAULT_SCALING_FACTORS:
+        if self.DEFAULT_SCALING_FACTORS is not None and component.local_name in self.DEFAULT_SCALING_FACTORS:
             return 
-        elif component.parent_component().local_name in self.DEFAULT_SCALING_FACTORS:
+        elif self.DEFAULT_SCALING_FACTORS is not None and component.parent_component().local_name in self.DEFAULT_SCALING_FACTORS:
             return
         super()._set_scaling_factor(component, component_type, scaling_factor, overwrite=overwrite)
 
@@ -189,6 +189,12 @@ class CustomScalerBase(ScalerBase):
                 )
                 # TODO maybe create a method to automate set default scaling
                 # factors for slices of indexed components
+            
+            # Default scaling factor deliberately left blank
+            # TODO is this how we want to handle things long-term?
+            if sf is None:
+                continue
+
             if comp.is_indexed():
                 for compdata in comp.values():
                     # If a scaling factor has been set for a specific index, 

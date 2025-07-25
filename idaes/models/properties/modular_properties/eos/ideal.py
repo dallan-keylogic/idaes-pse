@@ -52,7 +52,7 @@ class IdealScaler(CustomScalerBase):
         # energy balance, Gibbs reactor, and isentropic pressure changer
         # So long as we have the molecular weight, we can scale them
         # based on the heat capacity.
-        units = model.get_metadata().derived_units
+        units = model.params.get_metadata().derived_units
         p = phase
         sf_T = self.get_scaling_factor(self.temperature)
 

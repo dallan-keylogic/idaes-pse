@@ -136,7 +136,7 @@ def set_param_value(b, param, units):
         )
         param_obj.value = config
 
-class GenericPropertiesScaler(CustomScalerBase):
+class ModularPropertiesScaler(CustomScalerBase):
     """
     Scaler for modular property framework.
     """
@@ -157,7 +157,7 @@ class GenericPropertiesScaler(CustomScalerBase):
     def variable_scaling_routine(
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
-        units = model.get_metadata().derived_units
+        units = model.params.get_metadata().derived_units
         sf_T = get_scaling_factor(model.temperature)
         sf_P = get_scaling_factor(model.pressure)
 
@@ -186,9 +186,11 @@ class GenericPropertiesScaler(CustomScalerBase):
             # in a separate dictionary because model.mw_phase
             # may not have been constructed
             sf_mw_phase = {}
-            for p in self.phase_list:
-                mw_phase = sum(mw[j]/sf_mf[j,p]) / sum(1 / sf_mf[j, p])
-                if model.is_property_constructed(model.mw_phase[p]):
+            for p in model.phase_list:
+                mw_phase = sum(
+                    mw_comp_dict[j]/sf_mf[p, j] for j in model.component_list
+                    ) / sum(1 / sf_mf[p, j] for j in model.component_list)
+                if model.is_property_constructed("mw_phase"):
                     self.set_component_scaling_factor(
                         model.mw_phase[p],
                         1/mw_phase,
@@ -200,8 +202,8 @@ class GenericPropertiesScaler(CustomScalerBase):
         
 
 
-        if model.is_property_constructed(model.enth_mol_phase):
-            for p in self.phase_list:
+        if model.is_property_constructed("enth_mol_phase"):
+            for p in model.phase_list:
                 sf_enth_phase = self.get_scaling_factor(model.enth_mol_phase[p])
                 if sf_enth_phase is None or overwrite:
                     if not mw_missing:
@@ -221,7 +223,7 @@ class GenericPropertiesScaler(CustomScalerBase):
                             to_units=units["HEAT_CAPACITY_MASS"]
                         )
                         self.set_component_scaling_factor(
-                            model.enth_mol_phase,
+                            model.enth_mol_phase[p],
                             sf_enth_phase,
                             overwrite=overwrite
                         )
@@ -242,7 +244,7 @@ class GenericPropertiesScaler(CustomScalerBase):
                 )
 
         # Other EoS variables
-        for p in self.phase_list:
+        for p in model.phase_list:
             pobj = model.params.get_phase(p)
             self.call_module_scaler(
                 model,
@@ -257,7 +259,7 @@ class GenericPropertiesScaler(CustomScalerBase):
         # It exists in case some future method does
         if model.is_property_constructed("equilibrium_constraint"):
             for pp in model.params._pe_pairs:
-                pe_method = model.params.config.phase_equilibrium_form[pp]
+                pe_method = model.params.config.phase_equilibrium_state[pp]
                 self.call_module_scaler(
                     model,
                     pe_method,
@@ -294,11 +296,12 @@ class GenericPropertiesScaler(CustomScalerBase):
             if model.is_property_constructed("log_" + varname):
                 log_var_obj = getattr(model, "log_" + varname)
                 # Log variables are scaled well by default
-                self.set_component_scaling_factor(
-                    log_var_obj,
-                    1,
-                    overwrite=overwrite
-                )
+                for vardata in log_var_obj.values():
+                    self.set_component_scaling_factor(
+                        vardata,
+                        1,
+                        overwrite=overwrite
+                    )
         
         # Not porting these from the old scaler, we'll see if
         # the expression walker makes them obsolete
@@ -314,7 +317,7 @@ class GenericPropertiesScaler(CustomScalerBase):
         param_config = model.params.config
 
         # Equation of State
-        for p in self.phase_list:
+        for p in model.phase_list:
             pobj = model.params.get_phase(p)
             self.call_module_scaler(
                 model,
@@ -327,7 +330,7 @@ class GenericPropertiesScaler(CustomScalerBase):
         # Phase equilibrium
         if model.is_property_constructed("equilibrium_constraint"):
             for pp in model.params._pe_pairs:
-                pe_method = param_config.phase_equilibrium_form[pp[1], pp[0]]
+                pe_method = param_config.phase_equilibrium_state[pp]
                 self.call_module_scaler(
                     model,
                     pe_method,
@@ -338,8 +341,8 @@ class GenericPropertiesScaler(CustomScalerBase):
         
         # Inherent reactions
         if model.is_property_constructed("inherent_equilibrium_constraint"):
-            for r in self.params.inherent_reaction_idx:
-                carg = self.params.config.inherent_reactions[r]
+            for r in  model.params.inherent_reaction_idx:
+                carg = model.params.config.inherent_reactions[r]
                 self.call_inherent_reaction_module_scaler(
                     model,
                     carg["equilibrium_form"],
@@ -469,6 +472,7 @@ class GenericPropertiesScaler(CustomScalerBase):
         else:
             method = "constraint_scaling_routine"
         self.call_module_scaler(
+            model,
             model.params.config.bubble_dew_method,
             index=None,
             method=method,
@@ -1948,6 +1952,7 @@ class _GenericStateBlock(StateBlock):
     """
 
     default_initializer = ModularPropertiesInitializer
+    default_scaler = ModularPropertiesScaler
 
     def _return_component_list(self):
         # Overload the _return_component_list method to handle electrolyte

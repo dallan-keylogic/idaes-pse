@@ -199,8 +199,11 @@ class TestBTExample(object):
 
         m.fs.state = m.fs.props.build_state_block([1], defined_state=True)
 
-        iscale.calculate_scaling_factors(m.fs.props)
-        iscale.calculate_scaling_factors(m.fs.state[1])
+
+        # iscale.calculate_scaling_factors(m.fs.props)
+        # iscale.calculate_scaling_factors(m.fs.state[1])
+        scaler = m.fs.state.default_scaler()
+        scaler.scale_model(m.fs.state[1])
 
         return m
 

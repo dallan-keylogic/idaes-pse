@@ -712,19 +712,48 @@ def calculate_scaling_factors(b):
     if b.params._electrolyte:
         calculate_electrolyte_scaling(b)
 
-class FTPXScaler(CustomScalerBase):
+class FTPxScaler(CustomScalerBase):
     """
     Scaler for constraints associated with FTPx state variables
     """
     def variable_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, index, overwrite: bool = False, submodel_scalers: dict = None
     ):
-        pass
+        sf_Fp = {}
+        for p in model.phase_list:
+            sf_Fp[p] = get_scaling_factor(model.flow_mol_phase[p])
+        sf_F = min(sf_Fp.values())
+        self.set_component_scaling_factor(model.flow_mol, sf_F, overwrite=overwrite)
+        
+        for p in model.phase_list:
+            self.set_component_scaling_factor(
+                model.phase_frac[p], sf_Fp[p]/sf_F
+            )
+
+
+        sf_mf = {}
+        for idx, v in model.mole_frac_phase_comp.items():
+            sf_mf[idx] = get_scaling_factor(v)
+            self.set_component_scaling_factor(
+                model.flow_mol_phase_comp[idx],
+                sf_mf[idx] * sf_Fp[idx[0]],
+                overwrite=overwrite
+            )
+        
+        for i in model.component_list:
+            self.set_component_scaling_factor(
+                model.mole_frac_comp[i],
+                min(sf_mf[p, i] for p in model.phase_list),
+                overwrite=overwrite
+            )
+
+
+
     
     def constraint_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, index, overwrite: bool = False, submodel_scalers: dict = None
     ):
-        if model.config.defined_state is False:
+        if model.config.defined_state == False:
             self.scale_constraint_by_nominal_value(
                 model.sum_mole_frac_out,
                 scheme=ConstraintScalingScheme.inverseMaximum,
@@ -788,6 +817,7 @@ class FTPx(object):
     do_not_initialize = do_not_initialize
     define_default_scaling_factors = define_default_scaling_factors
     calculate_scaling_factors = calculate_scaling_factors
+    default_scaler = FTPxScaler
 
 
 def _set_mole_fractions_vle(

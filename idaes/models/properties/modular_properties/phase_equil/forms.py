@@ -24,17 +24,16 @@ class FugacityScaler(CustomScalerBase):
     Scaling method for the fugacity form of phase equilibrium
     """
     def variable_scaling_routine(
-        self, model, phase_pair, overwrite: bool = False
+        self, model, index, overwrite: bool = False
     ):
         # No variables added
         pass
     def constraint_scaling_routine(
-        self, model, phase_pair, overwrite: bool = False
+        self, model, index, overwrite: bool = False
     ):
-        p1, p2 = phase_pair
-        for j in model.component_list:
-            if (p1, j) in model.phase_component_set and (p2, j) in model.phase_component_set:
-                self.scale_constraint_by_nominal_value(model.equilibrium_constraint[p1, p2, j], overwrite=overwrite)
+        p1, p2, j = index
+        self.scale_constraint_by_nominal_value(model.equilibrium_constraint[p1, p2, j], overwrite=overwrite)
+                
 
 class fugacity:
     """Phase equilibrium through equating fugacity"""
@@ -78,17 +77,16 @@ class LogFugacityScaler(CustomScalerBase):
     Scaling method for the logfugacity form of phase equilibrium
     """
     def variable_scaling_routine(
-        self, model, phase_pair, overwrite: bool = False
+        self, model, index, overwrite: bool = False
     ):
         # No variables added
         pass
     def constraint_scaling_routine(
-        self, model, phase_pair, overwrite: bool = False
+        self, model, index, overwrite: bool = False
     ):
-        p1, p2 = phase_pair
-        for j in model.component_list:
-            if (p1, j) in model.phase_component_set and (p2, j) in model.phase_component_set:
-                self.set_component_scaling_factor(model.equilibrium_constraint[p1, p2, j], 1, overwrite=overwrite)
+        p1, p2, j = index
+        if (p1, j) in model.phase_component_set and (p2, j) in model.phase_component_set:
+            self.set_component_scaling_factor(model.equilibrium_constraint[p1, p2, j], 1, overwrite=overwrite)
 
 
 class log_fugacity:

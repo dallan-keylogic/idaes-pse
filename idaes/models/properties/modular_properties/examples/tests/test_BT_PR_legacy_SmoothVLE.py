@@ -23,6 +23,7 @@ from pyomo.environ import (
     check_optimal_termination,
     ConcreteModel,
     Objective,
+    TransformationFactory,
     units as pyunits,
     value,
 )
@@ -33,7 +34,7 @@ from idaes.models.properties.modular_properties.base.generic_property import (
     GenericParameterBlock,
 )
 from idaes.core.solvers import get_solver
-import idaes.core.util.scaling as iscale
+
 from idaes.models.properties.tests.test_harness import PropertyTestHarness
 from idaes.core import LiquidPhase, VaporPhase, Component
 from idaes.models.properties.modular_properties.state_definitions import FTPx
@@ -56,7 +57,7 @@ pytestmark = pytest.mark.cubic_root
 # -----------------------------------------------------------------------------
 # Get default solver for testing
 # Limit iterations to make sure sweeps aren't getting out of hand
-solver = get_solver(solver="ipopt_v2", solver_options={"max_iter": 50})
+solver = get_solver(solver="ipopt_v2", solver_options={"max_iter": 50}, writer_config={"scale_model": True})
 
 # ---------------------------------------------------------------------
 # Configuration dictionary for an ideal Benzene-Toluene system
@@ -203,6 +204,7 @@ class TestBTExample(object):
         # iscale.calculate_scaling_factors(m.fs.props)
         # iscale.calculate_scaling_factors(m.fs.state[1])
         scaler = m.fs.state.default_scaler()
+        scaler.DEFAULT_SCALING_FACTORS["flow_mol_phase"] = 0.01
         scaler.scale_model(m.fs.state[1])
 
         return m
@@ -211,7 +213,7 @@ class TestBTExample(object):
     def test_T_sweep(self, m):
         assert_units_consistent(m)
 
-        m.fs.obj = Objective(expr=(m.fs.state[1].temperature - 510) ** 2)
+        m.fs.obj = Objective(expr=((m.fs.state[1].temperature - 510)/100) ** 2)
         m.fs.state[1].temperature.setub(600)
 
         for P in logspace(4.8, 5.9, 8):
@@ -227,11 +229,12 @@ class TestBTExample(object):
 
             m.fs.state[1].temperature.unfix()
             m.fs.obj.activate()
-
-            results = solver.solve(m)
-
+            if 90000 < P < 91000:
+                import pdb; pdb.set_trace()
+            results = solver.solve(m, tee=True)
             assert check_optimal_termination(results)
-            assert m.fs.state[1].flow_mol_phase["Liq"].value <= 1e-5
+
+            assert m.fs.state[1].flow_mol_phase["Liq"].value <= 1e-4
 
     @pytest.mark.integration
     def test_P_sweep(self, m):

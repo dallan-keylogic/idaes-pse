@@ -57,7 +57,14 @@ pytestmark = pytest.mark.cubic_root
 # -----------------------------------------------------------------------------
 # Get default solver for testing
 # Limit iterations to make sure sweeps aren't getting out of hand
-solver = get_solver(solver="ipopt_v2", solver_options={"max_iter": 50}, writer_config={"scale_model": True})
+solver = get_solver(
+    solver="ipopt_v2",
+    solver_options={"max_iter": 50},
+    writer_config={
+        "scale_model": False,
+        "linear_presolve": True,
+    }
+)
 
 # ---------------------------------------------------------------------
 # Configuration dictionary for an ideal Benzene-Toluene system
@@ -223,16 +230,16 @@ class TestBTExample(object):
             m.fs.state[1].mole_frac_comp["benzene"].fix(0.5)
             m.fs.state[1].mole_frac_comp["toluene"].fix(0.5)
             m.fs.state[1].temperature.fix(300)
-            m.fs.state[1].pressure.fix(P)
+            m.fs.state[1].pressure.fix(float(P))
 
             m.fs.state.initialize()
 
             m.fs.state[1].temperature.unfix()
             m.fs.obj.activate()
-            if 90000 < P < 91000:
-                import pdb; pdb.set_trace()
-            results = solver.solve(m, tee=True)
+            m_scaled = TransformationFactory("core.scale_model").create_using(m, rename=False)
+            results = solver.solve(m_scaled)
             assert check_optimal_termination(results)
+            TransformationFactory("core.scale_model").propagate_solution(m_scaled, m)
 
             assert m.fs.state[1].flow_mol_phase["Liq"].value <= 1e-4
 
@@ -252,9 +259,10 @@ class TestBTExample(object):
             assert check_optimal_termination(results)
 
             while m.fs.state[1].pressure.value <= 1e6:
-
-                results = solver.solve(m)
+                m_scaled = TransformationFactory("core.scale_model").create_using(m, rename=False)
+                results = solver.solve(m_scaled)
                 assert check_optimal_termination(results)
+                TransformationFactory("core.scale_model").propagate_solution(m_scaled, m)
 
                 m.fs.state[1].pressure.value = m.fs.state[1].pressure.value + 1e5
 
@@ -272,16 +280,10 @@ class TestBTExample(object):
 
         m.fs.state.initialize(outlvl=SOUT)
 
-        from idaes.core.util import DiagnosticsToolbox
-
-        dt = DiagnosticsToolbox(m.fs.state[1])
-        dt.report_structural_issues()
-        dt.display_overconstrained_set()
-
-        results = solver.solve(m, tee=True)
-
-        # Check for optimal solution
+        m_scaled = TransformationFactory("core.scale_model").create_using(m, rename=False)
+        results = solver.solve(m_scaled, tee=True)
         assert check_optimal_termination(results)
+        TransformationFactory("core.scale_model").propagate_solution(m_scaled, m)
 
         assert pytest.approx(value(m.fs.state[1]._teq[("Vap", "Liq")]), abs=1e-1) == 365
         assert 0.0035346 == pytest.approx(

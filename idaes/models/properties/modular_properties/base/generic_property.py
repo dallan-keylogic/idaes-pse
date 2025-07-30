@@ -158,6 +158,15 @@ class ModularPropertiesScaler(CustomScalerBase):
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
         units = model.params.get_metadata().derived_units
+
+        self.call_module_scaler(
+            model,
+            model.params.config.state_definition,
+            index=None,
+            method="variable_scaling_routine",
+            overwrite=overwrite
+        )
+
         sf_T = get_scaling_factor(model.temperature)
         sf_P = get_scaling_factor(model.pressure)
 
@@ -267,6 +276,22 @@ class ModularPropertiesScaler(CustomScalerBase):
                     method="variable_scaling_routine",
                     overwrite=overwrite
                 )
+                for j in model.component_list:
+                    cobj = model.params.get_component(j)
+                    try:
+                        form = cobj.config.phase_equilibrium_form[pp]
+                    except KeyError:
+                        # Component not in phase equilibrium pair
+                        form = None
+                    if form is not None:
+                        self.call_module_scaler(
+                            model,
+                            form,
+                            index=(*pp, j),
+                            method="variable_scaling_routine",
+                            overwrite=overwrite
+                        )
+                    
         # Inherent reactions
         if model.is_property_constructed("inherent_equilibrium_constraint"):
             for r in self.params.inherent_reaction_idx:
@@ -316,6 +341,14 @@ class ModularPropertiesScaler(CustomScalerBase):
     ):
         param_config = model.params.config
 
+        self.call_module_scaler(
+            model,
+            param_config.state_definition,
+            index=None,
+            method="constraint_scaling_routine",
+            overwrite=overwrite
+        )
+
         # Equation of State
         for p in model.phase_list:
             pobj = model.params.get_phase(p)
@@ -338,6 +371,21 @@ class ModularPropertiesScaler(CustomScalerBase):
                     method="constraint_scaling_routine",
                     overwrite=overwrite
                 )
+                for j in model.component_list:
+                    cobj = model.params.get_component(j)
+                    try:
+                        form = cobj.config.phase_equilibrium_form[pp]
+                    except KeyError:
+                        # Component not in phase equilibrium pair
+                        form = None
+                    if form is not None:
+                        self.call_module_scaler(
+                            model,
+                            form,
+                            index=(*pp, j),
+                            method="constraint_scaling_routine",
+                            overwrite=overwrite
+                        )
         
         # Inherent reactions
         if model.is_property_constructed("inherent_equilibrium_constraint"):
@@ -372,7 +420,7 @@ class ModularPropertiesScaler(CustomScalerBase):
                 except AttributeError:
                     log_con_obj = getattr(model, "log_" + varname+  "_eqn")
                 for idx, vardata in var_obj.items():
-                    sf = self.get_expression_nominal_value(vardata)
+                    sf = 1 / self.get_expression_nominal_value(vardata)
                     self.set_component_scaling_factor(
                         log_con_obj[idx],
                         sf,

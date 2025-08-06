@@ -67,10 +67,10 @@ def test_model():
 
 
 class DummyScaler:
-    def variable_scaling_routine(self, model, overwrite):
+    def variable_scaling_routine(self, model, overwrite, submodel_scalers):
         model._dummy_scaler_test = overwrite
 
-    def constraint_scaling_routine(self, model, overwrite):
+    def constraint_scaling_routine(self, model, overwrite, submodel_scalers):
         model._dummy_scaler_test = overwrite
 
 

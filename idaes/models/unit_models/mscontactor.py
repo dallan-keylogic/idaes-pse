@@ -241,7 +241,8 @@ class MSContactorScaler(CustomScalerBase):
                     for rxn in model.config.heterogeneous_reactions.reaction_idx:
                         self.set_variable_scaling_factor(
                             model.heterogeneous_reaction_extent[t, e, rxn],
-                            1 / rxn_dict[rxn]
+                            1 / rxn_dict[rxn],
+                            overwrite=overwrite
                         )
     
         for stream, sconfig in model.config.streams.items():
@@ -270,7 +271,7 @@ class MSContactorScaler(CustomScalerBase):
 
                             self.set_variable_scaling_factor(
                                 inherent_reaction_generation[t, e, p, j],
-                                10/nom,
+                                1/nom,
                                 overwrite=overwrite
                             )
                             for rxn in params.inherent_reaction_idx:
@@ -285,7 +286,7 @@ class MSContactorScaler(CustomScalerBase):
                             # have multiple reactions cancelling each other out
                             self.set_variable_scaling_factor(
                                 inherent_reaction_extent[t, e, rxn],
-                                10/rxn_dict[rxn],
+                                1/rxn_dict[rxn],
                                 overwrite=overwrite
                             )                          
 
@@ -325,11 +326,9 @@ class MSContactorScaler(CustomScalerBase):
                                     for p in stage_state[t, e].phase_list
                                 )
                             )
-                            # Guess that the energy transfer from the outside
-                            # will be about 1/10th as large as the material flow terms
                             self.set_variable_scaling_factor(
                                 model.energy_transfer_term[t, e],
-                                10 / nom,
+                                1 / nom,
                                 overwrite=overwrite
                             ) 
 
@@ -352,9 +351,7 @@ class MSContactorScaler(CustomScalerBase):
                                     for p in stream_state2[t, e].phase_list
                                 )
                             )
-                            # Guess that the energy transfer between stream1 and stream2
-                            # will be about 1/10th as large as the energy flow terms
-                            sf = 10 / min(nom1, nom2)
+                            sf = 1 / min(nom1, nom2)
                             self.set_variable_scaling_factor(
                                 model.energy_transfer_term[t, e, idx],
                                 sf,

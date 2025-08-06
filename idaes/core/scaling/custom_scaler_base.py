@@ -32,7 +32,7 @@ from pyomo.common.deprecation import deprecation_warning
 from idaes.core.scaling.scaling_base import CONFIG, ScalerBase
 from idaes.core.scaling.util import get_scaling_factor, NominalValueExtractionVisitor, _filter_unknown
 import idaes.logger as idaeslog
-from idaes.core.util.misc import StrEnum
+from idaes.core.util.misc import StrEnum, LockingDict
 
 # Set up logger
 _log = idaeslog.getLogger(__name__)
@@ -65,7 +65,6 @@ class ConstraintScalingScheme(StrEnum):
     inverseMaximum = "inverse_maximum"
     inverseMinimum = "inverse_minimum"
 
-
 class CustomScalerBase(ScalerBase):
     """
     Base class for custom scaling routines.
@@ -73,6 +72,9 @@ class CustomScalerBase(ScalerBase):
     """
 
     CONFIG = ScalerBase.CONFIG()
+
+    # A tuple of submodels 
+    _submodels_to_scale = ()
 
     # Common data structures for default scaling
     # DEFAULT_SCALING_FACTORS = {"component_local_name": DEFAULT_SCALING}
@@ -84,15 +86,102 @@ class CustomScalerBase(ScalerBase):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        if self.DEFAULT_SCALING_FACTORS is not None:
+        if hasattr(self, "DEFAULT_SCALING_FACTORS") and self.DEFAULT_SCALING_FACTORS is not None:
+            deprecation_warning(
+                msg=(
+                    "The DEFAULT_SCALING_FACTORS (in all caps) dictionary is being retired."
+                    "Creating a copy for the default_scaling_factors (in lowercase) dictionary."
+                ),
+                version="2.9",
+                remove_in="2.10",
+            )
             self.default_scaling_factors = copy(self.DEFAULT_SCALING_FACTORS)
-        else:
+            self.DEFAULT_SCALING_FACTORS = LockingDict(**self.DEFAULT_SCALING_FACTORS)
+            self.DEFAULT_SCALING_FACTORS.lock()
+        elif not hasattr(self, "default_scaling_factors") or self.default_scaling_factors is None:
             self.default_scaling_factors = {}
 
         if self.UNIT_SCALING_FACTORS is not None:
+            deprecation_warning(
+                msg=(
+                    "Scaling by units is being retired. Users should determine which units "
+                    "variables are using internally, then set an entry in the default_scaling_factors "
+                    "(in all lowercase) dictionary instead."
+                ),
+                version="2.9",
+                remove_in="2.10",
+            )
             self.unit_scaling_factors = copy(self.UNIT_SCALING_FACTORS)
         else:
             self.unit_scaling_factors = {}
+
+    @property
+    def submodels_to_scale(self):
+        return self._submodels_to_scale
+
+    def register_submodel_scalers(self, model, submodel_scalers: ComponentMap = None, warn_leftover_scalers=True):
+        self._submodel_scalers = ComponentMap()
+        if submodel_scalers is None:
+            submodel_scalers = ComponentMap()
+        else:
+            # Use a shallow copy so we can pop entries as we
+            # create scaler objects for submodels
+            submodel_scalers = copy(submodel_scalers)
+
+        for submodel_name in self.submodels_to_scale:
+            submodel_obj = model.find_component(submodel_name)
+            if submodel_obj in submodel_scalers:
+                scaler = submodel_scalers.pop(submodel_obj)
+                if callable(scaler):
+                    # Check to see if Scaler is callable - this implies it is a class and not an instance
+                    # Call the class to create an instance
+                    scaler = scaler(**self.config)
+                _log.debug(f"Using user-defined Scaler for {submodel_name}.")
+                if submodel_obj.is_indexed():
+                    for smdata in submodel_obj.values():
+                        self._submodel_scalers[smdata] = scaler
+                else:
+                    self._submodel_scalers[submodel_obj] = scaler
+            elif submodel_obj.is_indexed():
+                for smdata in submodel_obj.values():
+                    if smdata in submodel_scalers:
+                        scaler = submodel_scalers.pop(submodel_obj)
+                        if callable(scaler):
+                            # Check to see if Scaler is callable - this implies it is a class and not an instance
+                            # Call the class to create an instance
+                            scaler = scaler(**self.config)
+                        _log.debug(f"Using user-defined Scaler for {submodel_name}.")
+                        self._submodel_scalers[smdata] = scaler
+                    else:
+                        try:
+                            scaler_class = smdata.default_scaler
+                        except AttributeError as err:
+                            raise AttributeError(
+                                f"No scaler provided or default scaler present for submodel {smdata.name}"
+                            ) from err
+                        _log.debug(f"Using default Scaler for {smdata.name}.")
+                        scaler = scaler_class(**self.config)
+                        self._submodel_scalers[smdata] = scaler
+            else:
+                try:
+                    scaler_obj = submodel_obj.default_scaler
+                except AttributeError as err:
+                    raise AttributeError(
+                        f"No scaler provided or default scaler present for submodel {submodel_obj.name}"
+                    ) from err
+                _log.debug(f"Using default Scaler for {submodel_obj.name}.")
+                scaler = scaler_class(**self.config)
+                self._submodel_scalers[scaler_obj] = scaler
+
+        for submodel, scaler_obj in self._submodel_scalers.items():
+            scaler_obj.register_submodel_scalers(submodel, submodel_scalers=submodel_scalers, warn_leftover_scalers=False)
+        
+        if len(submodel_scalers) > 0 and warn_leftover_scalers:
+            for submodel_obj in submodel_scalers.keys():
+                _log.warning(f"Scaler provided for submodel {submodel_obj.name} was not used.")
+            raise ValueError(
+                "Not all submodel scalers were used."
+            )
 
     def scale_model(
         self,
@@ -120,25 +209,28 @@ class CustomScalerBase(ScalerBase):
         Returns:
             None
         """
-        # Step 0: Apply default scaling factors
+        # Step 1: Register submodel scalers
+        if submodel_scalers is not None or not hasattr(self, "_submodel_scalers"):
+            self.register_submodel_scalers(model, submodel_scalers=submodel_scalers)
+        # Step 2: Apply default scaling factors
         self.apply_default_scaling_factors(
             model, overwrite=self.config.overwrite
         )
-        # Step 1: Call variable scaling routine
+        # Step 3: Call variable scaling routine
         self.variable_scaling_routine(
-            model, overwrite=self.config.overwrite, submodel_scalers=submodel_scalers
+            model, overwrite=self.config.overwrite
         )
-        # Step 2: Call variable fill in
+        # Step 4: Call variable fill in
         if first_stage_fill_in is not None:
             for i in first_stage_fill_in:
                 i(model)
 
-        # Step 3: Call constraint scaling routine
+        # Step 5: Call constraint scaling routine
         self.constraint_scaling_routine(
-            model, overwrite=self.config.overwrite, submodel_scalers=submodel_scalers
+            model, overwrite=self.config.overwrite
         )
 
-        # Step 4: Call constraint fill in
+        # Step 6: Call constraint fill in
         if second_stage_fill_in is not None:
             for i in second_stage_fill_in:
                 i(model)
@@ -150,9 +242,9 @@ class CustomScalerBase(ScalerBase):
             super()._set_scaling_factor(component, component_type, scaling_factor, overwrite=overwrite)
         # If something's been provided by a user in the DEFAULT_SCALING_FACTORS
         # dictionary, then we want that to supersede 
-        if self.DEFAULT_SCALING_FACTORS is not None and component.local_name in self.DEFAULT_SCALING_FACTORS:
+        if component.local_name in self.default_scaling_factors:
             return 
-        elif self.DEFAULT_SCALING_FACTORS is not None and component.parent_component().local_name in self.DEFAULT_SCALING_FACTORS:
+        elif self.default_scaling_factors is not None and component.parent_component().local_name in self.default_scaling_factors:
             return
         super()._set_scaling_factor(component, component_type, scaling_factor, overwrite=overwrite)
 
@@ -162,7 +254,7 @@ class CustomScalerBase(ScalerBase):
             overwrite: bool = None
         ):
         """
-        Iterates through the DEFAULT_SCALING_FACTORS dictionary and applies
+        Iterates through the default_scaling_factors dictionary and applies
         the scaling factors to the variables listed. For indexed variables,
         scaling factors for specific indices take precedence over scaling
         factors for the entire indexed variable. (For example, if we had 
@@ -175,7 +267,7 @@ class CustomScalerBase(ScalerBase):
         Returns:
             None        
         """
-        for local_name, sf in self.DEFAULT_SCALING_FACTORS.items():
+        for local_name, sf in self.default_scaling_factors.items():
             comp = model.find_component(local_name)
             if comp is None:
                 raise AttributeError(
@@ -200,7 +292,7 @@ class CustomScalerBase(ScalerBase):
                     # If a scaling factor has been set for a specific index, 
                     # then we want to use that value and not the generic 
                     # value for every index.
-                    if compdata.local_name not in self.DEFAULT_SCALING_FACTORS:
+                    if compdata.local_name not in self.default_scaling_factors:
                         self.set_component_scaling_factor(
                             compdata,
                             sf,
@@ -214,9 +306,13 @@ class CustomScalerBase(ScalerBase):
                     overwrite=overwrite,
                     bypass_default_check=True
                 )
+        # Next apply default scaling factors for submodels
+        for submodel, scaler_obj in self._submodel_scalers.items():
+            scaler_obj.apply_default_scaling_factors(submodel, overwrite=overwrite)
+
 
     def variable_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: ComponentMap = None
+        self, model, overwrite: bool = False
     ):
         """
         Routine to apply scaling factors to variables in model.
@@ -236,7 +332,7 @@ class CustomScalerBase(ScalerBase):
         )
 
     def constraint_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: ComponentMap = None
+        self, model, overwrite: bool = False
     ):
         """
         Routine to apply scaling factors to constraints in model.
@@ -307,6 +403,47 @@ class CustomScalerBase(ScalerBase):
                 f"no scaling factor set for {scaling_component.name}"
             )
 
+    def scale_variable_by_definition_constraint(
+        self, variable, constraint, overwrite: bool = False
+    ):
+        """
+        Set scaling factor for variable via a constraint that defines it.
+        We expect a constraint of the form variable == expression, and set
+        a scaling factor for a variable based on the nominal value of the
+        expression. Note: this expression does not need to be a Pyomo
+        named Expression.
+
+        Args:
+            variable: variable to set scaling factor for
+            constraint: constraint defining this variable
+            overwrite: whether to overwrite existing scaling factors
+
+        Returns:
+            None
+        """
+        if not isinstance(constraint, ConstraintData):
+            raise TypeError(f"{constraint} is not a constraint (or is indexed).")
+
+        # TODO We could probably make this more general using an expression walker.
+        if not constraint.body.nargs() == 2:
+            raise ValueError(f"{constraint} is not of the form {variable} == expression.")
+        if constraint.body.args[0] is variable:
+            expr = constraint.body.args[1]
+        elif constraint.body.args[1] is variable:
+            expr = constraint.body.args[0]
+        else:
+            raise ValueError(f"{variable} does not appear at the top level of the expression tree in {constraint}.")
+
+        nom = abs(self.get_expression_nominal_value(expr))
+        if nom == 0:
+            raise RuntimeError(
+                "Nominal value is equal to zero and cannot be used as a scaling factor."
+            )
+
+        self.set_variable_scaling_factor(
+            variable=variable, scaling_factor=1/nom, overwrite=overwrite
+        )
+
     def scale_variable_by_bounds(self, variable, overwrite: bool = False):
         """
         Set scaling factor for variable based on bounds.
@@ -361,7 +498,7 @@ class CustomScalerBase(ScalerBase):
         """
         deprecation_warning(
             msg=(
-                "This method is obsolete. Default scaling factors are applied "
+                "scale_variable_by_default is obsolete. Default scaling factors are applied "
                 "automatically now."
             ),
             version="2.9",
@@ -433,7 +570,8 @@ class CustomScalerBase(ScalerBase):
 
         Args:
             target_constraint: constraint to set scaling factor for
-            scaling_component: component to use for scaling factor
+            scaling_component: Pyomo component (VarData, ConstraintData, or 
+                ExpressionData) to get scaling factor from
             overwrite: whether to overwrite existing scaling factors
 
         Returns:
@@ -741,7 +879,6 @@ class CustomScalerBase(ScalerBase):
         self,
         submodel,
         method: str,
-        submodel_scalers: ComponentMap = None,
         overwrite: bool = False,
     ):
         """
@@ -752,50 +889,40 @@ class CustomScalerBase(ScalerBase):
 
         Args:
             submodel: submodel to be scaled
-            submodel_scalers: user provided ComponentMap of Scalers to use for submodels
             method: name of method to call from submodel (as string)
             overwrite: whether to overwrite existing scaling factors
 
         Returns:
             None
         """
-        if submodel_scalers is None:
-            submodel_scalers = {}
-
-        # Iterate over indices of submodel
-        for smdata in submodel.values():
-            # Get Scaler for submodel
-            if submodel in submodel_scalers:
-                scaler = submodel_scalers[submodel]
-                if callable(scaler):
-                    # Check to see if Scaler is callable - this implies it is a class and not an instance
-                    # Call the class to create an instance
-                    scaler = scaler(**self.CONFIG)
-                _log.debug(f"Using user-defined Scaler for {submodel}.")
-            else:
-                try:
-                    scaler = smdata.default_scaler
-                    _log.debug(f"Using default Scaler for {submodel}.")
-                except AttributeError:
-                    _log.debug(
-                        f"No default Scaler set for {submodel}. Cannot call {method}."
+        if submodel in self._submodel_scalers:
+            scaler_obj = self._submodel_scalers[submodel]
+            try:
+                smeth = getattr(scaler_obj, method)
+            except AttributeError as err:
+                raise AttributeError(
+                    f"Scaler for {submodel} does not have a method named {method}."
+                ) from err
+            if submodel.is_indexed():
+                for smdata in submodel.values():
+                    smeth(smdata, overwrite=overwrite)
+        elif submodel.is_indexed():
+            for smdata in submodel.values():
+                if smdata not in self._submodel_scalers:
+                    raise RuntimeError(
+                        f"No submodel scaler exists for {smdata} or its parent {submodel}. "
+                        "Did the author of the Scaler class register this submodel in _submodels_to_scale?"
                     )
-                    # TODO Is it possible for one index to have a scaler and another
-                    # not without user insanity?
-                    return
-                if scaler is not None:
-                    scaler = scaler(**self.CONFIG)
-                else:
-                    # TODO Why not return here but return above?
-                    _log.debug(f"No Scaler found for {submodel}. Cannot call {method}.")
-
-            # If a Scaler is found, call desired method
-            if scaler is not None:
+                scaler_obj = self._submodel_scalers[smdata]
                 try:
-                    smeth = getattr(scaler, method)
+                    smeth = getattr(scaler_obj, method)
                 except AttributeError as err:
                     raise AttributeError(
-                        f"Scaler for {submodel} does not have a method named {method}."
-                    ) from err
-                smeth(smdata, submodel_scalers=submodel_scalers, overwrite=overwrite)
-
+                        f"Scaler for {smdata} does not have a method named {method}."
+                    ) from err                    
+                smeth(smdata, overwrite=overwrite)
+        else:
+            raise RuntimeError(
+                f"No submodel scaler exists for {submodel}. "
+                "Did the author of the Scaler class register this submodel in _submodels_to_scale?"
+            )

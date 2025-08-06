@@ -61,8 +61,8 @@ solver = get_solver(
     solver="ipopt_v2",
     solver_options={"max_iter": 50},
     writer_config={
-        "scale_model": False,
-        "linear_presolve": True,
+        "scale_model": True,
+        "linear_presolve": False,
     }
 )
 
@@ -208,8 +208,6 @@ class TestBTExample(object):
         m.fs.state = m.fs.props.build_state_block([1], defined_state=True)
 
 
-        # iscale.calculate_scaling_factors(m.fs.props)
-        # iscale.calculate_scaling_factors(m.fs.state[1])
         scaler = m.fs.state.default_scaler()
         scaler.DEFAULT_SCALING_FACTORS["flow_mol_phase"] = 0.01
         scaler.scale_model(m.fs.state[1])
@@ -236,10 +234,8 @@ class TestBTExample(object):
 
             m.fs.state[1].temperature.unfix()
             m.fs.obj.activate()
-            m_scaled = TransformationFactory("core.scale_model").create_using(m, rename=False)
-            results = solver.solve(m_scaled)
+            results = solver.solve(m)
             assert check_optimal_termination(results)
-            TransformationFactory("core.scale_model").propagate_solution(m_scaled, m)
 
             assert m.fs.state[1].flow_mol_phase["Liq"].value <= 1e-4
 
@@ -259,10 +255,8 @@ class TestBTExample(object):
             assert check_optimal_termination(results)
 
             while m.fs.state[1].pressure.value <= 1e6:
-                m_scaled = TransformationFactory("core.scale_model").create_using(m, rename=False)
-                results = solver.solve(m_scaled)
+                results = solver.solve(m)
                 assert check_optimal_termination(results)
-                TransformationFactory("core.scale_model").propagate_solution(m_scaled, m)
 
                 m.fs.state[1].pressure.value = m.fs.state[1].pressure.value + 1e5
 
@@ -280,10 +274,8 @@ class TestBTExample(object):
 
         m.fs.state.initialize(outlvl=SOUT)
 
-        m_scaled = TransformationFactory("core.scale_model").create_using(m, rename=False)
-        results = solver.solve(m_scaled, tee=True)
+        results = solver.solve(m)
         assert check_optimal_termination(results)
-        TransformationFactory("core.scale_model").propagate_solution(m_scaled, m)
 
         assert pytest.approx(value(m.fs.state[1]._teq[("Vap", "Liq")]), abs=1e-1) == 365
         assert 0.0035346 == pytest.approx(

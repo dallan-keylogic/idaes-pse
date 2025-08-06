@@ -391,6 +391,13 @@ class TestInitializers:
 
 
 class DummyScaler:
+
+    def __init__(self, **kwargs):
+        pass
+
+    def register_submodel_scalers(self, model, **kwargs):
+        pass
+
     def variable_scaling_routine(self, model, **kwargs):
         model._dummy_var_scaler = True
 
@@ -439,6 +446,8 @@ class TestEquilibriumReactorScaler:
 
         assert isinstance(scaler, EquilibriumReactorScaler)
 
+        scaler.register_submodel_scalers(model.fs.unit)
+        scaler.apply_default_scaling_factors(model.fs.unit)
         scaler.variable_scaling_routine(model.fs.unit)
 
         # Inlet state
@@ -517,9 +526,9 @@ class TestEquilibriumReactorScaler:
         scaler_map[model.fs.unit.control_volume.properties_out] = DummyScaler
         scaler_map[model.fs.unit.control_volume.reactions] = DummyScaler
 
+        scaler.register_submodel_scalers(model.fs.unit, submodel_scalers=scaler_map)
         scaler.variable_scaling_routine(
             model.fs.unit,
-            submodel_scalers=scaler_map,
         )
 
         # Should call DummyScaler submethod for each submodel
@@ -534,6 +543,7 @@ class TestEquilibriumReactorScaler:
 
         assert isinstance(scaler, EquilibriumReactorScaler)
 
+        scaler.register_submodel_scalers(model.fs.unit)
         scaler.constraint_scaling_routine(model.fs.unit)
 
         # Check that sub-models have suffixes - we will assume they are right at this point
@@ -595,9 +605,9 @@ class TestEquilibriumReactorScaler:
         scaler_map[model.fs.unit.control_volume.properties_out] = DummyScaler
         scaler_map[model.fs.unit.control_volume.reactions] = DummyScaler
 
+        scaler.register_submodel_scalers(model.fs.unit, submodel_scalers=scaler_map)
         scaler.constraint_scaling_routine(
             model.fs.unit,
-            submodel_scalers=scaler_map,
         )
 
         # Should call DummyScaler submethod for each submodel

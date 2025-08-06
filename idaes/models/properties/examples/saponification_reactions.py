@@ -121,10 +121,12 @@ class SaponificationReactionScaler(CustomScalerBase):
     using the inverse maximum scheme.
     """
 
-    DEFAULT_SCALING_FACTORS = {"reaction_rate": 1e2}
+    def __init__(self, **kwargs):
+        self.default_scaling_factors = {"reaction_rate": 1e2}
+        super().__init__(**kwargs)
 
     def variable_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, overwrite: bool = False
     ):
         if model.is_property_constructed("k_rxn"):
             # First check to see if k_rxn is already scaled
@@ -165,7 +167,7 @@ class SaponificationReactionScaler(CustomScalerBase):
                 self.scale_variable_by_default(j, overwrite=overwrite)
 
     def constraint_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, overwrite: bool = False
     ):
         if model.is_property_constructed("arrhenius_eqn"):
             self.scale_constraint_by_nominal_value(

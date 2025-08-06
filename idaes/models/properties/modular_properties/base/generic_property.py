@@ -155,7 +155,7 @@ class ModularPropertiesScaler(CustomScalerBase):
         "enth_mol_phase": None
     }
     def variable_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, overwrite: bool = False
     ):
         units = model.params.get_metadata().derived_units
 
@@ -337,7 +337,7 @@ class ModularPropertiesScaler(CustomScalerBase):
         
     
     def constraint_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, overwrite: bool = False
     ):
         param_config = model.params.config
 

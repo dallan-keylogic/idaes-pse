@@ -16,6 +16,7 @@ This module contains miscellaneous utility functions for use in IDAES models.
 """
 from enum import Enum
 import sys
+from collections.abc import MutableMapping
 
 import pyomo.environ as pyo
 from pyomo.common.config import ConfigBlock
@@ -243,3 +244,42 @@ def print_compact_form(expr, stream=None):
         expr = expr.expr
 
     stream.write(compact_expression_to_string(expr))
+
+# Author: Doug Allan
+class LockingDict(MutableMapping, dict):
+    locked = False
+    
+    def __getitem__(self, key):
+        return dict.__getitem__(self, key)
+
+    def __set_item__(self, key, value):
+        if self.locked:
+            raise RuntimeError(
+                "Cannot change values of locked LockingDict."
+            )
+        dict.__setitem__(self, key, value)
+
+    def __delitem__(self, key):
+        if self.locked:
+            raise RuntimeError(
+                "Cannot delete keys of locked LockingDict."
+            )
+        dict.__delitem__(self, key)
+
+    def __iter__(self):
+        return dict.__iter__(self)
+    
+    def __len__(self):
+        return dict.__len__(self)
+    
+    def __contains__(self, x):
+        return dict.__contains__(self, x)
+
+    def is_locked(self):
+        return self.locked
+    
+    def lock(self):
+        self.locked = True
+
+    def unlock(self):
+        self.locked = False

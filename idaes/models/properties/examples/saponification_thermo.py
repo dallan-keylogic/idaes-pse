@@ -145,14 +145,11 @@ class SaponificationPropertiesScaler(CustomScalerBase):
     scaled using the average of the bounds. Constraints using the inverse maximum
     scheme.
     """
-
-    def __init__(self, **kwargs):
-        self.default_scaling_factors = {
-            "flow_vol": 1e2,
-            "conc_mol_comp": 1e-2,
-            "conc_mol_comp[H2O]": 1e-4
-        }
-        super().__init__(**kwargs)
+    DEFAULT_SCALING_FACTORS = {
+        "flow_vol": 1e2,
+        "conc_mol_comp": 1e-2,
+        "conc_mol_comp[H2O]": 1e-4
+    }
 
     UNIT_SCALING_FACTORS = {
         # "QuantityName: (reference units, scaling factor)

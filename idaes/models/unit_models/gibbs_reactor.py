@@ -51,7 +51,7 @@ class GibbsReactorScaler(CustomScalerBase):
     }
 
     def variable_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, overwrite: bool = False
     ):
         """
         Variable scaling routine for Gibbs reactors.
@@ -68,8 +68,6 @@ class GibbsReactorScaler(CustomScalerBase):
         Returns:
             None
         """
-        if submodel_scalers is None:
-            submodel_scalers = {}
 
         # Step 1: Property scaling
 
@@ -87,14 +85,12 @@ class GibbsReactorScaler(CustomScalerBase):
         # Inlet properties
         self.call_submodel_scaler_method(
             submodel=model.control_volume.properties_in,
-            submodel_scalers=submodel_scalers,
             method="variable_scaling_routine",
             overwrite=overwrite,
         )
         # Outlet properties
         self.call_submodel_scaler_method(
             submodel=model.control_volume.properties_out,
-            submodel_scalers=submodel_scalers,
             method="variable_scaling_routine",
             overwrite=overwrite,
         )
@@ -131,7 +127,7 @@ class GibbsReactorScaler(CustomScalerBase):
             self.set_variable_scaling_factor(v, lsf, overwrite=overwrite)
 
     def constraint_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, overwrite: bool = False
     ):
         """
         Routine to apply scaling factors to constraints in model.
@@ -151,14 +147,12 @@ class GibbsReactorScaler(CustomScalerBase):
         # Inlet properties
         self.call_submodel_scaler_method(
             submodel=model.control_volume.properties_in,
-            submodel_scalers=submodel_scalers,
             method="constraint_scaling_routine",
             overwrite=overwrite,
         )
         # Outlet properties
         self.call_submodel_scaler_method(
             submodel=model.control_volume.properties_out,
-            submodel_scalers=submodel_scalers,
             method="constraint_scaling_routine",
             overwrite=overwrite,
         )

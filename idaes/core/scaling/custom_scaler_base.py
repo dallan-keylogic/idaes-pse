@@ -102,27 +102,20 @@ class CustomScalerBase(ScalerBase):
             self.default_scaling_factors = {}
 
         if self.UNIT_SCALING_FACTORS is not None:
-            deprecation_warning(
-                msg=(
-                    "Scaling by units is being retired. Users should determine which units "
-                    "variables are using internally, then set an entry in the default_scaling_factors "
-                    "(in all lowercase) dictionary instead."
-                ),
-                version="2.9",
-                remove_in="2.10",
-            )
             self.unit_scaling_factors = copy(self.UNIT_SCALING_FACTORS)
         else:
             self.unit_scaling_factors = {}
+
+        
 
     @property
     def submodels_to_scale(self):
         return self._submodels_to_scale
 
-    def register_submodel_scalers(self, model, submodel_scalers: ComponentMap = None, warn_leftover_scalers=True):
-        self._submodel_scalers = ComponentMap()
+    def register_submodel_scalers(self, model, submodel_scalers: dict, warn_leftover_scalers=True):
+        self._submodel_scalers = dict()
         if submodel_scalers is None:
-            submodel_scalers = ComponentMap()
+            submodel_scalers = dict()
         else:
             # Use a shallow copy so we can pop entries as we
             # create scaler objects for submodels
@@ -130,8 +123,8 @@ class CustomScalerBase(ScalerBase):
 
         for submodel_name in self.submodels_to_scale:
             submodel_obj = model.find_component(submodel_name)
-            if submodel_obj in submodel_scalers:
-                scaler = submodel_scalers.pop(submodel_obj)
+            if submodel_name in submodel_scalers:
+                scaler = submodel_scalers.pop(submodel_name)
                 if callable(scaler):
                     # Check to see if Scaler is callable - this implies it is a class and not an instance
                     # Call the class to create an instance
@@ -139,19 +132,22 @@ class CustomScalerBase(ScalerBase):
                 _log.debug(f"Using user-defined Scaler for {submodel_name}.")
                 if submodel_obj.is_indexed():
                     for smdata in submodel_obj.values():
-                        self._submodel_scalers[smdata] = scaler
+                        # Get relative name of submodel data
+                        smdata_name = ".".join(*submodel_name.split(".")[:-1], smdata.local_name)
+                        self._submodel_scalers[smdata_name] = scaler
                 else:
-                    self._submodel_scalers[submodel_obj] = scaler
+                    self._submodel_scalers[submodel_name] = scaler
             elif submodel_obj.is_indexed():
                 for smdata in submodel_obj.values():
-                    if smdata in submodel_scalers:
-                        scaler = submodel_scalers.pop(submodel_obj)
+                    smdata_name = ".".join(*submodel_name.split(".")[:-1], smdata.local_name)
+                    if smdata_name in submodel_scalers:
+                        scaler = submodel_scalers.pop(smdata_name)
                         if callable(scaler):
                             # Check to see if Scaler is callable - this implies it is a class and not an instance
                             # Call the class to create an instance
                             scaler = scaler(**self.config)
-                        _log.debug(f"Using user-defined Scaler for {submodel_name}.")
-                        self._submodel_scalers[smdata] = scaler
+                        _log.debug(f"Using user-defined Scaler for {smdata.name}.")
+                        self._submodel_scalers[smdata_name] = scaler
                     else:
                         try:
                             scaler_class = smdata.default_scaler
@@ -181,6 +177,15 @@ class CustomScalerBase(ScalerBase):
                 _log.warning(f"Scaler provided for submodel {submodel_obj.name} was not used.")
             raise ValueError(
                 "Not all submodel scalers were used."
+            )
+    def _validate_submodel_scalers(self, method_name):
+        """
+        Check whether submodel scalers have been registered.
+        """
+        if not hasattr(self, "_submodel_scalers"):
+            raise RuntimeError(
+                f"Method {method_name} was called before submodel scalers were registered. "
+                "Try running the register_submodel_scalers method first."
             )
 
     def scale_model(
@@ -267,6 +272,7 @@ class CustomScalerBase(ScalerBase):
         Returns:
             None        
         """
+
         for local_name, sf in self.default_scaling_factors.items():
             comp = model.find_component(local_name)
             if comp is None:
@@ -895,6 +901,8 @@ class CustomScalerBase(ScalerBase):
         Returns:
             None
         """
+        self._validate_submodel_scalers("call_submodel_scaler_method")
+
         if submodel in self._submodel_scalers:
             scaler_obj = self._submodel_scalers[submodel]
             try:

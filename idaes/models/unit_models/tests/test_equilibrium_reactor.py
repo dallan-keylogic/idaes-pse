@@ -753,20 +753,22 @@ class TestEquilibriumReactorScaler:
         initializer = BlockTriangularizationInitializer()
         initializer.initialize(m.fs.equil)
 
+        m.fs.equil.control_volume.properties_in[0.0].flow_vol.pprint()
+        m.fs.equil.control_volume.properties_in[0.0].conc_mol_comp["H2O"].pprint()
+        m.fs.equil.control_volume.properties_out[0.0].flow_vol.pprint()
+        m.fs.equil.control_volume.properties_out[0.0].conc_mol_comp["H2O"].pprint()
+        m.fs.equil.control_volume.rate_reaction_generation[0.0,"Liq","H2O"].pprint()
+
         set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1e3)
         sapon_thermo_scaler = m.fs.equil.control_volume.properties_in[0].default_scaler()
         sapon_thermo_scaler.default_scaling_factors["flow_vol"] = 1e3
 
         scaler = EquilibriumReactorScaler()
-        scaler.register_submodel_scalers(
-            m.fs.equil,
-            submodel_scalers=ComponentMap(
-                (
-                    (m.fs.equil.control_volume.properties_in, sapon_thermo_scaler),
-                    (m.fs.equil.control_volume.properties_out, sapon_thermo_scaler),
-                )
-            )
-        )
+        submodel_scalers = ComponentMap()
+        submodel_scalers[m.fs.equil.control_volume.properties_in] = sapon_thermo_scaler
+        submodel_scalers[m.fs.equil.control_volume.properties_out] = sapon_thermo_scaler
+
+        scaler.register_submodel_scalers(m.fs.equil, submodel_scalers=submodel_scalers)
 
         scaler.scale_model(m.fs.equil)
 
@@ -788,5 +790,5 @@ class TestEquilibriumReactorScaler:
         sm = TransformationFactory("core.scale_model").create_using(m, rename=False)
         jac, _ = get_jacobian(sm, scaled=False)
         assert (jacobian_cond(jac=jac, scaled=False)) == pytest.approx(
-            4.987e05, rel=1e-3
+            5.4449e05, rel=1e-3
         )

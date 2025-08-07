@@ -65,7 +65,7 @@ from idaes.core.initialization import (
     InitializationStatus,
 )
 from idaes.core.util import DiagnosticsToolbox
-from idaes.core.scaling import set_scaling_factor
+from idaes.core.scaling import get_scaling_factor, set_scaling_factor
 
 # -----------------------------------------------------------------------------
 # Get default solver for testing
@@ -754,8 +754,20 @@ class TestEquilibriumReactorScaler:
         initializer.initialize(m.fs.equil)
 
         set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1e3)
+        sapon_thermo_scaler = m.fs.equil.control_volume.properties_in[0].default_scaler()
+        sapon_thermo_scaler.default_scaling_factors["flow_vol"] = 1e3
 
         scaler = EquilibriumReactorScaler()
+        scaler.register_submodel_scalers(
+            m.fs.equil,
+            submodel_scalers=ComponentMap(
+                (
+                    (m.fs.equil.control_volume.properties_in, sapon_thermo_scaler),
+                    (m.fs.equil.control_volume.properties_out, sapon_thermo_scaler),
+                )
+            )
+        )
+
         scaler.scale_model(m.fs.equil)
 
         m.fs.equil.inlet.flow_vol.fix(1)

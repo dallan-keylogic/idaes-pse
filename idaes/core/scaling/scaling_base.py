@@ -206,7 +206,7 @@ class ScalerBase:
             TypeError if variable is not an instance of VarData
         """
         if not isinstance(expression, ExpressionData):
-            raise TypeError(f"{expression} is not a variable (or is indexed).")
+            raise TypeError(f"{expression} is not a named Expression (or is indexed).")
         self._set_scaling_factor(
             component=expression,
             component_type="expression",

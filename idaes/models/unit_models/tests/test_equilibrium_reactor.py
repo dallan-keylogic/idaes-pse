@@ -65,7 +65,7 @@ from idaes.core.initialization import (
     InitializationStatus,
 )
 from idaes.core.util import DiagnosticsToolbox
-from idaes.core.scaling import get_scaling_factor, set_scaling_factor
+from idaes.core.scaling import set_scaling_factor
 
 # -----------------------------------------------------------------------------
 # Get default solver for testing
@@ -395,9 +395,6 @@ class DummyScaler:
     def __init__(self, **kwargs):
         pass
 
-    def register_submodel_scalers(self, model, **kwargs):
-        pass
-
     def variable_scaling_routine(self, model, **kwargs):
         model._dummy_var_scaler = True
 
@@ -446,8 +443,6 @@ class TestEquilibriumReactorScaler:
 
         assert isinstance(scaler, EquilibriumReactorScaler)
 
-        scaler.register_submodel_scalers(model.fs.unit)
-        scaler.apply_default_scaling_factors(model.fs.unit)
         scaler.variable_scaling_routine(model.fs.unit)
 
         # Inlet state
@@ -526,9 +521,9 @@ class TestEquilibriumReactorScaler:
         scaler_map[model.fs.unit.control_volume.properties_out] = DummyScaler
         scaler_map[model.fs.unit.control_volume.reactions] = DummyScaler
 
-        scaler.register_submodel_scalers(model.fs.unit, submodel_scalers=scaler_map)
         scaler.variable_scaling_routine(
             model.fs.unit,
+            submodel_scalers=scaler_map,
         )
 
         # Should call DummyScaler submethod for each submodel
@@ -543,7 +538,6 @@ class TestEquilibriumReactorScaler:
 
         assert isinstance(scaler, EquilibriumReactorScaler)
 
-        scaler.register_submodel_scalers(model.fs.unit)
         scaler.constraint_scaling_routine(model.fs.unit)
 
         # Check that sub-models have suffixes - we will assume they are right at this point
@@ -605,9 +599,9 @@ class TestEquilibriumReactorScaler:
         scaler_map[model.fs.unit.control_volume.properties_out] = DummyScaler
         scaler_map[model.fs.unit.control_volume.reactions] = DummyScaler
 
-        scaler.register_submodel_scalers(model.fs.unit, submodel_scalers=scaler_map)
         scaler.constraint_scaling_routine(
             model.fs.unit,
+            submodel_scalers=scaler_map,
         )
 
         # Should call DummyScaler submethod for each submodel
@@ -753,23 +747,9 @@ class TestEquilibriumReactorScaler:
         initializer = BlockTriangularizationInitializer()
         initializer.initialize(m.fs.equil)
 
-        m.fs.equil.control_volume.properties_in[0.0].flow_vol.pprint()
-        m.fs.equil.control_volume.properties_in[0.0].conc_mol_comp["H2O"].pprint()
-        m.fs.equil.control_volume.properties_out[0.0].flow_vol.pprint()
-        m.fs.equil.control_volume.properties_out[0.0].conc_mol_comp["H2O"].pprint()
-        m.fs.equil.control_volume.rate_reaction_generation[0.0,"Liq","H2O"].pprint()
-
         set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1e3)
-        sapon_thermo_scaler = m.fs.equil.control_volume.properties_in[0].default_scaler()
-        sapon_thermo_scaler.default_scaling_factors["flow_vol"] = 1e3
 
         scaler = EquilibriumReactorScaler()
-        submodel_scalers = ComponentMap()
-        submodel_scalers[m.fs.equil.control_volume.properties_in] = sapon_thermo_scaler
-        submodel_scalers[m.fs.equil.control_volume.properties_out] = sapon_thermo_scaler
-
-        scaler.register_submodel_scalers(m.fs.equil, submodel_scalers=submodel_scalers)
-
         scaler.scale_model(m.fs.equil)
 
         m.fs.equil.inlet.flow_vol.fix(1)
@@ -790,5 +770,5 @@ class TestEquilibriumReactorScaler:
         sm = TransformationFactory("core.scale_model").create_using(m, rename=False)
         jac, _ = get_jacobian(sm, scaled=False)
         assert (jacobian_cond(jac=jac, scaled=False)) == pytest.approx(
-            5.4449e05, rel=1e-3
+            5.4449e5, rel=1e-3
         )

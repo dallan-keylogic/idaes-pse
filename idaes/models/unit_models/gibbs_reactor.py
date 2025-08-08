@@ -16,6 +16,7 @@ Standard IDAES Gibbs reactor model.
 # Import Pyomo libraries
 from pyomo.environ import Constraint, Param, Reals, Reference, Set, units, value, Var
 from pyomo.common.config import ConfigBlock, ConfigValue, In, ListOf, Bool
+from pyomo.common.collections import ComponentMap
 
 # Import IDAES cores
 from idaes.core import (
@@ -51,7 +52,7 @@ class GibbsReactorScaler(CustomScalerBase):
     }
 
     def variable_scaling_routine(
-        self, model, overwrite: bool = False
+        self, model, overwrite: bool = False, submodel_scalers : ComponentMap = None
     ):
         """
         Variable scaling routine for Gibbs reactors.
@@ -87,12 +88,14 @@ class GibbsReactorScaler(CustomScalerBase):
             submodel=model.control_volume.properties_in,
             method="variable_scaling_routine",
             overwrite=overwrite,
+            submodel_scalers=submodel_scalers,
         )
         # Outlet properties
         self.call_submodel_scaler_method(
             submodel=model.control_volume.properties_out,
             method="variable_scaling_routine",
             overwrite=overwrite,
+            submodel_scalers=submodel_scalers,
         )
 
         # Step 2: Scaling Gibbs reactor variables
@@ -127,7 +130,7 @@ class GibbsReactorScaler(CustomScalerBase):
             self.set_variable_scaling_factor(v, lsf, overwrite=overwrite)
 
     def constraint_scaling_routine(
-        self, model, overwrite: bool = False
+        self, model, overwrite: bool = False, submodel_scalers : ComponentMap = None
     ):
         """
         Routine to apply scaling factors to constraints in model.
@@ -149,12 +152,14 @@ class GibbsReactorScaler(CustomScalerBase):
             submodel=model.control_volume.properties_in,
             method="constraint_scaling_routine",
             overwrite=overwrite,
+            submodel_scalers=submodel_scalers,
         )
         # Outlet properties
         self.call_submodel_scaler_method(
             submodel=model.control_volume.properties_out,
             method="constraint_scaling_routine",
             overwrite=overwrite,
+            submodel_scalers=submodel_scalers,
         )
 
         # Step 2: Scale all the control volume constraints

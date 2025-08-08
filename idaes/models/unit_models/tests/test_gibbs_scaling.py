@@ -67,10 +67,13 @@ def test_model():
 
 
 class DummyScaler:
-    def variable_scaling_routine(self, model, overwrite):
+    def __init__(self, **kwargs):
+        pass
+
+    def variable_scaling_routine(self, model, overwrite, **kwargs):
         model._dummy_scaler_test = overwrite
 
-    def constraint_scaling_routine(self, model, overwrite):
+    def constraint_scaling_routine(self, model, overwrite, **kwargs):
         model._dummy_scaler_test = overwrite
 
 
@@ -80,8 +83,6 @@ class TestVariableScaling:
     def test_variable_scaling_no_input(self, test_model):
         scaler = GibbsReactorScaler()
 
-        scaler.register_submodel_scalers(test_model.fs.unit)
-        scaler.apply_default_scaling_factors(test_model.fs.unit)
         scaler.variable_scaling_routine(test_model.fs.unit)
 
         for v in test_model.fs.unit.lagrange_mult.values():
@@ -113,8 +114,6 @@ class TestVariableScaling:
 
         scaler = GibbsReactorScaler()
 
-        scaler.register_submodel_scalers(test_model.fs.unit)
-        scaler.apply_default_scaling_factors(test_model.fs.unit)
         scaler.variable_scaling_routine(m.fs.unit)
 
         for v in m.fs.unit.lagrange_mult.values():
@@ -132,8 +131,6 @@ class TestVariableScaling:
 
         scaler = GibbsReactorScaler()
 
-        scaler.register_submodel_scalers(test_model.fs.unit)
-        scaler.apply_default_scaling_factors(test_model.fs.unit)
         scaler.variable_scaling_routine(test_model.fs.unit)
 
         # Outlet properties should now have scaling factors
@@ -165,13 +162,9 @@ class TestVariableScaling:
         scaler_map[test_model.fs.unit.control_volume.properties_in] = DummyScaler()
         scaler_map[test_model.fs.unit.control_volume.properties_out] = DummyScaler()
 
-        scaler.register_submodel_scalers(
-            test_model.fs.unit,
-            submodel_scalers=scaler_map
-        )
-        scaler.apply_default_scaling_factors(test_model.fs.unit)
         scaler.variable_scaling_routine(
             test_model.fs.unit,
+            submodel_scalers=scaler_map,
         )
 
         # Check to see if testing attribute was created correctly
@@ -187,7 +180,6 @@ class TestConstraintScaling:
     def test_constraint_scaling_no_inputs(self, test_model):
         scaler = GibbsReactorScaler()
 
-        scaler.register_submodel_scalers()
         scaler.constraint_scaling_routine(test_model.fs.unit)
 
         sfx = test_model.fs.unit.control_volume.scaling_factor
@@ -233,7 +225,6 @@ class TestConstraintScaling:
 
         scaler = GibbsReactorScaler()
 
-        scaler.register_submodel_scalers()
         scaler.constraint_scaling_routine(m.fs.unit)
 
         sfx = m.fs.unit.control_volume.scaling_factor
@@ -267,12 +258,9 @@ class TestConstraintScaling:
         scaler_map[test_model.fs.unit.control_volume.properties_in] = DummyScaler()
         scaler_map[test_model.fs.unit.control_volume.properties_out] = DummyScaler()
 
-
-        scaler.register_submodel_scalers(
-            submodel_scalers=scaler_map,
-        )
         scaler.constraint_scaling_routine(
             test_model.fs.unit,
+            submodel_scalers=scaler_map,
         )
 
         # Check to see if testing attribute was created correctly
@@ -284,10 +272,10 @@ class TestConstraintScaling:
 
 # -----------------------------------------------------------------------------
 class SMScaler(CustomScalerBase):
-    def variable_scaling_routine(self, model, overwrite):
+    def variable_scaling_routine(self, model, overwrite, **kwargs):
         pass
 
-    def constraint_scaling_routine(self, model, overwrite):
+    def constraint_scaling_routine(self, model, overwrite, **kwargs):
         for c in model.component_data_objects(ctype=Constraint, descend_into=True):
             self.scale_constraint_by_nominal_value(
                 c, scheme="inverse_sum", overwrite=overwrite
@@ -331,7 +319,7 @@ class TestMethaneScaling(object):
             model.fs.unit.control_volume.properties_in[0.0].flow_mol, 1 / 230
         )
         set_scaling_factor(
-            model.fs.unit.control_volume.properties_in[0.0].flow_mol_phase, 1 / 230
+            model.fs.unit.control_volume.properties_in[0.0].flow_mol_phase["Vap"], 1 / 230
         )  # Only 1 phase, so we "know" this
         set_scaling_factor(
             model.fs.unit.control_volume.properties_in[0.0].mole_frac_comp["H2"],
@@ -376,7 +364,7 @@ class TestMethaneScaling(object):
             model.fs.unit.control_volume.properties_out[0.0].flow_mol, 1e-2
         )
         set_scaling_factor(
-            model.fs.unit.control_volume.properties_out[0.0].flow_mol_phase, 1e-2
+            model.fs.unit.control_volume.properties_out[0.0].flow_mol_phase["Vap"], 1e-2
         )  # Only 1 phase, so we "know" this
         # N2 is inert, so will be order 0.1, assume CH4 and H2 are near-totally consumed, assume most O2 consumed
         # Assume moderate amounts of CO2 and H2O, small amounts of CO, trace NH3 NH3
@@ -423,12 +411,9 @@ class TestMethaneScaling(object):
         scaler_map[methane.fs.unit.control_volume.properties_out] = SMScaler()
 
         scaler = GibbsReactorScaler()
-        scaler.register_submodel_scalers(
-            submodel_scalers=scaler_map,
-        )
-        scaler.apply_default_scaling_factors()
         scaler.variable_scaling_routine(
             methane.fs.unit,
+            submodel_scalers=scaler_map,
         )
 
         scaled = jacobian_cond(methane, scaled=True)
@@ -438,7 +423,7 @@ class TestMethaneScaling(object):
             sf = get_scaling_factor(c)
             if sf is None:
                 count += 1
-        assert count == 52
+        assert count == 50
 
         assert scaled < unscaled
         assert scaled == pytest.approx(8.908989e16, rel=1e-5)
@@ -451,11 +436,9 @@ class TestMethaneScaling(object):
         scaler_map[methane.fs.unit.control_volume.properties_out] = SMScaler()
 
         scaler = GibbsReactorScaler()
-        scaler.register_submodel_scalers(
-            submodel_scalers=scaler_map,
-        )
         scaler.constraint_scaling_routine(
             methane.fs.unit,
+            submodel_scalers=scaler_map,
         )
 
         scaled = jacobian_cond(methane, scaled=True)
@@ -468,7 +451,7 @@ class TestMethaneScaling(object):
         assert count == 0
 
         assert scaled < unscaled
-        assert scaled == pytest.approx(9.316e15, rel=1e-2)
+        assert scaled == pytest.approx(9.07735e15, rel=1e-2)
 
     def test_full_scaling(self, methane):
         unscaled = jacobian_cond(methane, scaled=False)
@@ -486,4 +469,4 @@ class TestMethaneScaling(object):
         scaled = jacobian_cond(methane, scaled=True)
 
         assert scaled < unscaled
-        assert scaled == pytest.approx(7.653e15, rel=1e-2)
+        assert scaled == pytest.approx(6.9451e15, rel=1e-2)

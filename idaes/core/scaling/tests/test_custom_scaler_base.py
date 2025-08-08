@@ -263,18 +263,22 @@ class TestCustomScalerBase:
         assert model.scaling_factor[model.pressure] == 1
 
     @pytest.mark.unit
-    def test_scale_variable_by_default(self, model, caplog):
-        caplog.set_level(idaeslog.DEBUG, logger="idaes")
+    def test_scale_variable_by_default_no_default(self, model):
         sb = CustomScalerBase()
 
         # No defaults defined yet
-        sb.scale_variable_by_default(model.pressure)
+        with pytest.raises(
+            KeyError,
+            match=re.escape("No default scaling factor set for pressure.")
+        ):
+            sb.scale_variable_by_default(model.pressure)
         assert model.pressure not in model.scaling_factor
-        assert (
-            "Could not set scaling factor for pressure, no default scaling factor set."
-            in caplog.text
-        )
 
+    @pytest.mark.unit
+    def test_scale_variable_by_default(self, model, caplog):
+        caplog.set_level(idaeslog.DEBUG, logger="idaes")
+        sb = CustomScalerBase()
+        
         # Set a default
         sb.default_scaling_factors["pressure"] = 1e-4
         sb.scale_variable_by_default(model.pressure)

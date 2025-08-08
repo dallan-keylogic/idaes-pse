@@ -37,6 +37,7 @@ from idaes.core import (
 from idaes.models.unit_models.equilibrium_reactor import (
     EquilibriumReactor,
     EquilibriumReactorScaler,
+    EquilibriumReactorScalerDoug
 )
 from idaes.models.properties.examples.saponification_thermo import (
     SaponificationParameterBlock,
@@ -747,7 +748,7 @@ class TestEquilibriumReactorScaler:
         initializer = BlockTriangularizationInitializer()
         initializer.initialize(m.fs.equil)
 
-        set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1e3)
+        set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1)
 
         scaler = EquilibriumReactorScaler()
         scaler.scale_model(m.fs.equil)
@@ -770,5 +771,96 @@ class TestEquilibriumReactorScaler:
         sm = TransformationFactory("core.scale_model").create_using(m, rename=False)
         jac, _ = get_jacobian(sm, scaled=False)
         assert (jacobian_cond(jac=jac, scaled=False)) == pytest.approx(
-            5.4449e5, rel=1e-3
+            1.030e4, rel=1e-3
+        )
+
+class TestEquilibriumReactorScalerDoug:
+    @pytest.fixture
+    def model(self):
+        m = ConcreteModel()
+        m.fs = FlowsheetBlock(dynamic=False)
+
+        m.fs.properties = SaponificationParameterBlock()
+        m.fs.reactions = SaponificationReactionParameterBlock(
+            property_package=m.fs.properties
+        )
+
+        m.fs.unit = EquilibriumReactor(
+            property_package=m.fs.properties,
+            reaction_package=m.fs.reactions,
+            has_equilibrium_reactions=False,
+            has_heat_transfer=True,
+            has_heat_of_reaction=True,
+            has_pressure_change=True,
+        )
+
+        m.fs.unit.inlet.flow_vol[0].set_value(1.0e-03)
+        m.fs.unit.inlet.conc_mol_comp[0, "H2O"].set_value(55388.0)
+        m.fs.unit.inlet.conc_mol_comp[0, "NaOH"].set_value(100.0)
+        m.fs.unit.inlet.conc_mol_comp[0, "EthylAcetate"].set_value(100.0)
+        m.fs.unit.inlet.conc_mol_comp[0, "SodiumAcetate"].set_value(0.0)
+        m.fs.unit.inlet.conc_mol_comp[0, "Ethanol"].set_value(0.0)
+
+        m.fs.unit.inlet.temperature[0].set_value(303.15)
+        m.fs.unit.inlet.pressure[0].set_value(101325.0)
+
+        m.fs.unit.heat_duty.fix(0)
+        m.fs.unit.deltaP.fix(0)
+
+        return m
+    
+    @pytest.mark.integration
+    def test_example_case(self):
+        m = ConcreteModel()
+        m.fs = FlowsheetBlock(dynamic=False)
+
+        m.fs.properties = SaponificationParameterBlock()
+        m.fs.reactions = SaponificationReactionParameterBlock(
+            property_package=m.fs.properties
+        )
+
+        m.fs.equil = EquilibriumReactor(
+            property_package=m.fs.properties,
+            reaction_package=m.fs.reactions,
+            has_equilibrium_reactions=False,
+            has_heat_of_reaction=True,
+        )
+
+        m.fs.equil.inlet.flow_vol.fix(1.0e-03)
+        m.fs.equil.inlet.conc_mol_comp[0, "H2O"].fix(55388.0)
+        m.fs.equil.inlet.conc_mol_comp[0, "NaOH"].fix(100.0)
+        m.fs.equil.inlet.conc_mol_comp[0, "EthylAcetate"].fix(100.0)
+        m.fs.equil.inlet.conc_mol_comp[0, "SodiumAcetate"].fix(1e-8)
+        m.fs.equil.inlet.conc_mol_comp[0, "Ethanol"].fix(1e-8)
+
+        m.fs.equil.inlet.temperature.fix(303.15)
+        m.fs.equil.inlet.pressure.fix(101325.0)
+
+        initializer = BlockTriangularizationInitializer()
+        initializer.initialize(m.fs.equil)
+
+        set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1)
+
+        scaler = EquilibriumReactorScalerDoug()
+        scaler.scale_model(m.fs.equil)
+
+        m.fs.equil.inlet.flow_vol.fix(1)
+        m.fs.equil.inlet.conc_mol_comp[0, "NaOH"].fix(200.0)
+        m.fs.equil.inlet.conc_mol_comp[0, "EthylAcetate"].fix(100.0)
+        m.fs.equil.inlet.conc_mol_comp[0, "SodiumAcetate"].fix(50)
+        m.fs.equil.inlet.conc_mol_comp[0, "Ethanol"].fix(1e-8)
+
+        m.fs.equil.inlet.temperature.fix(320)
+
+        solver = get_solver(
+            "ipopt_v2", writer_config={"linear_presolve": True, "scale_model": True}
+        )
+        results = solver.solve(m, tee=True)
+        assert_optimal_termination(results)
+
+        # Check condition number to confirm scaling
+        sm = TransformationFactory("core.scale_model").create_using(m, rename=False)
+        jac, _ = get_jacobian(sm, scaled=False)
+        assert (jacobian_cond(jac=jac, scaled=False)) == pytest.approx(
+            770.06, rel=1e-3
         )

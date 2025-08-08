@@ -53,7 +53,7 @@ _log = idaeslog.getLogger(__name__)
 # TODO : Custom terms in material balances, other types of material balances
 # TODO : Improve flexibility for get_material_flow_terms and associated
 
-def ControlVolume0DScaler(ControlVolumeScalerBase):
+class ControlVolume0DScaler(ControlVolumeScalerBase):
     """
     Scaler object for the ControlVolume0D
     """
@@ -78,16 +78,30 @@ def ControlVolume0DScaler(ControlVolumeScalerBase):
         Returns:
             None
         """
-        for props in [model.properties_in, model.properties_out]:
-            self.call_submodel_scaler(
-                submodel=props,
-                submodel_scalers=submodel_scalers,
-                method="variable_scaling_routine",
-                overwrite=overwrite,
-            )
+        self.call_submodel_scaler_method(
+            submodel=model.properties_in,
+            submodel_scalers=submodel_scalers,
+            method="variable_scaling_routine",
+            overwrite=overwrite,
+        )
+        self.propagate_state_scaling(
+            target_state=model.properties_out,
+            source_state=model.properties_in,
+            overwrite=overwrite
+        )
+        self.call_submodel_scaler_method(
+            submodel=model.properties_out,
+            submodel_scalers=submodel_scalers,
+            method="variable_scaling_routine",
+            overwrite=overwrite,
+        )
+        if hasattr(model, "volume"):
+            self.scale_variable_by_default(model.volume, overwrite=overwrite)
+        if hasattr(model, "phase_fraction"):
+            self.scale_variable_by_default(model.phase_fraction, overwrite=overwrite)
 
-        super(self, ControlVolumeScalerBase).variable_scaling_routine(
-            self, model, overwrite=overwrite, submodel_scalers=submodel_scalers
+        super().variable_scaling_routine(
+            model, overwrite=overwrite, submodel_scalers=submodel_scalers
         )
 
     def constraint_scaling_routine(
@@ -107,15 +121,15 @@ def ControlVolume0DScaler(ControlVolumeScalerBase):
             None
         """
         for props in [model.properties_in, model.properties_out]:
-            self.call_submodel_scaler(
+            self.call_submodel_scaler_method(
                 submodel=props,
                 submodel_scalers=submodel_scalers,
                 method="constraint_scaling_routine",
                 overwrite=overwrite,
             )
 
-        super(self, ControlVolumeScalerBase).constraint_scaling_routine(
-            self, model, overwrite=overwrite, submodel_scalers=submodel_scalers
+        super().constraint_scaling_routine(
+            model, overwrite=overwrite, submodel_scalers=submodel_scalers
         )
 
 @declare_process_block_class(

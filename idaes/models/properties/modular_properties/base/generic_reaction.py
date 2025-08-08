@@ -19,7 +19,7 @@ Framework for generic reaction packages
 from math import log
 
 # Import Pyomo libraries
-from pyomo.environ import Block, Constraint, Expression, Set, units as pyunits, Var
+from pyomo.environ import Block, Constraint, Expression, Set, units as pyunits, value, Var
 from pyomo.common.config import ConfigBlock, ConfigValue, In
 
 # Import IDAES cores
@@ -31,13 +31,15 @@ from idaes.core import (
     MaterialFlowBasis,
     ElectrolytePropertySet,
 )
-from idaes.models.properties.modular_properties.base.utility import ConcentrationForm
+from idaes.models.properties.modular_properties.base.utility import ConcentrationForm, ModularPropertiesScalerBase
+from idaes.core.util.constants import Constants
 from idaes.core.util.exceptions import (
     BurntToast,
     ConfigurationError,
     PropertyPackageError,
 )
 import idaes.core.util.scaling as iscale
+from idaes.core.scaling import ConstraintScalingScheme, CustomScalerBase, get_scaling_factor
 
 import idaes.logger as idaeslog
 
@@ -62,6 +64,53 @@ class GenericReactionPackageError(PropertyPackageError):
             f"for this property. Please add a method for this property "
             f"in the reaction parameter configuration."
         )
+
+class ModularReactionScaler(ModularPropertiesScalerBase):
+    # TODO full modular implementation
+    def variable_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        units = model.params.get_metadata().derived_units
+        sf_T = get_scaling_factor(model.state_ref.temperature)
+        sf_R = 1/ pyunits.convert(Constants.gas_constant, to_units=units["gas_constant"])
+
+        if model.is_property_constructed("dh_rxn"):
+            for v in model.dh_rxn.values():
+                self.set_component_scaling_factor(v, sf_T * sf_R, overwrite=overwrite)
+
+        if model.is_property_constructed("k_eq"):
+            # Order-of-magnitude scaling is about the best we can do
+            # If the user really cared about numerical conditioning
+            # they'd be using a log form
+            for v in model.k_eq.values():
+                try:
+                    sf = 1 / value(v)
+                except ValueError:
+                    # Var is not initialized
+                    sf = None
+                if sf is not None:
+                    self.set_component_scaling_factor(v, sf)
+
+        if model.is_property_constructed("log_k_eq"):
+            for v in model.log_k_eq.values():
+                # Log variables well-scaled by default
+                self.set_scaling_factor(v, 1)
+
+
+    def constraint_scaling_routine(
+        self, model, overwrite: bool = False, submodel_scalers: dict = None
+    ):
+        if model.is_property_constructed("equilibrium_constraint"):
+            for r in  model.params.equilibrium_reaction_idx:
+                carg = model.params.config.equilibrium_reactions[r]
+                self.call_inherent_reaction_module_scaler(
+                    model,
+                    carg["equilibrium_form"],
+                    index=r,
+                    method="constraint_scaling_routine",
+                    overwrite=overwrite
+                )
+
 
 
 rxn_config = ConfigBlock()

@@ -86,12 +86,13 @@ from idaes.models.properties.modular_properties.base.utility import (
     estimate_Tdew,
     estimate_Pbub,
     estimate_Pdew,
+    ModularPropertiesScalerBase,
 )
 from idaes.models.properties.modular_properties.phase_equil.bubble_dew import (
     LogBubbleDew,
 )
 from idaes.models.properties.modular_properties.phase_equil.henry import HenryType
-from idaes.core.scaling import CustomScalerBase, get_scaling_factor
+from idaes.core.scaling import get_scaling_factor
 
 # Set up logger
 _log = idaeslog.getLogger(__name__)
@@ -136,7 +137,7 @@ def set_param_value(b, param, units):
         )
         param_obj.value = config
 
-class ModularPropertiesScaler(CustomScalerBase):
+class ModularPropertiesScaler(ModularPropertiesScalerBase):
     """
     Scaler for modular property framework.
     """
@@ -159,7 +160,7 @@ class ModularPropertiesScaler(CustomScalerBase):
     ):
         units = model.params.get_metadata().derived_units
 
-        self.call_module_scaler(
+        self.call_module_scaling_method(
             model,
             model.params.config.state_definition,
             index=None,
@@ -255,7 +256,7 @@ class ModularPropertiesScaler(CustomScalerBase):
         # Other EoS variables
         for p in model.phase_list:
             pobj = model.params.get_phase(p)
-            self.call_module_scaler(
+            self.call_module_scaling_method(
                 model,
                 pobj.config.equation_of_state,
                 index=p,
@@ -269,7 +270,7 @@ class ModularPropertiesScaler(CustomScalerBase):
         if model.is_property_constructed("equilibrium_constraint"):
             for pp in model.params._pe_pairs:
                 pe_method = model.params.config.phase_equilibrium_state[pp]
-                self.call_module_scaler(
+                self.call_module_scaling_method(
                     model,
                     pe_method,
                     index=pp,
@@ -284,7 +285,7 @@ class ModularPropertiesScaler(CustomScalerBase):
                         # Component not in phase equilibrium pair
                         form = None
                     if form is not None:
-                        self.call_module_scaler(
+                        self.call_module_scaling_method(
                             model,
                             form,
                             index=(*pp, j),
@@ -341,7 +342,7 @@ class ModularPropertiesScaler(CustomScalerBase):
     ):
         param_config = model.params.config
 
-        self.call_module_scaler(
+        self.call_module_scaling_method(
             model,
             param_config.state_definition,
             index=None,
@@ -352,7 +353,7 @@ class ModularPropertiesScaler(CustomScalerBase):
         # Equation of State
         for p in model.phase_list:
             pobj = model.params.get_phase(p)
-            self.call_module_scaler(
+            self.call_module_scaling_method(
                 model,
                 pobj.config.equation_of_state,
                 index=p,
@@ -364,7 +365,7 @@ class ModularPropertiesScaler(CustomScalerBase):
         if model.is_property_constructed("equilibrium_constraint"):
             for pp in model.params._pe_pairs:
                 pe_method = param_config.phase_equilibrium_state[pp]
-                self.call_module_scaler(
+                self.call_module_scaling_method(
                     model,
                     pe_method,
                     index=pp,
@@ -379,7 +380,7 @@ class ModularPropertiesScaler(CustomScalerBase):
                         # Component not in phase equilibrium pair
                         form = None
                     if form is not None:
-                        self.call_module_scaler(
+                        self.call_module_scaling_method(
                             model,
                             form,
                             index=(*pp, j),
@@ -429,24 +430,7 @@ class ModularPropertiesScaler(CustomScalerBase):
         
         
 
-    def call_module_scaler(
-        self, model, module, index, method, overwrite: bool = False
-    ):
-        try:
-            scaler_class = module.default_scaler
-        except AttributeError:
-            _log.debug(
-                f"No default Scaler set for module {module}. Cannot call {method}."
-            )
-            return
-        scaler_obj = scaler_class(**self.CONFIG)
-        try:
-            method_func = getattr(scaler_obj, method)
-        except AttributeError as err:
-            raise AttributeError(
-                f"Could not find {method} method on scaler for module {module}."
-            ) from err
-        method_func(model, index, overwrite=overwrite)
+
 
     def _bubble_dew_scaling(self, model, pt_var, scale_variables, overwrite: bool=False):
         """
@@ -519,7 +503,7 @@ class ModularPropertiesScaler(CustomScalerBase):
             method = "variable_scaling_routine"
         else:
             method = "constraint_scaling_routine"
-        self.call_module_scaler(
+        self.call_module_scaling_method(
             model,
             model.params.config.bubble_dew_method,
             index=None,

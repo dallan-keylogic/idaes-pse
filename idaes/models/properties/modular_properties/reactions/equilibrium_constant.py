@@ -58,8 +58,13 @@ class ConstantKeqScaler(CustomScalerBase):
     def constraint_scaling_routine(
         self, model, reaction, overwrite: bool = False
     ):
-        # No constraints generated
-        pass
+        if model.is_property_constructed("log_k_eq_constraint"):
+            # log constraint is well scaled by default
+            self.set_component_scaling_factor(
+                model.log_k_eq_constraint[reaction],
+                1,
+                overwrite=overwrite
+            )
 
 class ConstantKeq:
     """Methods for invariant equilibrium constant."""
@@ -271,7 +276,13 @@ class GibbsEnergyScaler(CustomScalerBase):
         self, model, reaction, overwrite: bool = False
     ):
         # No constraints generated
-        pass
+        if model.is_property_constructed("log_k_eq_constraint"):
+            # log constraint is well scaled by default
+            self.set_component_scaling_factor(
+                model.log_k_eq_constraint[reaction],
+                1,
+                overwrite=overwrite
+            )
 
 class gibbs_energy:
     """Methods for equilibrium constant based of constant heat and entropy of reaction."""

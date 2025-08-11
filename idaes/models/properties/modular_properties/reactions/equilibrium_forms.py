@@ -35,11 +35,19 @@ class PowerLawEquilScaler(CustomScalerBase):
     def variable_scaling_routine(self, model, reaction, overwrite = False, submodel_scalers = None):
         pass
     def constraint_scaling_routine(self, model, reaction, overwrite = False, submodel_scalers = None):
-        self.scale_constraint_by_nominal_value(
-            model.inherent_equilibrium_constraint[reaction],
-            scheme=ConstraintScalingScheme.inverseMaximum,
-            overwrite=overwrite
-        )
+        if model.is_property_constructed("equilibrium_constraint"):
+            self.scale_constraint_by_nominal_value(
+                model.equilibrium_constraint[reaction],
+                scheme=ConstraintScalingScheme.inverseMaximum,
+                overwrite=overwrite
+            )
+
+        if model.is_property_constructed("inherent_equilibrium_constraint"):
+            self.scale_constraint_by_nominal_value(
+                model.inherent_equilibrium_constraint[reaction],
+                scheme=ConstraintScalingScheme.inverseMaximum,
+                overwrite=overwrite
+            )
 
 class power_law_equil:
     """Methods for power-law based equilibrium forms."""
@@ -80,11 +88,19 @@ class LogPowerLawEquilScaler(CustomScalerBase):
         pass
     def constraint_scaling_routine(self, model, reaction, overwrite = False, submodel_scalers = None):
         # Log constraints are well-scaled by default
-        self.set_component_scaling_factor(
-            model.inherent_equilibrium_constraint[reaction],
-            scaling_factor=1,
-            overwrite=overwrite
-        )
+        if model.is_property_constructed("equilibrium_constraint"):
+            self.set_component_scaling_factor(
+                model.equilibrium_constraint[reaction],
+                scaling_factor=1,
+                overwrite=overwrite
+            )
+
+        if model.is_property_constructed("inherent_equilibrium_constraint"):
+            self.set_component_scaling_factor(
+                model.inherent_equilibrium_constraint[reaction],
+                scaling_factor=1,
+                overwrite=overwrite
+            )
 
 class log_power_law_equil:
     """Methods for log formulation of power-law based equilibrium forms."""

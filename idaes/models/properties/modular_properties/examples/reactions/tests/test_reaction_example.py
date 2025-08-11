@@ -125,11 +125,14 @@ class TestStateBlock(object):
         assert model.rxns[1].default_scaler is ModularReactionScaler
 
         prop_scaler = ModularPropertiesScaler()
-        prop_scaler.default_scaling_factors["flow_mol_phase"] = 1
+        prop_scaler.default_scaling_factors["flow_mol_phase"] =  0.01
         prop_scaler.scale_model(model.props[1])
 
         rxn_scaler = ModularReactionScaler()
         rxn_scaler.scale_model(model.rxns[1])
+        from idaes.core.scaling import report_scaling_factors
+        report_scaling_factors(model, descend_into=True)
+        import pdb; pdb.set_trace()
 
     @pytest.mark.solver
     @pytest.mark.skipif(solver is None, reason="Solver not available")

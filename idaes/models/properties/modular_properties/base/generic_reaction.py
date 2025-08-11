@@ -96,7 +96,7 @@ class ModularReactionScaler(ModularPropertiesScalerBase):
                 carg = model.params.config.equilibrium_reactions[r]
                 self.call_module_scaling_method(
                     model,
-                    carg["equilibrium_form"],
+                    carg["equilibrium_constant"],
                     index=r,
                     method="variable_scaling_routine",
                     overwrite=overwrite
@@ -129,12 +129,10 @@ class ModularReactionScaler(ModularPropertiesScalerBase):
                 self.call_module_scaling_method(
                     model,
                     carg["heat_of_reaction"],
-                    index=r,
-                    method="variable_scaling_routine",
+                    index=idx,
+                    method="constraint_scaling_routine",
                     overwrite=overwrite
                 )
-
-        
 
         if (
             model.is_property_constructed("k_eq")
@@ -144,9 +142,9 @@ class ModularReactionScaler(ModularPropertiesScalerBase):
                 carg = model.params.config.equilibrium_reactions[r]
                 self.call_module_scaling_method(
                     model,
-                    carg["equilibrium_form"],
+                    carg["equilibrium_constant"],
                     index=r,
-                    method="variable_scaling_routine",
+                    method="constraint_scaling_routine",
                     overwrite=overwrite
                 )
         if model.is_property_constructed("equilibrium_constraint"):

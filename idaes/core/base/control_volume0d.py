@@ -96,9 +96,11 @@ class ControlVolume0DScaler(ControlVolumeScalerBase):
             overwrite=overwrite,
         )
         if hasattr(model, "volume"):
-            self.scale_variable_by_default(model.volume, overwrite=overwrite)
+            for v in model.volume.values():
+                self.scale_variable_by_default(v, overwrite=overwrite)
         if hasattr(model, "phase_fraction"):
-            self.scale_variable_by_default(model.phase_fraction, overwrite=overwrite)
+            for v in model.phase_fraction.values():
+                self.scale_variable_by_default(v, overwrite=overwrite)
 
         super().variable_scaling_routine(
             model, overwrite=overwrite, submodel_scalers=submodel_scalers

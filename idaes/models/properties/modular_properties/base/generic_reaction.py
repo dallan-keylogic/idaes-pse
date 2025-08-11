@@ -21,6 +21,7 @@ from math import log
 # Import Pyomo libraries
 from pyomo.environ import Block, Constraint, Expression, Set, units as pyunits, value, Var
 from pyomo.common.config import ConfigBlock, ConfigValue, In
+from pyomo.common.collections import ComponentMap
 
 # Import IDAES cores
 from idaes.core import (
@@ -66,44 +67,92 @@ class GenericReactionPackageError(PropertyPackageError):
         )
 
 class ModularReactionScaler(ModularPropertiesScalerBase):
-    # TODO full modular implementation
     def variable_scaling_routine(
-        self, model, overwrite: bool = False, submodel_scalers: dict = None
+        self, model, overwrite: bool = False, submodel_scalers: ComponentMap = None
     ):
-        units = model.params.get_metadata().derived_units
-        sf_T = get_scaling_factor(model.state_ref.temperature)
-        sf_R = 1/ pyunits.convert(Constants.gas_constant, to_units=units["gas_constant"])
-
+        # TODO rate reactions
         if model.is_property_constructed("dh_rxn"):
-            for v in model.dh_rxn.values():
-                self.set_component_scaling_factor(v, sf_T * sf_R, overwrite=overwrite)
-
-        if model.is_property_constructed("k_eq"):
-            # Order-of-magnitude scaling is about the best we can do
-            # If the user really cared about numerical conditioning
-            # they'd be using a log form
-            for v in model.k_eq.values():
-                try:
-                    sf = 1 / value(v)
-                except ValueError:
-                    # Var is not initialized
-                    sf = None
-                if sf is not None:
-                    self.set_component_scaling_factor(v, sf)
-
-        if model.is_property_constructed("log_k_eq"):
-            for v in model.log_k_eq.values():
-                # Log variables well-scaled by default
-                self.set_scaling_factor(v, 1)
+            for idx in model.dh_rxn.keys():
+                if idx in model.params.config.rate_reactions:
+                    carg = model.params.config.rate_reactions[idx]
+                elif idx in model.params.config.equilibrium_reactions:
+                    carg = model.params.config.equilibrium_reactions[idx]
+                else:
+                    raise BurntToast(
+                        f"Reaction {idx} is neither a rate nor equilibrium reaction."
+                    )
+                self.call_module_scaling_method(
+                    model,
+                    carg["heat_of_reaction"],
+                    index=idx,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite
+                )
+        if (
+            model.is_property_constructed("k_eq")
+            or model.is_property_constructed("log_k_eq")
+        ):
+            for r in model.params.equilibrium_reaction_idx:
+                carg = model.params.config.equilibrium_reactions[r]
+                self.call_module_scaling_method(
+                    model,
+                    carg["equilibrium_form"],
+                    index=r,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite
+                )
+        if model.is_property_constructed("equilibrium_constraint"):
+            for r in  model.params.equilibrium_reaction_idx:
+                carg = model.params.config.equilibrium_reactions[r]
+                self.call_module_scaling_method(
+                    model,
+                    carg["equilibrium_form"],
+                    index=r,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite
+                )
 
 
     def constraint_scaling_routine(
         self, model, overwrite: bool = False, submodel_scalers: dict = None
     ):
+        if model.is_property_constructed("dh_rxn"):
+            for idx in model.dh_rxn.keys():
+                if idx in model.params.config.rate_reactions:
+                    carg = model.params.config.rate_reactions[idx]
+                elif idx in model.params.config.equilibrium_reactions:
+                    carg = model.params.config.equilibrium_reactions[idx]
+                else:
+                    raise BurntToast(
+                        f"Reaction {idx} is neither a rate nor equilibrium reaction."
+                    )
+                self.call_module_scaling_method(
+                    model,
+                    carg["heat_of_reaction"],
+                    index=r,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite
+                )
+
+        
+
+        if (
+            model.is_property_constructed("k_eq")
+            or model.is_property_constructed("log_k_eq")
+        ):
+            for r in model.params.equilibrium_reaction_idx:
+                carg = model.params.config.equilibrium_reactions[r]
+                self.call_module_scaling_method(
+                    model,
+                    carg["equilibrium_form"],
+                    index=r,
+                    method="variable_scaling_routine",
+                    overwrite=overwrite
+                )
         if model.is_property_constructed("equilibrium_constraint"):
             for r in  model.params.equilibrium_reaction_idx:
                 carg = model.params.config.equilibrium_reactions[r]
-                self.call_inherent_reaction_module_scaler(
+                self.call_module_scaling_method(
                     model,
                     carg["equilibrium_form"],
                     index=r,
@@ -568,6 +617,7 @@ class GenericReactionBlockData(ReactionBlockDataBase):
     """
     Modular Reaction Block class.
     """
+    default_scaler = ModularReactionScaler
 
     def build(self):
         # TODO: Need a different error here

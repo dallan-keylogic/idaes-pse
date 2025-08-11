@@ -92,7 +92,7 @@ from idaes.models.properties.modular_properties.phase_equil.bubble_dew import (
     LogBubbleDew,
 )
 from idaes.models.properties.modular_properties.phase_equil.henry import HenryType
-from idaes.core.scaling import get_scaling_factor
+from idaes.core.scaling import get_scaling_factor, DefaultScalingRecommendation
 
 # Set up logger
 _log = idaeslog.getLogger(__name__)
@@ -142,9 +142,9 @@ class ModularPropertiesScaler(ModularPropertiesScalerBase):
     Scaler for modular property framework.
     """
     DEFAULT_SCALING_FACTORS = {
-        # It's much better for the user to provide scaling factors for flow rate
-        # by phase. We have a value here as a fallback option
-        "flow_mol_phase": 1,
+        # Typically the inverse of expected magnitude provides good scaling for
+        # molar flow rates, so long as the flow rates don't go to zero
+        "flow_mol_phase": DefaultScalingRecommendation.userInputRequired,
         # It's much better for the user to provide scaling factors for mole fraction
         # by phase and component. We have a value here as a fallback option
         "mole_frac_phase_comp": 10,
@@ -153,12 +153,23 @@ class ModularPropertiesScaler(ModularPropertiesScalerBase):
         # It is *vital* to be able to scale molar enthalpy if energy balances
         # are present. We can guess at the scaling factor if the user provides 
         # molecular weights, but it's better for the user to scale these directly
-        "enth_mol_phase": None
+        "enth_mol_phase": DefaultScalingRecommendation.userInputRecommended
     }
     def variable_scaling_routine(
-        self, model, overwrite: bool = False
+        self, model, overwrite: bool = False, submodel_scalers=None
     ):
         units = model.params.get_metadata().derived_units
+
+        vars_to_scale_by_default = [
+            model.flow_mol_phase,
+            model.mole_frac_phase_comp,
+            model.temperature,
+            model.pressure,
+        ]
+
+        for var in vars_to_scale_by_default:
+            for v in var.values():
+                self.scale_variable_by_default(v, overwrite=overwrite)
 
         self.call_module_scaling_method(
             model,
@@ -297,7 +308,7 @@ class ModularPropertiesScaler(ModularPropertiesScalerBase):
         if model.is_property_constructed("inherent_equilibrium_constraint"):
             for r in self.params.inherent_reaction_idx:
                 carg = self.params.config.inherent_reactions[r]
-                self.call_inherent_reaction_module_scaler(
+                self.call_module_scaling_method(
                     model,
                     carg["equilibrium_form"],
                     index=r,
@@ -338,7 +349,7 @@ class ModularPropertiesScaler(ModularPropertiesScalerBase):
         
     
     def constraint_scaling_routine(
-        self, model, overwrite: bool = False
+        self, model, overwrite: bool = False, submodel_scalers=None
     ):
         param_config = model.params.config
 
@@ -392,7 +403,7 @@ class ModularPropertiesScaler(ModularPropertiesScalerBase):
         if model.is_property_constructed("inherent_equilibrium_constraint"):
             for r in  model.params.inherent_reaction_idx:
                 carg = model.params.config.inherent_reactions[r]
-                self.call_inherent_reaction_module_scaler(
+                self.call_module_scaling_method(
                     model,
                     carg["equilibrium_form"],
                     index=r,

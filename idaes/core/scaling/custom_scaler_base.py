@@ -65,6 +65,23 @@ class ConstraintScalingScheme(StrEnum):
     inverseMaximum = "inverse_maximum"
     inverseMinimum = "inverse_minimum"
 
+class DefaultScalingRecommendation(StrEnum):
+    """
+    Enum to categorize how necessary it is for a user to set
+    a default scaling factor.
+
+    * userInputRecommended: While a value cannot be set a priori, there is a method to 
+        estimate the scaling factor for this variable/expression. It's still better for 
+        the user to supply the value.
+    * userInputRequired: The user must provide a scaling factor or an Exception is thrown.
+    * userSetManually: A way for a user to certify that they've set scaling factors on the
+        the appropriate variables and constraints directly using set_scaling_factor
+    """
+
+    userInputRecommended = "User input recommended"
+    userInputRequired = "User input required"
+    userSetManually = "User set manually"
+
 
 class CustomScalerBase(ScalerBase):
     """
@@ -284,12 +301,21 @@ class CustomScalerBase(ScalerBase):
             None
         """
         sf = self.get_default_scaling_factor(variable)
-        if sf is not None:
+        if sf is None or sf == DefaultScalingRecommendation.userInputRequired:
+            raise KeyError(f"No default scaling factor set for {variable}.")
+
+        elif (
+            sf == DefaultScalingRecommendation.userInputRecommended
+            or sf == DefaultScalingRecommendation.userSetManually
+        ):
+            # Either the user has already set scaling factors or 
+            # the scaling method is going to try to estimate the
+            # scaling factor
+            pass
+        else:
             self.set_variable_scaling_factor(
                 variable=variable, scaling_factor=sf, overwrite=overwrite
             )
-        else:
-            raise KeyError(f"No default scaling factor set for {variable}.")
 
     # def apply_default_scaling_factors_to_variables(self, overwrite: bool = False):
     #     """

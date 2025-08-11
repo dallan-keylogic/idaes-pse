@@ -163,6 +163,7 @@ class TestSaponification(object):
     @pytest.mark.skipif(solver is None, reason="Solver not available")
     @pytest.mark.component
     def test_solve(self, sapon):
+        import pdb; pdb.set_trace()
         results = solver.solve(sapon)
 
         # Check for optimal solution

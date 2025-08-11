@@ -62,7 +62,7 @@ solver = get_solver(
     solver_options={"max_iter": 50},
     writer_config={
         "scale_model": True,
-        "linear_presolve": False,
+        "linear_presolve": True,
     }
 )
 
@@ -209,7 +209,7 @@ class TestBTExample(object):
 
 
         scaler = m.fs.state.default_scaler()
-        scaler.DEFAULT_SCALING_FACTORS["flow_mol_phase"] = 0.01
+        scaler.default_scaling_factors["flow_mol_phase"] = 0.01
         scaler.scale_model(m.fs.state[1])
 
         return m

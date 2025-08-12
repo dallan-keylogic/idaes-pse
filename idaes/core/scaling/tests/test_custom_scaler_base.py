@@ -34,6 +34,7 @@ from pyomo.common.config import ConfigDict
 from idaes.core.scaling.custom_scaler_base import (
     CustomScalerBase,
     ConstraintScalingScheme,
+    DefaultScalingRecommendation
 )
 from idaes.core.util.constants import Constants
 from idaes.core.util.testing import PhysicalParameterTestBlock
@@ -273,6 +274,48 @@ class TestCustomScalerBase:
         ):
             sb.scale_variable_by_default(model.pressure)
         assert model.pressure not in model.scaling_factor
+
+    @pytest.mark.unit
+    def test_scale_variable_by_default_user_input_required(self, model):
+        sb = CustomScalerBase()
+        sb.default_scaling_factors["pressure"] = DefaultScalingRecommendation.userInputRequired
+        # No defaults defined yet
+        with pytest.raises(
+            KeyError,
+            match=re.escape("No default scaling factor set for pressure.")
+        ):
+            sb.scale_variable_by_default(model.pressure)
+        assert model.pressure not in model.scaling_factor
+
+        # If a scaling factor is already set, then no exception is raised
+        sb.set_component_scaling_factor(model.pressure, 1e-4)
+        sb.scale_variable_by_default(model.pressure)
+        assert model.scaling_factor[model.pressure] == 1e-4
+
+        # If we tell it to overwrite the scaling factors, the existence of
+        # a preexisting scaling factor is no longer sufficient.
+        with pytest.raises(
+            KeyError,
+            match=re.escape("No default scaling factor set for pressure.")
+        ):
+            sb.scale_variable_by_default(model.pressure, overwrite=True)
+        assert model.scaling_factor[model.pressure] == 1e-4
+
+        # If user certifies that they set the scaling factor manually,
+        # then overwrite doesn't raise an exception
+        sb.default_scaling_factors["pressure"] = DefaultScalingRecommendation.userSetManually
+        sb.scale_variable_by_default(model.pressure, overwrite=True)
+        assert model.scaling_factor[model.pressure] == 1e-4
+
+    @pytest.mark.unit
+    def test_scale_variable_by_default_user_input_recommended(self, model):
+        sb = CustomScalerBase()
+        sb.default_scaling_factors["pressure"] = DefaultScalingRecommendation.userInputRecommended
+        # The scaling method is going to generate a guess for the scaling
+        # factor later, so no guess is necessary now.
+        sb.scale_variable_by_default(model.pressure)
+        assert model.pressure not in model.scaling_factor
+        
 
     @pytest.mark.unit
     def test_scale_variable_by_default(self, model, caplog):

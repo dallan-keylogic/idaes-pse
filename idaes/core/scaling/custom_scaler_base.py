@@ -302,8 +302,17 @@ class CustomScalerBase(ScalerBase):
         """
         sf = self.get_default_scaling_factor(variable)
         if sf is None or sf == DefaultScalingRecommendation.userInputRequired:
-            raise KeyError(f"No default scaling factor set for {variable}.")
-
+            # Check to see if the user manually set a scaling factor
+            sf = get_scaling_factor(variable)
+            if sf is None or overwrite:
+                # If the user told us to overwrite scaling factors, then
+                # accepting a preexisiting scaling factor is not good enough.
+                # They need to go manually alter the default entry to
+                # DefaultScalingRecommendation.userInputRecommended
+                raise KeyError(f"No default scaling factor set for {variable}.")
+            else:
+                # If a preexisting scaling factor exists, then we'll accept it
+                pass
         elif (
             sf == DefaultScalingRecommendation.userInputRecommended
             or sf == DefaultScalingRecommendation.userSetManually
@@ -316,20 +325,6 @@ class CustomScalerBase(ScalerBase):
             self.set_variable_scaling_factor(
                 variable=variable, scaling_factor=sf, overwrite=overwrite
             )
-
-    # def apply_default_scaling_factors_to_variables(self, overwrite: bool = False):
-    #     """
-    #     Iterates through default_scaling_factor dictionary and applies scaling factors
-    #     to all variables contained therein and scaling hints for all Expressions contained
-    #     therein.
-
-    #     Args:
-    #         overwrite: whether to overwrite existing scaling factors
-
-    #     Returns:
-    #         None
-    #     """
-    #     for 
 
     def scale_variable_by_units(self, variable, overwrite: bool = False):
         """

@@ -194,8 +194,6 @@ class ControlVolumeScalerBase(CustomScalerBase):
             # the reaction system by combining reactions or we need to keep
             # track of the concentration of this highly reactive intermediate.)
             for prop_idx in props:
-                if not isinstance(prop_idx, tuple):
-                    prop_idx = (prop_idx,)
                 for rxn in rate_rxn_idx:
                     nom_rxn = float("inf")
                     for p, j in phase_component_set:
@@ -210,7 +208,7 @@ class ControlVolumeScalerBase(CustomScalerBase):
                     # Note this scaling works only if we don't
                     # have multiple reactions cancelling each other out
                     self.set_component_scaling_factor(
-                        model.rate_reaction_extent[*prop_idx, rxn],
+                        model.rate_reaction_extent[prop_idx, rxn],
                         1 / nom_rxn,
                         overwrite=overwrite
                     )
@@ -245,8 +243,6 @@ class ControlVolumeScalerBase(CustomScalerBase):
             # the reaction system by combining reactions or we need to keep
             # track of the concentration of this highly reactive intermediate.)
             for prop_idx in props:
-                if not isinstance(prop_idx, tuple):
-                    prop_idx = (prop_idx,)
                 for rxn in equil_rxn_idx:
                     nom_rxn = float("inf")
                     for p, j in phase_component_set:
@@ -261,7 +257,7 @@ class ControlVolumeScalerBase(CustomScalerBase):
                     # Note this scaling works only if we don't
                     # have multiple reactions cancelling each other out
                     self.set_component_scaling_factor(
-                        model.equilibrium_reaction_extent[*prop_idx, rxn],
+                        model.equilibrium_reaction_extent[prop_idx, rxn],
                         1 / nom_rxn,
                         overwrite=overwrite
                     )
@@ -296,8 +292,6 @@ class ControlVolumeScalerBase(CustomScalerBase):
             # the reaction system by combining reactions or we need to keep
             # track of the concentration of this highly reactive intermediate.)
             for prop_idx in props:
-                if not isinstance(prop_idx, tuple):
-                    prop_idx = (prop_idx,)
                 for rxn in inh_rxn_idx:
                     nom_rxn = float("inf")
                     for p, j in phase_component_set:
@@ -312,7 +306,7 @@ class ControlVolumeScalerBase(CustomScalerBase):
                     # Note this scaling works only if we don't
                     # have multiple reactions cancelling each other out
                     self.set_component_scaling_factor(
-                        model.inherent_reaction_extent[*prop_idx, rxn],
+                        model.inherent_reaction_extent[prop_idx, rxn],
                         1 / nom_rxn,
                         overwrite=overwrite
                     )
@@ -321,14 +315,12 @@ class ControlVolumeScalerBase(CustomScalerBase):
 
         if hasattr(model, "mass_transfer_term"):
             for prop_idx in props:
-                if not isinstance(prop_idx, tuple):
-                    prop_idx = (prop_idx,)
                 for p, j in phase_component_set:
                     nom = self.get_expression_nominal_value(
                         props[prop_idx].get_material_flow_terms(p, j)
                     ) 
                     self.set_component_scaling_factor(
-                        model.mass_transfer_term[*prop_idx, p, j],
+                        model.mass_transfer_term[prop_idx, p, j],
                         1/ nom,
                         overwrite=overwrite
                     )

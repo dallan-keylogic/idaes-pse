@@ -46,7 +46,6 @@ CONFIG.declare(
 CONFIG.declare(
     "max_variable_scaling_factor",
     ConfigValue(
-        # default=float("inf"),
         default=1e10,
         domain=float,
         description="Maximum value for variable scaling factors.",
@@ -55,7 +54,6 @@ CONFIG.declare(
 CONFIG.declare(
     "min_variable_scaling_factor",
     ConfigValue(
-        # default=0,
         default=1e-10,
         domain=float,
         description="Minimum value for variable scaling factors.",
@@ -64,7 +62,6 @@ CONFIG.declare(
 CONFIG.declare(
     "max_constraint_scaling_factor",
     ConfigValue(
-        # default=float("inf"),
         default=1e10,
         domain=float,
         description="Maximum value for constraint scaling factors.",
@@ -73,7 +70,6 @@ CONFIG.declare(
 CONFIG.declare(
     "min_constraint_scaling_factor",
     ConfigValue(
-        # default=0,
         default=1e-10,
         domain=float,
         description="Minimum value for constraint scaling factors.",
@@ -82,7 +78,6 @@ CONFIG.declare(
 CONFIG.declare(
     "max_expression_scaling_hint",
     ConfigValue(
-        # default=float("inf"),
         default=1e10,
         domain=float,
         description="Maximum value for expression scaling hints.",
@@ -91,7 +86,6 @@ CONFIG.declare(
 CONFIG.declare(
     "min_expression_scaling_hint",
     ConfigValue(
-        # default=0,
         default=1e-10,
         domain=float,
         description="Minimum value for constraint scaling hints.",
@@ -194,7 +188,7 @@ class ScalerBase:
         Scaling factor is limited by min_expression_scaling_hint and max_expression_scaling_hint.
 
         Args:
-            variable: VarData component to set scaling factor for.
+            expression: ExpressionData component to set scaling factor for.
             scaling_factor: nominal scaling factor to apply. May be limited by max and min values.
             overwrite: whether to overwrite existing scaling factor (if present).
               Defaults to Scaler config setting.
@@ -248,7 +242,7 @@ class ScalerBase:
     ):
         """
         Set scaling factor (or hint) for Pyomo variable, constraint, or expression.
-        This method determines the component type and appropriatenly limits the 
+        This method determines the component type and appropriatenly limits the
         scaling factor (or hint) by the corresponding config options
 
         Args:
@@ -269,7 +263,7 @@ class ScalerBase:
                 "Provided with indexed component. Call this method with its "
                 "ComponentData children instead."
             )
-        
+
         if isinstance(component, VarData):
             component_type = "variable"
         elif isinstance(component, ConstraintData):
@@ -286,9 +280,8 @@ class ScalerBase:
             component_type=component_type,
             scaling_factor=scaling_factor,
             overwrite=overwrite,
-            **kwargs
+            **kwargs,
         )
-        
 
     def _set_scaling_factor(
         self, component, component_type, scaling_factor, overwrite=None

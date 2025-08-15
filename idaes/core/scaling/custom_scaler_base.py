@@ -15,22 +15,26 @@ Base class for custom scaling routines.
 
 Authors: Andrew Lee, Douglas Allan
 """
+from __future__ import annotations  # For type hinting with unions using |
 from copy import copy
 
 from pyomo.environ import ComponentMap, units, value
 from pyomo.core.base.units_container import UnitsError
-from pyomo.core.base.indexed_component_slice import IndexedComponent_slice
 
-from pyomo.core.base.constraint import Constraint, ConstraintData
-from pyomo.core.base.var import Var, VarData
-from pyomo.core.base.expression import Expression, ExpressionData
+from pyomo.core.base.block import Block, BlockData
+from pyomo.core.base.constraint import ConstraintData
+from pyomo.core.base.var import VarData
+from pyomo.core.base.expression import ExpressionData
 
 from pyomo.core.expr import identify_variables
 from pyomo.core.expr.calculus.derivatives import Modes, differentiate
 from pyomo.common.deprecation import deprecation_warning
 
 from idaes.core.scaling.scaling_base import CONFIG, ScalerBase
-from idaes.core.scaling.util import get_scaling_factor, NominalValueExtractionVisitor, _filter_unknown
+from idaes.core.scaling.util import (
+    get_scaling_factor,
+    NominalValueExtractionVisitor,
+)
 import idaes.logger as idaeslog
 from idaes.core.util.misc import StrEnum
 
@@ -65,13 +69,14 @@ class ConstraintScalingScheme(StrEnum):
     inverseMaximum = "inverse_maximum"
     inverseMinimum = "inverse_minimum"
 
+
 class DefaultScalingRecommendation(StrEnum):
     """
     Enum to categorize how necessary it is for a user to set
     a default scaling factor.
 
-    * userInputRecommended: While a value cannot be set a priori, there is a method to 
-        estimate the scaling factor for this variable/expression. It's still better for 
+    * userInputRecommended: While a value cannot be set a priori, there is a method to
+        estimate the scaling factor for this variable/expression. It's still better for
         the user to supply the value.
     * userInputRequired: The user must provide a scaling factor or an Exception is thrown.
     * userSetManually: A way for a user to certify that they've set scaling factors on the
@@ -196,7 +201,9 @@ class CustomScalerBase(ScalerBase):
             "Custom Scaler has not implemented a constraint_scaling_routine method."
         )
 
-    def get_default_scaling_factor(self, component):
+    def get_default_scaling_factor(
+        self, component: VarData | ConstraintData | ExpressionData
+    ):
         """
         Get scaling factor for component from dict of default values.
 
@@ -223,7 +230,10 @@ class CustomScalerBase(ScalerBase):
 
     # Common methods for variable scaling
     def scale_variable_by_component(
-        self, target_variable, scaling_component, overwrite: bool = False
+        self,
+        target_variable: VarData,
+        scaling_component: VarData | ConstraintData | ExpressionData,
+        overwrite: bool = False,
     ):
         """
         Set scaling factor for target_variable equal to that of scaling_component.
@@ -248,7 +258,7 @@ class CustomScalerBase(ScalerBase):
                 f"no scaling factor set for {scaling_component.name}"
             )
 
-    def scale_variable_by_bounds(self, variable, overwrite: bool = False):
+    def scale_variable_by_bounds(self, variable: VarData, overwrite: bool = False):
         """
         Set scaling factor for variable based on bounds.
 
@@ -289,27 +299,31 @@ class CustomScalerBase(ScalerBase):
             variable=variable, scaling_factor=sf, overwrite=overwrite
         )
 
-    def scale_variable_by_default(self, variable, overwrite: bool = False):
+    def _scale_component_by_default(
+        self,
+        component: VarData | ConstraintData | ExpressionData,
+        overwrite: bool = False,
+    ):
         """
-        Set scaling factor for variable based on default scaling factor.
+        Set scaling factor for component based on default scaling factor.
 
         Args:
-            variable: variable to set scaling factor for
+            component: Var, Constraint, or Expression to set scaling factor/hint for
             overwrite: whether to overwrite existing scaling factors
 
         Returns:
             None
         """
-        sf = self.get_default_scaling_factor(variable)
+        sf = self.get_default_scaling_factor(component)
         if sf is None or sf == DefaultScalingRecommendation.userInputRequired:
             # Check to see if the user manually set a scaling factor
-            sf = get_scaling_factor(variable)
+            sf = get_scaling_factor(component)
             if sf is None or overwrite:
                 # If the user told us to overwrite scaling factors, then
                 # accepting a preexisiting scaling factor is not good enough.
                 # They need to go manually alter the default entry to
                 # DefaultScalingRecommendation.userInputRecommended
-                raise KeyError(f"No default scaling factor set for {variable}.")
+                raise ValueError(f"No default scaling factor set for {component}.")
             else:
                 # If a preexisting scaling factor exists, then we'll accept it
                 pass
@@ -317,14 +331,38 @@ class CustomScalerBase(ScalerBase):
             sf == DefaultScalingRecommendation.userInputRecommended
             or sf == DefaultScalingRecommendation.userSetManually
         ):
-            # Either the user has already set scaling factors or 
+            # Either the user has already set scaling factors or
             # the scaling method is going to try to estimate the
             # scaling factor
             pass
         else:
-            self.set_variable_scaling_factor(
-                variable=variable, scaling_factor=sf, overwrite=overwrite
+            self.set_component_scaling_factor(
+                component=component, scaling_factor=sf, overwrite=overwrite
             )
+
+    def scale_variable_by_default(
+        self, variable: VarData | ExpressionData, overwrite: bool = False
+    ):
+        """
+        Set scaling factor for variable or scaling hint for named expression
+        based on default scaling factor.
+
+        Args:
+            variable: variable/expression to set scaling factor for
+            overwrite: whether to overwrite existing scaling factors
+
+        Returns:
+            None
+        """
+        if variable.is_indexed():
+            raise TypeError(
+                f"{variable} is indexed. Call with ComponentData children instead."
+            )
+        if not (isinstance(variable, VarData) or isinstance(variable, ExpressionData)):
+            raise TypeError(
+                f"{variable} is type {type(variable)}, but a variable or expression was expected."
+            )
+        self._scale_component_by_default(component=variable, overwrite=overwrite)
 
     def scale_variable_by_units(self, variable, overwrite: bool = False):
         """
@@ -374,7 +412,10 @@ class CustomScalerBase(ScalerBase):
 
     # Common methods for constraint scaling
     def scale_constraint_by_component(
-        self, target_constraint, scaling_component, overwrite: bool = False
+        self,
+        target_constraint: ConstraintData,
+        scaling_component: VarData | ConstraintData | ExpressionData,
+        overwrite: bool = False,
     ):
         """
         Set scaling factor for target_constraint equal to that of scaling_component.
@@ -398,7 +439,9 @@ class CustomScalerBase(ScalerBase):
                 f"no scaling factor set for {scaling_component.name}"
             )
 
-    def scale_constraint_by_default(self, constraint, overwrite: bool = False):
+    def scale_constraint_by_default(
+        self, constraint: ConstraintData, overwrite: bool = False
+    ):
         """
         Set scaling factor for constraint based on default scaling factor.
 
@@ -409,18 +452,17 @@ class CustomScalerBase(ScalerBase):
         Returns:
             None
         """
-        sf = self.get_default_scaling_factor(constraint)
-        if sf is not None:
-            self.set_constraint_scaling_factor(
-                constraint=constraint, scaling_factor=sf, overwrite=overwrite
+        if constraint.is_indexed():
+            raise TypeError(
+                f"{constraint} is indexed. Call with ComponentData children instead."
             )
-        else:
-            _log.debug(
-                f"Could not set scaling factor for {constraint.name}, "
-                f"no default scaling factor set."
+        if not isinstance(constraint, ConstraintData):
+            raise TypeError(
+                f"{constraint} is type {type(constraint)}, but a constraint was expected."
             )
+        self._scale_component_by_default(component=constraint, overwrite=overwrite)
 
-    def get_expression_nominal_value(self, expression):
+    def get_expression_nominal_value(self, expression: ConstraintData | ExpressionData):
         """
         Calculate nominal value for a Pyomo expression.
 
@@ -439,7 +481,9 @@ class CustomScalerBase(ScalerBase):
             expression = expression.body
         return sum(self.get_sum_terms_nominal_values(expression))
 
-    def get_expression_nominal_values(self, expression):
+    def get_expression_nominal_values(
+        self, expression: ConstraintData | ExpressionData
+    ):
         """
         Calculate nominal values for each additive term in a Pyomo expression.
 
@@ -453,16 +497,14 @@ class CustomScalerBase(ScalerBase):
             list of nominal values for each additive term
         """
         deprecation_warning(
-            msg=(
-                "This method has been renamed 'get_sum_terms_nominal_values'."
-            ),
+            msg=("This method has been renamed 'get_sum_terms_nominal_values'."),
             version="2.9",
             remove_in="2.10",
         )
 
         return self.get_sum_terms_nominal_values(expression)
 
-    def get_sum_terms_nominal_values(self, expression):
+    def get_sum_terms_nominal_values(self, expression: ConstraintData | ExpressionData):
         """
         Calculate nominal values for each additive term in a Pyomo expression.
 
@@ -484,7 +526,7 @@ class CustomScalerBase(ScalerBase):
 
     def scale_constraint_by_nominal_value(
         self,
-        constraint,
+        constraint: ConstraintData,
         scheme: ConstraintScalingScheme = ConstraintScalingScheme.inverseMaximum,
         overwrite: bool = False,
     ):
@@ -530,32 +572,8 @@ class CustomScalerBase(ScalerBase):
             constraint=constraint, scaling_factor=sf, overwrite=overwrite
         )
 
-    def scale_constraint_by_variable(
-        self,
-        constraint,
-        variable,
-        overwrite: bool = False,
-    ):
-        """
-        Set scaling factor for constraint based on scaling factor for variable
-
-        Args:
-            constraint: constraint to set scaling factor for
-            variable: variable from which the scaling factor is taken
-            overwrite: whether to overwrite existing scaling factors
-
-        Returns:
-            None
-        """
-        sf = get_scaling_factor(variable)
-        if sf is not None:
-            self.set_constraint_scaling_factor(
-                constraint=constraint, scaling_factor=sf, overwrite=overwrite
-            )
-        # TODO Should we emit a warning if this scaling factor is not found?
-
     def scale_constraint_by_nominal_derivative_norm(
-        self, constraint, norm: int = 2, overwrite: bool = False
+        self, constraint: ConstraintData, norm: int = 2, overwrite: bool = False
     ):
         """
         Scale constraint by norm of partial derivatives.
@@ -630,12 +648,17 @@ class CustomScalerBase(ScalerBase):
 
     # Other methods
     def propagate_state_scaling(
-        self, target_state, source_state, overwrite: bool = False
+        self,
+        target_state: Block | BlockData,
+        source_state: Block | BlockData,
+        overwrite: bool = False,
     ):
         """
         Propagate scaling of state variables from one StateBlock to another.
 
-        Indexing of target and source StateBlocks must match.
+        If both source and target state are indexed, the index sets must match.
+        If the source state block is indexed, the target state block must also
+        be indexed.
 
         Args:
             target_state: StateBlock to set scaling factors on
@@ -645,14 +668,37 @@ class CustomScalerBase(ScalerBase):
         Returns:
             None
         """
-        for bidx, target_data in target_state.items():
-            self.propagate_state_data_scaling(
-                target_state_data=target_data,
-                source_state_data=source_state[bidx],
-                overwrite=overwrite
+        if target_state.is_indexed() and source_state.is_indexed():
+            for bidx, target_data in target_state.items():
+                self._propagate_state_data_scaling(
+                    target_state_data=target_data,
+                    source_state_data=source_state[bidx],
+                    overwrite=overwrite,
+                )
+        elif target_state.is_indexed() and not source_state.is_indexed():
+            for target_data in target_state.values():
+                self._propagate_state_data_scaling(
+                    target_state_data=target_data,
+                    source_state_data=source_state,
+                    overwrite=overwrite,
+                )
+        elif not target_state.is_indexed() and not source_state.is_indexed():
+            self._propagate_state_data_scaling(
+                target_state_data=target_state,
+                source_state_data=source_state,
+                overwrite=overwrite,
             )
-    def propagate_state_data_scaling(
-        self, target_state_data, source_state_data, overwrite: bool = False
+        else:
+            raise ValueError(
+                "Source state block is indexed but target state block is not indexed. "
+                "It is ambiguous which index should be used."
+            )
+
+    def _propagate_state_data_scaling(
+        self,
+        target_state_data: BlockData,
+        source_state_data: BlockData,
+        overwrite: bool = False,
     ):
         """
         Propagate scaling of state variables from one StateBlockData to another.
@@ -675,7 +721,6 @@ class CustomScalerBase(ScalerBase):
                     scaling_component=source_vars[state][vidx],
                     overwrite=overwrite,
                 )
-        
 
     def call_submodel_scaler_method(
         self,
@@ -738,4 +783,3 @@ class CustomScalerBase(ScalerBase):
                         f"Scaler for {submodel} does not have a method named {method}."
                     ) from err
                 smeth(smdata, submodel_scalers=submodel_scalers, overwrite=overwrite)
-

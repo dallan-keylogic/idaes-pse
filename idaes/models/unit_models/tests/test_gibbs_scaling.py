@@ -67,13 +67,14 @@ def test_model():
 
 
 class DummyScaler:
+
     def __init__(self, **kwargs):
         pass
 
-    def variable_scaling_routine(self, model, overwrite, **kwargs):
+    def variable_scaling_routine(self, model, overwrite, submodel_scalers):
         model._dummy_scaler_test = overwrite
 
-    def constraint_scaling_routine(self, model, overwrite, **kwargs):
+    def constraint_scaling_routine(self, model, overwrite, submodel_scalers):
         model._dummy_scaler_test = overwrite
 
 
@@ -272,10 +273,10 @@ class TestConstraintScaling:
 
 # -----------------------------------------------------------------------------
 class SMScaler(CustomScalerBase):
-    def variable_scaling_routine(self, model, overwrite, **kwargs):
+    def variable_scaling_routine(self, model, overwrite, submodel_scalers):
         pass
 
-    def constraint_scaling_routine(self, model, overwrite, **kwargs):
+    def constraint_scaling_routine(self, model, overwrite, submodel_scalers):
         for c in model.component_data_objects(ctype=Constraint, descend_into=True):
             self.scale_constraint_by_nominal_value(
                 c, scheme="inverse_sum", overwrite=overwrite
@@ -319,7 +320,8 @@ class TestMethaneScaling(object):
             model.fs.unit.control_volume.properties_in[0.0].flow_mol, 1 / 230
         )
         set_scaling_factor(
-            model.fs.unit.control_volume.properties_in[0.0].flow_mol_phase["Vap"], 1 / 230
+            model.fs.unit.control_volume.properties_in[0.0].flow_mol_phase["Vap"],
+            1 / 230,
         )  # Only 1 phase, so we "know" this
         set_scaling_factor(
             model.fs.unit.control_volume.properties_in[0.0].mole_frac_comp["H2"],

@@ -37,7 +37,7 @@ from idaes.core import (
 from idaes.models.unit_models.equilibrium_reactor import (
     EquilibriumReactor,
     EquilibriumReactorScaler,
-    EquilibriumReactorScalerDoug
+    EquilibriumReactorScalerLegacy,
 )
 from idaes.models.properties.examples.saponification_thermo import (
     SaponificationParameterBlock,
@@ -402,7 +402,7 @@ class DummyScaler:
         model._dummy_con_scaler = True
 
 
-class TestEquilibriumReactorScaler:
+class TestEquilibriumReactorScalerLegacy:
     @pytest.fixture
     def model(self):
         m = ConcreteModel()
@@ -439,9 +439,7 @@ class TestEquilibriumReactorScaler:
 
     @pytest.mark.component
     def test_variable_scaling_routine(self, model):
-        scaler = model.fs.unit.default_scaler()
-
-        assert isinstance(scaler, EquilibriumReactorScaler)
+        scaler = EquilibriumReactorScalerLegacy()
 
         scaler.variable_scaling_routine(model.fs.unit)
 
@@ -514,7 +512,7 @@ class TestEquilibriumReactorScaler:
 
     @pytest.mark.component
     def test_variable_scaling_routine_submodel_scaler(self, model):
-        scaler = model.fs.unit.default_scaler()
+        scaler = EquilibriumReactorScalerLegacy()
 
         scaler_map = ComponentMap()
         scaler_map[model.fs.unit.control_volume.properties_in] = DummyScaler
@@ -534,9 +532,7 @@ class TestEquilibriumReactorScaler:
 
     @pytest.mark.component
     def test_constraint_scaling_routine(self, model):
-        scaler = model.fs.unit.default_scaler()
-
-        assert isinstance(scaler, EquilibriumReactorScaler)
+        scaler = EquilibriumReactorScalerLegacy()
 
         scaler.constraint_scaling_routine(model.fs.unit)
 
@@ -592,7 +588,7 @@ class TestEquilibriumReactorScaler:
 
     @pytest.mark.component
     def test_constraint_scaling_routine_submodel_scaler(self, model):
-        scaler = model.fs.unit.default_scaler()
+        scaler = EquilibriumReactorScalerLegacy()
 
         scaler_map = ComponentMap()
         scaler_map[model.fs.unit.control_volume.properties_in] = DummyScaler
@@ -612,9 +608,7 @@ class TestEquilibriumReactorScaler:
 
     @pytest.mark.component
     def test_scale_model(self, model):
-        scaler = model.fs.unit.default_scaler()
-
-        assert isinstance(scaler, EquilibriumReactorScaler)
+        scaler = EquilibriumReactorScalerLegacy()
 
         scaler.scale_model(model.fs.unit)
 
@@ -749,7 +743,7 @@ class TestEquilibriumReactorScaler:
 
         set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1)
 
-        scaler = EquilibriumReactorScaler()
+        scaler = EquilibriumReactorScalerLegacy()
         scaler.scale_model(m.fs.equil)
 
         m.fs.equil.inlet.flow_vol.fix(1)
@@ -773,7 +767,8 @@ class TestEquilibriumReactorScaler:
             1.030e4, rel=1e-3
         )
 
-class TestEquilibriumReactorScalerDoug:
+
+class TestEquilibriumReactorScaler:
     @pytest.fixture
     def model(self):
         m = ConcreteModel()
@@ -807,7 +802,7 @@ class TestEquilibriumReactorScalerDoug:
         m.fs.unit.deltaP.fix(0)
 
         return m
-    
+
     @pytest.mark.integration
     def test_example_case(self):
         m = ConcreteModel()
@@ -840,7 +835,7 @@ class TestEquilibriumReactorScalerDoug:
 
         set_scaling_factor(m.fs.equil.control_volume.properties_in[0].flow_vol, 1)
 
-        scaler = EquilibriumReactorScalerDoug()
+        scaler = EquilibriumReactorScaler()
         scaler.scale_model(m.fs.equil)
 
         m.fs.equil.inlet.flow_vol.fix(1)
@@ -860,6 +855,4 @@ class TestEquilibriumReactorScalerDoug:
         # Check condition number to confirm scaling
         sm = TransformationFactory("core.scale_model").create_using(m, rename=False)
         jac, _ = get_jacobian(sm, scaled=False)
-        assert (jacobian_cond(jac=jac, scaled=False)) == pytest.approx(
-            770.06, rel=1e-3
-        )
+        assert (jacobian_cond(jac=jac, scaled=False)) == pytest.approx(218.88, rel=1e-3)

@@ -186,16 +186,28 @@ class InitializerBase:
 
         # 5. try: Call specified initialization routine
         try:
-            # Base method does not have a return (NotImplementedError),
-            # but we expect this to be overloaded, disable pylint warning
-            # pylint: disable=E1111
+        # Base method does not have a return (NotImplementedError),
+        # but we expect this to be overloaded, disable pylint warning
+        # pylint: disable=E1111
             results = self.initialization_routine(model)
+            if results is not None and not check_optimal_termination(results):
+                raise InitializationError
+        except Exception as err:
+            from pyomo.environ import TransformationFactory
+            if model.is_indexed():
+                m_scaled = TransformationFactory("core.scale_model").create_using(model[0], rename=False)
+            else:
+                m_scaled = TransformationFactory("core.scale_model").create_using(model, rename=False)
+            from idaes.core.util import DiagnosticsToolbox
+            diag_tbx = DiagnosticsToolbox(m_scaled)
+            import pdb; pdb.set_trace()
+            pass
         # 6. finally: Restore model state
         finally:
             self.restore_model_state(model)
-            # Also revert local logger level so it does not get carried over to
-            # later runs
-            self._local_logger_level = None
+        # Also revert local logger level so it does not get carried over to
+        # later runs
+        self._local_logger_level = None
 
         # 7. Check convergence
         return self.postcheck(

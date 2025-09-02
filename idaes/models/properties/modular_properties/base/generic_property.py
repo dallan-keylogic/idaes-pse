@@ -1274,10 +1274,10 @@ class ModularPropertiesInitializer(InitializerBase):
         """
         # Setup loggers
         init_log = idaeslog.getInitLogger(
-            model.name, self.config.output_level, tag="properties"
+            model.name, self.get_output_level(), tag="properties"
         )
         solve_log = idaeslog.getSolveLogger(
-            model.name, self.config.output_level, tag="properties"
+            model.name, self.get_output_level(), tag="properties"
         )
 
         # Create solver object
@@ -1302,7 +1302,7 @@ class ModularPropertiesInitializer(InitializerBase):
             )
             self.config.constraint_tolerance = float("inf")
 
-        if "flow_mol_phase_comp"  in scaler_block.define_state_vars():
+        if "flow_mol_phase_comp" or "mole_frac_phase_comp" in scaler_block.define_state_vars():
             init_log.debug(
                 "Cannot converge phase equilibrium constraints "
                 "at the state block level due to using phase component "
@@ -1515,7 +1515,10 @@ class ModularPropertiesInitializer(InitializerBase):
                         # For systems where the state variables fully define the
                         # phase equilibrium, we cannot activate the equilibrium
                         # constraint at this stage.
-                        if "flow_mol_phase_comp" not in b.define_state_vars():
+                        if (
+                           "flow_mol_phase_comp" not in b.define_state_vars()
+                           and "mole_frac_phase_comp" not in b.define_state_vars()
+                        ):
                             c.activate()
 
                 for pp in b.params._pe_pairs:
@@ -1684,7 +1687,7 @@ class _GenericStateBlock(StateBlock):
             except AttributeError:
                 pass
             # Don't need equilibrium constraint for phase component flows
-            if "flow_mol_phase_comp" in k.define_state_vars():
+            if "flow_mol_phase_comp" or "mole_frac_phase_comp" in k.define_state_vars():
                 k.equilibrium_constraint.deactivate()
             # TODO Inherent reactions with a true component basis will fail here too
 
@@ -2297,6 +2300,43 @@ class GenericStateBlockData(StateBlockData):
                 # for small molecules. For large molecules, this value will be inappropriate
                 iscale.set_scaling_factor(self.cp_mol_phase[p], 1 / 50, overwrite=False)
 
+        if self.is_property_constructed("fug_phase_comp"):
+            for idx in self.fug_phase_comp:
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp[idx],
+                    default=1e3, # I'd prefer 10, but this is consistent with existing scaling
+                    warning=True
+                )
+                sf_P = iscale.get_scaling_factor(
+                    self.pressure,
+                    default=1e-5,
+                    warning=True
+                )
+                iscale.set_scaling_factor(
+                    self.fug_phase_comp[idx],
+                    sf_P*sf_x,
+                    overwrite=False
+                )
+
+        if self.is_property_constructed("fug_phase_comp_eq"):
+            for idx in self.fug_phase_comp_eq:
+                pp1, pp2, p, j = idx
+                sf_x = iscale.get_scaling_factor(
+                    self.mole_frac_phase_comp[p, j],
+                    default=1e3, # I'd prefer 10, but this is consistent with existing scaling
+                    warning=True
+                )
+                sf_P = iscale.get_scaling_factor(
+                    self.pressure,
+                    default=1e-5,
+                    warning=True
+                )
+                iscale.set_scaling_factor(
+                    self.fug_phase_comp_eq[idx],
+                    sf_P*sf_x,
+                    overwrite=False
+                )
+
         # Phase equilibrium constraint
         if hasattr(self, "equilibrium_constraint"):
             pe_form_config = self.params.config.phase_equilibrium_state
@@ -2310,7 +2350,6 @@ class GenericStateBlockData(StateBlockData):
                         .config.phase_equilibrium_form[(k[0], k[1])]
                         .calculate_scaling_factors(self, k[0], k[1], k[2])
                     )
-
                     iscale.constraint_scaling_transform(
                         self.equilibrium_constraint[k], sf_fug, overwrite=False
                     )

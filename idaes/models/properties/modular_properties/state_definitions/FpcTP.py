@@ -24,6 +24,7 @@ from types import MethodType
 from pyomo.environ import (
     Constraint,
     Expression,
+    Param,
     NonNegativeReals,
     Var,
     value,
@@ -105,12 +106,18 @@ def define_state(b):
         doc="Total molar flowrate",
     )
 
+    b.flow_mol_eps = Param(
+        initialize=1e-8*f_init,
+        mutable=True,
+        units=units.FLOW_MOLE
+    )
+
     def flow_mol_phase(b, p):
         return sum(
             b.flow_mol_phase_comp[p, j]
             for j in b.component_list
             if (p, j) in b.phase_component_set
-        )
+        ) + b.flow_mol_eps
 
     b.flow_mol_phase = Expression(
         b.phase_list, rule=flow_mol_phase, doc="Phase molar flow rates"

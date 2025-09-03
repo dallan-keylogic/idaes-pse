@@ -2318,25 +2318,6 @@ class GenericStateBlockData(StateBlockData):
                     overwrite=False
                 )
 
-        if self.is_property_constructed("fug_phase_comp_eq"):
-            for idx in self.fug_phase_comp_eq:
-                pp1, pp2, p, j = idx
-                sf_x = iscale.get_scaling_factor(
-                    self.mole_frac_phase_comp[p, j],
-                    default=1e3, # I'd prefer 10, but this is consistent with existing scaling
-                    warning=True
-                )
-                sf_P = iscale.get_scaling_factor(
-                    self.pressure,
-                    default=1e-5,
-                    warning=True
-                )
-                iscale.set_scaling_factor(
-                    self.fug_phase_comp_eq[idx],
-                    sf_P*sf_x,
-                    overwrite=False
-                )
-
         # Phase equilibrium constraint
         if hasattr(self, "equilibrium_constraint"):
             pe_form_config = self.params.config.phase_equilibrium_state

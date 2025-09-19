@@ -15,4 +15,3 @@ from .FcPh import FcPh
 from .FcTP import FcTP
 from .FpcTP import FpcTP
 from .FPhx import FPhx
-from .FpcTP_experimental import FpcTPExperimental

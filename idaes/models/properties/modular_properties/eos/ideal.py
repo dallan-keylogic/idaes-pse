@@ -240,28 +240,47 @@ class Ideal(EoSBase):
 
     @staticmethod
     def fug_phase_comp(b, p, j):
-        return _fug_phase_comp(b, p, j, b.temperature)
+        if (p, j) in b.phase_component_set:
+            return _fug_phase_comp(b, p, j, b.temperature)
+        else:
+            raise KeyError(f"Component {j} is not present in phase {p}.")
 
     @staticmethod
     def fug_phase_comp_eq(b, p, j, pp):
-        return _fug_phase_comp(b, p, j, b._teq[pp])
+        if (p, j) in b.phase_component_set:
+            return _fug_phase_comp(b, p, j, b._teq[pp])
+        else:
+            raise KeyError(f"Component {j} is not present in phase {p}.")
 
     @staticmethod
     def log_fug_phase_comp(b, p, j):
+        if (p, j) not in b.phase_component_set:
+            raise KeyError(f"Component {j} is not present in phase {p}.")
         if b.params.has_inherent_reactions:
-            log_x = {j: b.log_mole_frac_phase_comp_true[p, j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_phase_comp_true[p, j]
+                for j in b.components_in_phase(p)
+            }
         else:
-            log_x = {j: b.log_mole_frac_phase_comp[p, j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_phase_comp[p, j] for j in b.components_in_phase(p)
+            }
         return _log_fug_phase_comp(b, p, j, log_x, b.temperature, b.pressure)
 
     @staticmethod
     def log_fug_phase_comp_eq(b, p, j, pp):
-        # TODO does allowing a calculation with
-        # inherent reactions make sense here?
+        if (p, j) not in b.phase_component_set:
+            raise KeyError(f"Component {j} is not present in phase {p}.")
+        # Does allowing a calculation with inherent reactions make sense here?
         if b.params.has_inherent_reactions:
-            log_x = {j: b.log_mole_frac_phase_comp_true[p, j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_phase_comp_true[p, j]
+                for j in b.components_in_phase(p)
+            }
         else:
-            log_x = {j: b.log_mole_frac_phase_comp[p, j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_phase_comp[p, j] for j in b.components_in_phase(p)
+            }
         return _log_fug_phase_comp(b, p, j, log_x, b._teq[pp], b.pressure)
 
     @staticmethod
@@ -286,16 +305,19 @@ class Ideal(EoSBase):
     def log_fug_phase_comp_Tbub(b, p, j, pp):
         pobj = b.params.get_phase(p)
         if b.params.has_inherent_reactions:
-            raise NotImplementedError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations for systems with inherent "
                 "reactions are not supported at present."
             )
         if pobj.is_vapor_phase():
-            log_x = {j: b.log_mole_frac_tbub[pp[0], pp[1], j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_tbub[pp[0], pp[1], j]
+                for j in b.components_in_phase(p)
+            }
         elif pobj.is_liquid_phase():
             log_x = b.log_mole_frac_comp
         else:
-            raise ConfigurationError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations are supported only "
                 f"for liquid and vapor phases, but {p} is neither "
                 "a vapor nor a liquid phase."
@@ -306,16 +328,19 @@ class Ideal(EoSBase):
     def log_fug_phase_comp_Tdew(b, p, j, pp):
         pobj = b.params.get_phase(p)
         if b.params.has_inherent_reactions:
-            raise NotImplementedError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations for systems with inherent "
                 "reactions are not supported at present."
             )
         if pobj.is_vapor_phase():
             log_x = b.log_mole_frac_comp
         elif pobj.is_liquid_phase():
-            log_x = {j: b.log_mole_frac_tdew[pp[0], pp[1], j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_tdew[pp[0], pp[1], j]
+                for j in b.components_in_phase(p)
+            }
         else:
-            raise ConfigurationError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations are supported only "
                 f"for liquid and vapor phases, but {p} is neither "
                 "a vapor nor a liquid phase."
@@ -326,16 +351,19 @@ class Ideal(EoSBase):
     def log_fug_phase_comp_Pbub(b, p, j, pp):
         pobj = b.params.get_phase(p)
         if b.params.has_inherent_reactions:
-            raise NotImplementedError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations for systems with inherent "
                 "reactions are not supported at present."
             )
         if pobj.is_vapor_phase():
-            log_x = {j: b.log_mole_frac_pbub[pp[0], pp[1], j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_pbub[pp[0], pp[1], j]
+                for j in b.components_in_phase(p)
+            }
         elif pobj.is_liquid_phase():
             log_x = b.log_mole_frac_comp
         else:
-            raise ConfigurationError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations are supported only "
                 f"for liquid and vapor phases, but {p} is neither "
                 "a vapor nor a liquid phase."
@@ -347,16 +375,19 @@ class Ideal(EoSBase):
     def log_fug_phase_comp_Pdew(b, p, j, pp):
         pobj = b.params.get_phase(p)
         if b.params.has_inherent_reactions:
-            raise NotImplementedError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations for systems with inherent "
                 "reactions are not supported at present."
             )
         if pobj.is_vapor_phase():
             log_x = b.log_mole_frac_comp
         elif pobj.is_liquid_phase():
-            log_x = {j: b.log_mole_frac_pdew[pp[0], pp[1], j] for j in b.component_list}
+            log_x = {
+                j: b.log_mole_frac_pdew[pp[0], pp[1], j]
+                for j in b.components_in_phase(p)
+            }
         else:
-            raise ConfigurationError(
+            raise PropertyNotSupportedError(
                 "Bubble/dew calculations are supported only "
                 f"for liquid and vapor phases, but {p} is neither "
                 "a vapor nor a liquid phase."
@@ -420,7 +451,7 @@ class Ideal(EoSBase):
 def _invalid_phase_msg(name, phase):
     return (
         "{} received unrecognised phase name {}. Ideal property "
-        "library only supports Vap and Liq phases.".format(name, phase)
+        "library supports Solid, Liquid, and Vapor phases.".format(name, phase)
     )
 
 
@@ -459,9 +490,15 @@ def _log_fug_phase_comp(b, p, j, log_x, T, P):
             and p in cobj(b, j).config.henry_component
         ):
             # Use Henry's Law
-            raise NotImplementedError(
-                "VLE is not supported for Henry's Law components at present."
-            )
+            if P is b.pressure and log_x[j] is b.log_mole_frac_phase_comp[p, j]:
+                return log_henry_pressure(b, p, j, T)
+            else:
+                # There is no API for evaluating Henry's law relationships
+                # at concentrations other than mole_frac_phase_comp.
+                # We therefore do not support the bubble/dew methods.
+                raise PropertyNotSupportedError(
+                    "Bubble/dew properties are not supported for Henry's Law components at present."
+                )
         elif cobj(b, j).config.has_vapor_pressure:
             # Use Raoult's Law
             return log_x[j] + (
@@ -472,4 +509,8 @@ def _log_fug_phase_comp(b, p, j, log_x, T, P):
         else:
             return Expression.Skip
     else:
-        raise PropertyNotSupportedError(_invalid_phase_msg(b.name, p))
+        raise PropertyNotSupportedError(
+            "Bubble/dew calculations are supported only "
+            f"for liquid and vapor phases, but {p} is neither "
+            "a vapor nor a liquid phase."
+        )
